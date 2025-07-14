@@ -2,7 +2,9 @@ package libdplyr
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/alecthomas/participle/v2"
 	"github.com/mrchypark/libdplyr/internal/ast"
 	"github.com/mrchypark/libdplyr/internal/parser"
 	"github.com/mrchypark/libdplyr/internal/renderer"
@@ -30,29 +32,71 @@ func Transpile(dplyrQuery string, opts *Options) (string, error) {
 	}
 	parsedProgram, err := p.Parse(dplyrQuery)
 	if err != nil {
+		if pErr, ok := err.(participle.Error);
+			ok {
+			return "", fmt.Errorf("parsing error at %s:%d:%d: %w", pErr.Position().Filename, pErr.Position().Line, pErr.Position().Column, pErr)
+		}
 		return "", fmt.Errorf("parsing error: %w", err)
 	}
 
-	// Convert parser's DplyrProgram to ast.Node
-	var astNode ast.Node
-	var tableName string
+	// Convert parser's DplyrProgram to ast.Pipeline
+	pipelineAST := parsedProgram.Pipeline.ToAST()
 
-	// Expecting a direct SelectClause from the simplified parser
-	if parsedProgram.Select != nil {
-		astNode = parsedProgram.Select.ToAST()
-		if opts.TableName == "" {
-			return "", fmt.Errorf("table name must be provided in options for direct select statements")
-		}
-		tableName = opts.TableName
-	} else {
-		return "", fmt.Errorf("unsupported dplyr program structure: expected a direct select statement")
-	}
+	// Extract table name from pipeline
+	tableName := pipelineAST.Table.Name
 
-	// 2. 렌더링: AST -> SQL
-	sql, err := renderer.Render(astNode, opts.Target, tableName)
+	// Create a renderer for the target dialect
+	rendererInstance, err := renderer.NewRenderer(opts.Target)
 	if err != nil {
-		return "", fmt.Errorf("rendering error: %w", err)
+		return "", fmt.Errorf("renderer initialization error: %w", err)
 	}
 
-	return sql, nil
+	// Build the SQL query step by step
+	var sqlParts []string
+	var selectClauseRendered bool
+
+	for _, step := range pipelineAST.Steps {
+		switch s := step.(type) {
+		case *ast.SelectStmt:
+			sql, err := rendererInstance.Render(s, tableName)
+			if err != nil {
+				return "", fmt.Errorf("rendering select statement error: %w", err)
+			}
+			sqlParts = append(sqlParts, sql)
+			selectClauseRendered = true
+		case *ast.FilterStmt:
+			sql, err := rendererInstance.Render(s, "") // Table name not needed for WHERE clause
+			if err != nil {
+				return "", fmt.Errorf("rendering filter statement error: %w", err)
+			}
+			sqlParts = append(sqlParts, sql)
+		case *ast.ArrangeStmt:
+			sql, err := rendererInstance.Render(s, "") // Table name not needed for ORDER BY clause
+			if err != nil {
+				return "", fmt.Errorf("rendering arrange statement error: %w", err)
+			}
+			sqlParts = append(sqlParts, sql)
+		case *ast.GroupByStmt:
+			sql, err := rendererInstance.Render(s, "") // Table name not needed for GROUP BY clause
+			if err != nil {
+				return "", fmt.Errorf("rendering group by statement error: %w", err)
+			}
+			sqlParts = append(sqlParts, sql)
+		case *ast.SummariseStmt:
+			sql, err := rendererInstance.Render(s, "") // Table name not needed for SUMMARISE clause
+			if err != nil {
+				return "", fmt.Errorf("rendering summarise statement error: %w", err)
+			}
+			sqlParts = append(sqlParts, sql)
+		default:
+			return "", fmt.Errorf("unsupported AST statement type: %T", s)
+		}
+	}
+
+	// If no select clause was rendered, default to SELECT *
+	if !selectClauseRendered {
+		sqlParts = append([]string{fmt.Sprintf("SELECT * FROM %s", tableName)}, sqlParts...)
+	}
+
+	return strings.Join(sqlParts, " "), nil
 }
