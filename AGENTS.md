@@ -62,12 +62,24 @@ When approaching a new feature:
 Follow this process precisely, always prioritizing clean, well-tested code over quick implementation.
 Always write one test at a time, make it run, then improve structure. Always run all the tests (except long-running tests) each time.
 
-# Go-specific
-- Write explicit code; avoid magic.
-- Prefer small, single-purpose interfaces.
-- Organize code into distinct packages by functionality.
-- Preper Communicate via channels not Mutex; do not share memory to communicate.
-- Manage the lifecycle of every goroutine you start.
-- Treat errors as values to be handled.
-- Add context to your errors.
-- Run test with 30s timeout.
+# Rust-specific
+- Embrace the borrow checker; don't fight it.
+Design your code around ownership and lifetimes; they are features that prevent bugs.
+- Use Result for recoverable errors and panic! for unrecoverable ones.
+Treat errors as values and only panic when a program invariant is broken.
+- Make invalid states unrepresentable through the type system.
+Use Option, Result, and enums to turn potential runtime errors into compile-time errors.
+- Use zero-cost abstractions aggressively.
+Iterators, closures, and async/await let you write high-level, expressive code without a performance penalty.
+- Define shared behavior with traits; define data with structs.
+Create flexible and composable designs by clearly separating interfaces from data structures.
+- Minimize unsafe and always wrap it in a safe API.
+An unsafe block must justify its existence, and only its safe abstraction should be exposed to users.
+- Trust and apply Clippy's lints.
+Clippy is more than a linter; it's a mentor that teaches idiomatic Rust conventions.
+- Always include documentation and tests for public APIs.
+Use cargo doc and cargo test to make it easy for others to use and contribute to your code.
+- Choose the right tool for concurrency (channels, Mutex, async).
+Instead of sticking to one model, use the safest and most appropriate concurrency abstraction for the problem.
+- Set clear boundaries with crates and modules.
+Enforce encapsulation and manage dependencies by separating the public API from the internal implementation.
