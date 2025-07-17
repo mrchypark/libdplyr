@@ -16,6 +16,9 @@ clap = { version = "4.0", features = ["derive"] }
 # Dependencies for error handling
 thiserror = "1.0"
 
+# Dependencies for static initialization
+lazy_static = "1.4"
+
 # Optional serialization support
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
@@ -37,6 +40,10 @@ path = "src/main.rs"
 
 [[bench]]
 name = "transpile_benchmark"
+harness = false
+
+[[bench]]
+name = "performance_analysis"
 harness = false
 
 [lib]

@@ -4,6 +4,8 @@ inclusion: always
 
 # 코드 품질 및 유지보수성 가이드라인
 
+- code first and import with ide and check correct
+
 ## 코드 스타일 표준
 
 ### Rust 관례 준수
