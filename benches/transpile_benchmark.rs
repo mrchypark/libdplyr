@@ -153,9 +153,9 @@ fn benchmark_input_sizes(c: &mut Criterion) {
 /// Throughput-based benchmarks measuring operations per second
 fn benchmark_throughput(c: &mut Criterion) {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect));
-    
+
     let mut group = c.benchmark_group("throughput");
-    
+
     // Simple queries throughput
     let simple_queries = vec![
         "select(name)",
@@ -166,7 +166,7 @@ fn benchmark_throughput(c: &mut Criterion) {
         "arrange(age)",
         "arrange(desc(name))",
     ];
-    
+
     group.throughput(Throughput::Elements(simple_queries.len() as u64));
     group.bench_function("simple_queries_batch", |b| {
         b.iter(|| {
@@ -175,14 +175,14 @@ fn benchmark_throughput(c: &mut Criterion) {
             }
         })
     });
-    
+
     // Complex queries throughput
     let complex_queries = vec![
         "select(name, age) %>% filter(age > 18) %>% arrange(desc(age))",
         "select(category, salary) %>% filter(salary > 50000) %>% group_by(category) %>% summarise(avg_sal = mean(salary))",
         "select(name, age, dept) %>% mutate(age_group = age / 10) %>% filter(age_group > 2)",
     ];
-    
+
     group.throughput(Throughput::Elements(complex_queries.len() as u64));
     group.bench_function("complex_queries_batch", |b| {
         b.iter(|| {
@@ -191,16 +191,16 @@ fn benchmark_throughput(c: &mut Criterion) {
             }
         })
     });
-    
+
     group.finish();
 }
 
 /// Memory allocation patterns and efficiency
 fn benchmark_memory_patterns(c: &mut Criterion) {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect));
-    
+
     let mut group = c.benchmark_group("memory_patterns");
-    
+
     // Test repeated parsing of the same query (should be efficient)
     let repeated_query = "select(name, age) %>% filter(age > 18)";
     group.bench_function("repeated_same_query", |b| {
@@ -210,12 +210,12 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
             }
         })
     });
-    
+
     // Test parsing many different small queries
     let small_queries: Vec<String> = (0..50)
         .map(|i| format!("select(col_{}) %>% filter(col_{} > {})", i, i, i * 10))
         .collect();
-    
+
     group.bench_function("many_small_queries", |b| {
         b.iter(|| {
             for query in &small_queries {
@@ -223,37 +223,37 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
             }
         })
     });
-    
+
     // Test very large single query
     let large_columns: Vec<String> = (0..100).map(|i| format!("col_{}", i)).collect();
     let large_query = format!("select({})", large_columns.join(", "));
-    
+
     group.bench_function("single_large_query", |b| {
         b.iter(|| transpiler.transpile(black_box(large_query.as_str())))
     });
-    
+
     group.finish();
 }
 
 /// Stress testing with edge cases and extreme inputs
 fn benchmark_stress_tests(c: &mut Criterion) {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect));
-    
+
     let mut group = c.benchmark_group("stress_tests");
-    
+
     // Deep nesting test
     let deep_nested = "select(a) %>% filter(a > 1) %>% filter(a < 100) %>% filter(a != 50) %>% filter(a % 2 == 0) %>% arrange(a)";
     group.bench_function("deep_nesting", |b| {
         b.iter(|| transpiler.transpile(black_box(deep_nested)))
     });
-    
+
     // Wide operations test (many columns)
     let wide_columns: Vec<String> = (0..50).map(|i| format!("column_{}", i)).collect();
     let wide_select = format!("select({})", wide_columns.join(", "));
     group.bench_function("wide_operations", |b| {
         b.iter(|| transpiler.transpile(black_box(wide_select.as_str())))
     });
-    
+
     // Complex expressions test
     let complex_expr = r#"
         select(name, age, salary) %>%
@@ -268,37 +268,32 @@ fn benchmark_stress_tests(c: &mut Criterion) {
     group.bench_function("complex_expressions", |b| {
         b.iter(|| transpiler.transpile(black_box(complex_expr)))
     });
-    
+
     group.finish();
 }
 
 /// Lexer-specific performance tests
 fn benchmark_lexer_performance(c: &mut Criterion) {
     use libdplyr::Lexer;
-    
+
     let mut group = c.benchmark_group("lexer_performance");
-    
+
     // Simple tokenization
     let simple_input = "select(name, age) %>% filter(age > 18)";
     group.bench_function("simple_tokenization", |b| {
         b.iter(|| {
             let mut lexer = Lexer::new(black_box(simple_input.to_string()));
             let mut tokens = Vec::new();
-            loop {
-                match lexer.next_token() {
-                    Ok(token) => {
-                        if matches!(token, libdplyr::Token::EOF) {
-                            break;
-                        }
-                        tokens.push(token);
-                    }
-                    Err(_) => break,
+            while let Ok(token) = lexer.next_token() {
+                if matches!(token, libdplyr::Token::EOF) {
+                    break;
                 }
+                tokens.push(token);
             }
             std_black_box(tokens);
         })
     });
-    
+
     // Complex tokenization with many operators
     let complex_input = r#"
         select(name, age, salary, department) %>%
@@ -313,74 +308,75 @@ fn benchmark_lexer_performance(c: &mut Criterion) {
         b.iter(|| {
             let mut lexer = Lexer::new(black_box(complex_input.to_string()));
             let mut tokens = Vec::new();
-            loop {
-                match lexer.next_token() {
-                    Ok(token) => {
-                        if matches!(token, libdplyr::Token::EOF) {
-                            break;
-                        }
-                        tokens.push(token);
-                    }
-                    Err(_) => break,
+            while let Ok(token) = lexer.next_token() {
+                if matches!(token, libdplyr::Token::EOF) {
+                    break;
                 }
+                tokens.push(token);
             }
             std_black_box(tokens);
         })
     });
-    
+
     group.finish();
 }
 
 /// SQL generation performance tests
 fn benchmark_sql_generation(c: &mut Criterion) {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect));
-    
+
     let mut group = c.benchmark_group("sql_generation");
-    
+
     // Pre-parse ASTs for generation-only benchmarks
-    let simple_ast = transpiler.parse_dplyr("select(name, age) %>% filter(age > 18)").unwrap();
-    let complex_ast = transpiler.parse_dplyr(r#"
+    let simple_ast = transpiler
+        .parse_dplyr("select(name, age) %>% filter(age > 18)")
+        .unwrap();
+    let complex_ast = transpiler
+        .parse_dplyr(
+            r#"
         select(name, age, category, salary) %>%
         filter(age > 18 & salary > 50000) %>%
         mutate(age_group = age / 10) %>%
         group_by(category, age_group) %>%
         summarise(avg_salary = mean(salary), count = n()) %>%
         arrange(desc(avg_salary))
-    "#).unwrap();
-    
+    "#,
+        )
+        .unwrap();
+
     group.bench_function("simple_sql_generation", |b| {
         b.iter(|| transpiler.generate_sql(black_box(&simple_ast)))
     });
-    
+
     group.bench_function("complex_sql_generation", |b| {
         b.iter(|| transpiler.generate_sql(black_box(&complex_ast)))
     });
-    
+
     // Test different dialects on the same AST
     let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect));
     let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect));
-    
+
     group.bench_function("postgresql_generation", |b| {
         b.iter(|| transpiler.generate_sql(black_box(&complex_ast)))
     });
-    
+
     group.bench_function("mysql_generation", |b| {
         b.iter(|| mysql_transpiler.generate_sql(black_box(&complex_ast)))
     });
-    
+
     group.bench_function("sqlite_generation", |b| {
         b.iter(|| sqlite_transpiler.generate_sql(black_box(&complex_ast)))
     });
-    
+
     group.finish();
 }
 
 /// Regression tests to catch performance degradation
 fn benchmark_regression_tests(c: &mut Criterion) {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect));
-    
+
     let mut group = c.benchmark_group("regression_tests");
-    
+
     // Baseline performance targets (these should not regress significantly)
     let baseline_queries = vec![
         ("simple_select", "select(name, age)"),
@@ -389,15 +385,16 @@ fn benchmark_regression_tests(c: &mut Criterion) {
         ("simple_arrange", "arrange(desc(age))"),
         ("simple_group_by", "group_by(category)"),
         ("simple_summarise", "summarise(avg_age = mean(age))"),
-        ("basic_pipeline", "select(name, age) %>% filter(age > 18) %>% arrange(desc(age))"),
+        (
+            "basic_pipeline",
+            "select(name, age) %>% filter(age > 18) %>% arrange(desc(age))",
+        ),
     ];
-    
+
     for (name, query) in baseline_queries {
-        group.bench_function(name, |b| {
-            b.iter(|| transpiler.transpile(black_box(query)))
-        });
+        group.bench_function(name, |b| b.iter(|| transpiler.transpile(black_box(query))));
     }
-    
+
     group.finish();
 }
 

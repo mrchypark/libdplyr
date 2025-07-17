@@ -247,7 +247,7 @@
 //!
 //! ## Contributing
 //!
-//! We welcome contributions! Please see our [GitHub repository](https://github.com/libdplyr/libdplyr) 
+//! We welcome contributions! Please see our [GitHub repository](https://github.com/libdplyr/libdplyr)
 //! for contribution guidelines.
 //!
 //! ## License
@@ -267,9 +267,12 @@ pub mod cli;
 pub use crate::error::{GenerationError, LexError, ParseError, TranspileError};
 pub use crate::lexer::{Lexer, Token};
 pub use crate::parser::{DplyrNode, DplyrOperation, Parser};
-pub use crate::performance::{BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector};
+pub use crate::performance::{
+    BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
+};
 pub use crate::sql_generator::{
-    DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator, SqliteDialect,
+    DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator,
+    SqliteDialect,
 };
 
 /// Main transpiler struct for converting dplyr code to SQL
@@ -489,10 +492,10 @@ mod tests {
     fn test_transpile_simple_select() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "select(name, age)";
-        
+
         let result = transpiler.transpile(dplyr_code);
         assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("\"name\""));
@@ -503,10 +506,10 @@ mod tests {
     fn test_transpile_with_filter() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "select(name, age) %>% filter(age > 18)";
-        
+
         let result = transpiler.transpile(dplyr_code);
         assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("WHERE"));
@@ -521,10 +524,10 @@ mod tests {
             filter(age >= 18) %>%
             arrange(desc(salary))
         "#;
-        
+
         let result = transpiler.transpile(dplyr_code);
         assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("WHERE"));
@@ -536,10 +539,10 @@ mod tests {
     fn test_transpile_with_mutate() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "select(name, salary) %>% mutate(bonus = salary * 0.1)";
-        
+
         let result = transpiler.transpile(dplyr_code);
         assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("\"bonus\""));
@@ -549,10 +552,10 @@ mod tests {
     fn test_transpile_with_group_by_and_summarise() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "group_by(department) %>% summarise(avg_salary = mean(salary))";
-        
+
         let result = transpiler.transpile(dplyr_code);
         assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("GROUP BY"));
@@ -563,10 +566,10 @@ mod tests {
     fn test_parse_dplyr_individual_function() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "select(name, age)";
-        
+
         let result = transpiler.parse_dplyr(dplyr_code);
         assert!(result.is_ok(), "파싱이 성공해야 합니다: {:?}", result);
-        
+
         let ast = result.unwrap();
         assert!(ast.is_pipeline());
     }
@@ -575,14 +578,14 @@ mod tests {
     fn test_generate_sql_from_ast() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "select(name, age)";
-        
+
         // First parse to get AST
         let ast = transpiler.parse_dplyr(dplyr_code).unwrap();
-        
+
         // Then generate SQL from AST
         let result = transpiler.generate_sql(&ast);
         assert!(result.is_ok(), "SQL 생성이 성공해야 합니다: {:?}", result);
-        
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("\"name\""));
@@ -592,13 +595,13 @@ mod tests {
     #[test]
     fn test_transpile_error_handling() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         // Test invalid syntax
         let result = transpiler.transpile("invalid_function(test)");
         assert!(result.is_err(), "잘못된 문법은 오류를 반환해야 합니다");
-        
+
         match result.unwrap_err() {
-            TranspileError::ParseError(_) => {}, // 예상된 에러 타입
+            TranspileError::ParseError(_) => {} // 예상된 에러 타입
             other => panic!("예상치 못한 에러 타입: {:?}", other),
         }
     }
@@ -606,10 +609,22 @@ mod tests {
     #[test]
     fn test_transpile_different_dialects() {
         let test_cases = vec![
-            ("PostgreSQL", Box::new(PostgreSqlDialect::new()) as Box<dyn SqlDialect>),
-            ("MySQL", Box::new(MySqlDialect::new()) as Box<dyn SqlDialect>),
-            ("SQLite", Box::new(SqliteDialect::new()) as Box<dyn SqlDialect>),
-            ("DuckDB", Box::new(DuckDbDialect::new()) as Box<dyn SqlDialect>),
+            (
+                "PostgreSQL",
+                Box::new(PostgreSqlDialect::new()) as Box<dyn SqlDialect>,
+            ),
+            (
+                "MySQL",
+                Box::new(MySqlDialect::new()) as Box<dyn SqlDialect>,
+            ),
+            (
+                "SQLite",
+                Box::new(SqliteDialect::new()) as Box<dyn SqlDialect>,
+            ),
+            (
+                "DuckDB",
+                Box::new(DuckDbDialect::new()) as Box<dyn SqlDialect>,
+            ),
         ];
 
         let dplyr_code = "select(name, age) %>% filter(age > 18)";
@@ -617,19 +632,32 @@ mod tests {
         for (dialect_name, dialect) in test_cases {
             let transpiler = Transpiler::new(dialect);
             let result = transpiler.transpile(dplyr_code);
-            
-            assert!(result.is_ok(), "{} 방언에서 변환이 성공해야 합니다: {:?}", dialect_name, result);
-            
+
+            assert!(
+                result.is_ok(),
+                "{} 방언에서 변환이 성공해야 합니다: {:?}",
+                dialect_name,
+                result
+            );
+
             let sql = result.unwrap();
-            assert!(sql.contains("SELECT"), "{} 방언 결과에 SELECT가 포함되어야 합니다", dialect_name);
-            assert!(sql.contains("WHERE"), "{} 방언 결과에 WHERE가 포함되어야 합니다", dialect_name);
+            assert!(
+                sql.contains("SELECT"),
+                "{} 방언 결과에 SELECT가 포함되어야 합니다",
+                dialect_name
+            );
+            assert!(
+                sql.contains("WHERE"),
+                "{} 방언 결과에 WHERE가 포함되어야 합니다",
+                dialect_name
+            );
         }
     }
 
     #[test]
     fn test_transpile_empty_input() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let result = transpiler.transpile("");
         assert!(result.is_err(), "빈 입력은 오류를 반환해야 합니다");
     }
@@ -637,7 +665,7 @@ mod tests {
     #[test]
     fn test_transpile_whitespace_only() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let result = transpiler.transpile("   \t  \n  ");
         assert!(result.is_err(), "공백만 있는 입력은 오류를 반환해야 합니다");
     }
@@ -645,12 +673,12 @@ mod tests {
     #[test]
     fn test_transpile_result_types() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         // Test successful case returns String
         let success_result = transpiler.transpile("select(name)");
         assert!(success_result.is_ok());
         let _sql: String = success_result.unwrap();
-        
+
         // Test error case returns TranspileError - use clearly invalid syntax
         let error_result = transpiler.transpile("@#$%invalid");
         assert!(error_result.is_err());

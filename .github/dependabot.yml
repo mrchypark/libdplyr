@@ -1,0 +1,110 @@
+# Dependabot configuration for automated dependency management
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Rust/Cargo dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "maintainers"
+    assignees:
+      - "maintainers"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "automated"
+    # Group related updates together
+    groups:
+      # Group all patch updates together
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      # Group development dependencies
+      dev-dependencies:
+        patterns:
+          - "*"
+        dependency-type: "development"
+      # Group security updates (high priority)
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+    # Ignore specific dependencies if needed
+    ignore:
+      # Example: ignore major version updates for specific crates
+      # - dependency-name: "serde"
+      #   update-types: ["version-update:semver-major"]
+      
+      # Ignore pre-release versions
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+        versions: [">= 1.0.0-alpha", "< 1.0.0"]
+    
+    # Allow automatic security updates
+    allow:
+      - dependency-type: "all"
+    
+    # Rebase strategy for pull requests
+    rebase-strategy: "auto"
+    
+    # Target branch for pull requests
+    target-branch: "develop"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "10:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "maintainers"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+    # Group all GitHub Actions updates
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    target-branch: "develop"
+
+  # Docker dependencies (if using Docker)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "11:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "maintainers"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    target-branch: "develop"

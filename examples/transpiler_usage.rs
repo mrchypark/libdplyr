@@ -4,8 +4,8 @@
 //! including basic usage, error handling, and advanced features.
 
 use libdplyr::{
-    Transpiler, PostgreSqlDialect, MySqlDialect, SqliteDialect, DuckDbDialect,
-    TranspileError, DplyrNode, SqlDialect
+    DplyrNode, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect,
+    TranspileError, Transpiler,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,13 +13,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Basic usage examples
     basic_usage_examples()?;
-    
+
     // Error handling examples
     error_handling_examples()?;
-    
+
     // Advanced usage examples
     advanced_usage_examples()?;
-    
+
     // Performance comparison
     performance_comparison_examples()?;
 
@@ -37,7 +37,7 @@ fn basic_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
         filter(age >= 18 & salary > 50000) %>%
         arrange(desc(salary))
     "#;
-    
+
     println!("Input dplyr code:");
     println!("{}", dplyr_code.trim());
     println!();
@@ -47,19 +47,19 @@ fn basic_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let pg_sql = pg_transpiler.transpile(dplyr_code)?;
     println!("{}\n", pg_sql);
-    
+
     // MySQL example
     println!("🐬 MySQL:");
     let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
     let mysql_sql = mysql_transpiler.transpile(dplyr_code)?;
     println!("{}\n", mysql_sql);
-    
+
     // SQLite example
     println!("🪶 SQLite:");
     let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
     let sqlite_sql = sqlite_transpiler.transpile(dplyr_code)?;
     println!("{}\n", sqlite_sql);
-    
+
     // DuckDB example
     println!("🦆 DuckDB:");
     let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
@@ -89,7 +89,7 @@ fn error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
     for (description, code) in error_cases {
         println!("Testing: {}", description);
         println!("Input: '{}'", code);
-        
+
         match transpiler.transpile(code) {
             Ok(sql) => {
                 println!("✅ Unexpected success: {}", sql);
@@ -116,8 +116,8 @@ fn error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Shows how to properly handle errors in application code
 fn demonstrate_error_handling_pattern(
-    transpiler: &Transpiler, 
-    code: &str
+    transpiler: &Transpiler,
+    code: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match transpiler.transpile(code) {
         Ok(sql) => {
@@ -140,7 +140,7 @@ fn demonstrate_error_handling_pattern(
             eprintln!("   Hint: The operation might not be supported in the selected SQL dialect");
         }
     }
-    
+
     Ok(())
 }
 
@@ -155,11 +155,11 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     println!("1. Separate Parsing and SQL Generation:");
     let dplyr_code = "select(name, age) %>% filter(age > 18)";
     println!("   Input: {}", dplyr_code);
-    
+
     // Parse to AST
     let ast = transpiler.parse_dplyr(dplyr_code)?;
     println!("   ✅ Parsed to AST successfully");
-    
+
     // Generate SQL from AST
     let sql = transpiler.generate_sql(&ast)?;
     println!("   ✅ Generated SQL: {}\n", sql);
@@ -172,7 +172,7 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Complex aggregation with multiple operations
     println!("3. Complex Aggregation Pipeline:");
     let complex_code = "select(department, employee_id, salary, performance_score) %>% filter(performance_score >= 3.0) %>% group_by(department) %>% summarise(employee_count = n(), avg_salary = mean(salary), total_payroll = sum(salary), top_performer = max(performance_score)) %>% arrange(desc(total_payroll))";
-    
+
     println!("   Input: {}", complex_code);
     let complex_sql = transpiler.transpile(complex_code)?;
     println!("   Output: {}\n", complex_sql);
@@ -181,7 +181,7 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Window Functions (DuckDB):");
     let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
     let window_code = "select(employee_id, department, salary) %>% mutate(salary_rank = row_number(), dept_avg_salary = avg(salary)) %>% filter(salary_rank <= 3)";
-    
+
     println!("   Input: {}", window_code);
     let window_sql = duckdb_transpiler.transpile(window_code)?;
     println!("   Output: {}\n", window_sql);
@@ -192,11 +192,17 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
 /// Inspects and displays AST structure
 fn inspect_ast(ast: &DplyrNode) {
     match ast {
-        DplyrNode::Pipeline { operations, location } => {
+        DplyrNode::Pipeline {
+            operations,
+            location,
+        } => {
             println!("   AST Type: Pipeline");
-            println!("   Location: line {}, column {}", location.line, location.column);
+            println!(
+                "   Location: line {}, column {}",
+                location.line, location.column
+            );
             println!("   Operations: {} total", operations.len());
-            
+
             for (i, op) in operations.iter().enumerate() {
                 match op {
                     libdplyr::DplyrOperation::Select { columns, .. } => {
@@ -215,7 +221,11 @@ fn inspect_ast(ast: &DplyrNode) {
                         println!("     {}. GroupBy: {} columns", i + 1, columns.len());
                     }
                     libdplyr::DplyrOperation::Summarise { aggregations, .. } => {
-                        println!("     {}. Summarise: {} aggregations", i + 1, aggregations.len());
+                        println!(
+                            "     {}. Summarise: {} aggregations",
+                            i + 1,
+                            aggregations.len()
+                        );
                     }
                 }
             }
@@ -223,7 +233,10 @@ fn inspect_ast(ast: &DplyrNode) {
         DplyrNode::DataSource { name, location } => {
             println!("   AST Type: DataSource");
             println!("   Name: {}", name);
-            println!("   Location: line {}, column {}", location.line, location.column);
+            println!(
+                "   Location: line {}, column {}",
+                location.line, location.column
+            );
         }
     }
 }
@@ -248,15 +261,20 @@ fn performance_comparison_examples() -> Result<(), Box<dyn std::error::Error>> {
 
     for (name, dialect) in dialects {
         let transpiler = Transpiler::new(dialect);
-        
+
         // Simple timing (for demonstration - use proper benchmarking tools for real measurements)
         let start = std::time::Instant::now();
         let result = transpiler.transpile(test_query);
         let duration = start.elapsed();
-        
+
         match result {
             Ok(sql) => {
-                println!("✅ {}: {:?} (SQL length: {} chars)", name, duration, sql.len());
+                println!(
+                    "✅ {}: {:?} (SQL length: {} chars)",
+                    name,
+                    duration,
+                    sql.len()
+                );
             }
             Err(e) => {
                 println!("❌ {}: {:?} - Error: {}", name, duration, e);
@@ -277,7 +295,7 @@ mod tests {
     fn test_basic_transpilation() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let result = transpiler.transpile("select(name, age) %>% filter(age > 18)");
-        
+
         assert!(result.is_ok(), "Basic transpilation should succeed");
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -287,7 +305,7 @@ mod tests {
     #[test]
     fn test_error_handling() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         // Test various error conditions
         let error_cases = vec![
             "",
@@ -298,7 +316,11 @@ mod tests {
 
         for case in error_cases {
             let result = transpiler.transpile(case);
-            assert!(result.is_err(), "Invalid input '{}' should produce an error", case);
+            assert!(
+                result.is_err(),
+                "Invalid input '{}' should produce an error",
+                case
+            );
         }
     }
 
@@ -306,18 +328,18 @@ mod tests {
     fn test_separate_parse_and_generate() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let code = "select(name) %>% filter(age > 18)";
-        
+
         // Parse to AST
         let ast_result = transpiler.parse_dplyr(code);
         assert!(ast_result.is_ok(), "Parsing should succeed");
-        
+
         let ast = ast_result.unwrap();
         assert!(ast.is_pipeline(), "Should be a pipeline");
-        
+
         // Generate SQL from AST
         let sql_result = transpiler.generate_sql(&ast);
         assert!(sql_result.is_ok(), "SQL generation should succeed");
-        
+
         let sql = sql_result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("WHERE"));
@@ -353,8 +375,11 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(complex_query);
-        assert!(result.is_ok(), "Complex pipeline should transpile successfully");
-        
+        assert!(
+            result.is_ok(),
+            "Complex pipeline should transpile successfully"
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("WHERE"));

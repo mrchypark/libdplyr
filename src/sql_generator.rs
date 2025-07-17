@@ -4,8 +4,8 @@
 
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
-    DplyrNode, DplyrOperation, Expr, LiteralValue, BinaryOp,
-    ColumnExpr, OrderExpr, OrderDirection, Aggregation
+    Aggregation, BinaryOp, ColumnExpr, DplyrNode, DplyrOperation, Expr, LiteralValue,
+    OrderDirection, OrderExpr,
 };
 
 /// SQL dialect trait for database-specific SQL generation
@@ -59,7 +59,7 @@ pub trait SqlDialect {
     /// assert_eq!(mysql.quote_identifier("user"), "`user`");     // MySQL
     /// ```
     fn quote_identifier(&self, name: &str) -> String;
-    
+
     /// Quotes string literals according to the database's conventions.
     ///
     /// Handles proper escaping of quotes within string values.
@@ -72,7 +72,7 @@ pub trait SqlDialect {
     ///
     /// The properly quoted and escaped string literal
     fn quote_string(&self, value: &str) -> String;
-    
+
     /// Generates a LIMIT clause for the database.
     ///
     /// Most databases use `LIMIT n` syntax, but some variations exist.
@@ -85,7 +85,7 @@ pub trait SqlDialect {
     ///
     /// The LIMIT clause string
     fn limit_clause(&self, limit: usize) -> String;
-    
+
     /// Generates string concatenation operation.
     ///
     /// Different databases have different ways to concatenate strings:
@@ -101,7 +101,7 @@ pub trait SqlDialect {
     ///
     /// The concatenation expression
     fn string_concat(&self, left: &str, right: &str) -> String;
-    
+
     /// Maps dplyr aggregate function names to SQL equivalents.
     ///
     /// Converts R/dplyr function names to their SQL counterparts,
@@ -125,7 +125,7 @@ pub trait SqlDialect {
     /// assert_eq!(dialect.aggregate_function("n"), "COUNT(*)");
     /// ```
     fn aggregate_function(&self, function: &str) -> String;
-    
+
     /// Returns whether the database is case-sensitive for identifiers.
     ///
     /// This affects how identifiers are handled and compared.
@@ -134,7 +134,7 @@ pub trait SqlDialect {
     ///
     /// `true` if case-sensitive, `false` otherwise
     fn is_case_sensitive(&self) -> bool;
-    
+
     /// Creates a boxed clone of this dialect.
     ///
     /// Used internally for performance benchmarking and testing.
@@ -165,7 +165,7 @@ pub trait SqlDialect {
 ///
 /// let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 /// let sql = transpiler.transpile("select(name, age) %>% filter(age > 18)").unwrap();
-/// 
+///
 /// // Generated SQL:
 /// // SELECT "name", "age" FROM "data" WHERE "age" > 18
 /// ```
@@ -193,23 +193,29 @@ impl PostgreSqlDialect {
     }
 }
 
+impl Default for PostgreSqlDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SqlDialect for PostgreSqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
         format!("\"{}\"", name)
     }
-    
+
     fn quote_string(&self, value: &str) -> String {
         format!("'{}'", value.replace('\'', "''"))
     }
-    
+
     fn limit_clause(&self, limit: usize) -> String {
         format!("LIMIT {}", limit)
     }
-    
+
     fn string_concat(&self, left: &str, right: &str) -> String {
         format!("{} || {}", left, right)
     }
-    
+
     fn aggregate_function(&self, function: &str) -> String {
         match function.to_lowercase().as_str() {
             "mean" | "avg" => "AVG".to_string(),
@@ -221,11 +227,11 @@ impl SqlDialect for PostgreSqlDialect {
             _ => function.to_uppercase(),
         }
     }
-    
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
-    
+
     fn clone_box(&self) -> Box<dyn SqlDialect> {
         Box::new(self.clone())
     }
@@ -250,7 +256,7 @@ impl SqlDialect for PostgreSqlDialect {
 ///
 /// let transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
 /// let sql = transpiler.transpile("select(name, age) %>% filter(age > 18)").unwrap();
-/// 
+///
 /// // Generated SQL:
 /// // SELECT `name`, `age` FROM `data` WHERE `age` > 18
 /// ```
@@ -278,23 +284,29 @@ impl MySqlDialect {
     }
 }
 
+impl Default for MySqlDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SqlDialect for MySqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
         format!("`{}`", name)
     }
-    
+
     fn quote_string(&self, value: &str) -> String {
         format!("'{}'", value.replace('\'', "''"))
     }
-    
+
     fn limit_clause(&self, limit: usize) -> String {
         format!("LIMIT {}", limit)
     }
-    
+
     fn string_concat(&self, left: &str, right: &str) -> String {
         format!("CONCAT({}, {})", left, right)
     }
-    
+
     fn aggregate_function(&self, function: &str) -> String {
         match function.to_lowercase().as_str() {
             "mean" | "avg" => "AVG".to_string(),
@@ -306,11 +318,11 @@ impl SqlDialect for MySqlDialect {
             _ => function.to_uppercase(),
         }
     }
-    
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
-    
+
     fn clone_box(&self) -> Box<dyn SqlDialect> {
         Box::new(self.clone())
     }
@@ -337,7 +349,7 @@ impl SqlDialect for MySqlDialect {
 ///
 /// let transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
 /// let sql = transpiler.transpile("select(name, age) %>% filter(age > 18)").unwrap();
-/// 
+///
 /// // Generated SQL:
 /// // SELECT "name", "age" FROM "data" WHERE "age" > 18
 /// ```
@@ -365,6 +377,12 @@ impl SqliteDialect {
     }
 }
 
+impl Default for SqliteDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// DuckDB dialect implementation
 ///
 /// Implements SQL generation for DuckDB databases. DuckDB is PostgreSQL-compatible
@@ -385,7 +403,7 @@ impl SqliteDialect {
 ///
 /// let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
 /// let sql = transpiler.transpile("group_by(category) %>% summarise(median_price = median(price))").unwrap();
-/// 
+///
 /// // Generated SQL:
 /// // SELECT "category", MEDIAN("price") AS "median_price"
 /// // FROM "data"
@@ -416,23 +434,29 @@ impl DuckDbDialect {
     }
 }
 
+impl Default for DuckDbDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SqlDialect for DuckDbDialect {
     fn quote_identifier(&self, name: &str) -> String {
         format!("\"{}\"", name)
     }
-    
+
     fn quote_string(&self, value: &str) -> String {
         format!("'{}'", value.replace('\'', "''"))
     }
-    
+
     fn limit_clause(&self, limit: usize) -> String {
         format!("LIMIT {}", limit)
     }
-    
+
     fn string_concat(&self, left: &str, right: &str) -> String {
         format!("{} || {}", left, right)
     }
-    
+
     fn aggregate_function(&self, function: &str) -> String {
         match function.to_lowercase().as_str() {
             "mean" | "avg" => "AVG".to_string(),
@@ -442,15 +466,15 @@ impl SqlDialect for DuckDbDialect {
             "max" => "MAX".to_string(),
             "n" => "COUNT(*)".to_string(),
             "median" => "MEDIAN".to_string(), // DuckDB specific
-            "mode" => "MODE".to_string(), // DuckDB specific
+            "mode" => "MODE".to_string(),     // DuckDB specific
             _ => function.to_uppercase(),
         }
     }
-    
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
-    
+
     fn clone_box(&self) -> Box<dyn SqlDialect> {
         Box::new(self.clone())
     }
@@ -470,19 +494,19 @@ impl SqlDialect for SqliteDialect {
     fn quote_identifier(&self, name: &str) -> String {
         format!("\"{}\"", name)
     }
-    
+
     fn quote_string(&self, value: &str) -> String {
         format!("'{}'", value.replace('\'', "''"))
     }
-    
+
     fn limit_clause(&self, limit: usize) -> String {
         format!("LIMIT {}", limit)
     }
-    
+
     fn string_concat(&self, left: &str, right: &str) -> String {
         format!("{} || {}", left, right)
     }
-    
+
     fn aggregate_function(&self, function: &str) -> String {
         match function.to_lowercase().as_str() {
             "mean" | "avg" => "AVG".to_string(),
@@ -494,11 +518,11 @@ impl SqlDialect for SqliteDialect {
             _ => function.to_uppercase(),
         }
     }
-    
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
-    
+
     fn clone_box(&self) -> Box<dyn SqlDialect> {
         Box::new(self.clone())
     }
@@ -530,25 +554,24 @@ impl SqlGenerator {
     /// Returns SQL query string on success, GenerationError on failure.
     pub fn generate(&self, ast: &DplyrNode) -> GenerationResult<String> {
         match ast {
-            DplyrNode::Pipeline { operations, .. } => {
-                self.generate_pipeline(operations)
-            }
-            DplyrNode::DataSource { name, .. } => {
-                Ok(format!("SELECT * FROM {}", self.dialect.quote_identifier(name)))
-            }
+            DplyrNode::Pipeline { operations, .. } => self.generate_pipeline(operations),
+            DplyrNode::DataSource { name, .. } => Ok(format!(
+                "SELECT * FROM {}",
+                self.dialect.quote_identifier(name)
+            )),
         }
     }
 
     /// Converts pipeline to SQL.
     fn generate_pipeline(&self, operations: &[DplyrOperation]) -> GenerationResult<String> {
         if operations.is_empty() {
-            return Err(GenerationError::InvalidAst { 
-                reason: "Empty pipeline: at least one operation is required".to_string() 
+            return Err(GenerationError::InvalidAst {
+                reason: "Empty pipeline: at least one operation is required".to_string(),
             });
         }
 
         let mut query_parts = QueryParts::new();
-        
+
         // Process each operation in order
         for operation in operations {
             self.process_operation(operation, &mut query_parts)?;
@@ -559,7 +582,11 @@ impl SqlGenerator {
     }
 
     /// Processes individual operations.
-    fn process_operation(&self, operation: &DplyrOperation, query_parts: &mut QueryParts) -> GenerationResult<()> {
+    fn process_operation(
+        &self,
+        operation: &DplyrOperation,
+        query_parts: &mut QueryParts,
+    ) -> GenerationResult<()> {
         match operation {
             DplyrOperation::Select { columns, .. } => {
                 query_parts.select_columns = self.generate_select_columns(columns)?;
@@ -569,7 +596,9 @@ impl SqlGenerator {
                 if query_parts.where_clauses.is_empty() {
                     query_parts.where_clauses.push(where_clause);
                 } else {
-                    query_parts.where_clauses.push(format!("AND ({})", where_clause));
+                    query_parts
+                        .where_clauses
+                        .push(format!("AND ({})", where_clause));
                 }
             }
             DplyrOperation::Mutate { assignments, .. } => {
@@ -600,7 +629,11 @@ impl SqlGenerator {
             .map(|col| {
                 let expr_sql = self.generate_expression(&col.expr)?;
                 if let Some(alias) = &col.alias {
-                    Ok(format!("{} AS {}", expr_sql, self.dialect.quote_identifier(alias)))
+                    Ok(format!(
+                        "{} AS {}",
+                        expr_sql,
+                        self.dialect.quote_identifier(alias)
+                    ))
                 } else {
                     Ok(expr_sql)
                 }
@@ -617,10 +650,14 @@ impl SqlGenerator {
                     OrderDirection::Asc => "ASC",
                     OrderDirection::Desc => "DESC",
                 };
-                Ok(format!("{} {}", self.dialect.quote_identifier(&col.column), direction))
+                Ok(format!(
+                    "{} {}",
+                    self.dialect.quote_identifier(&col.column),
+                    direction
+                ))
             })
             .collect();
-        
+
         Ok(order_items?.join(", "))
     }
 
@@ -635,15 +672,19 @@ impl SqlGenerator {
                 } else {
                     self.dialect.quote_identifier(&agg.column)
                 };
-                
+
                 let expr = if column_ref.is_empty() {
                     func_name
                 } else {
                     format!("{}({})", func_name, column_ref)
                 };
-                
+
                 if let Some(alias) = &agg.alias {
-                    Ok(format!("{} AS {}", expr, self.dialect.quote_identifier(alias)))
+                    Ok(format!(
+                        "{} AS {}",
+                        expr,
+                        self.dialect.quote_identifier(alias)
+                    ))
                 } else {
                     Ok(expr)
                 }
@@ -654,13 +695,13 @@ impl SqlGenerator {
     /// Converts expressions to SQL.
     fn generate_expression(&self, expr: &Expr) -> GenerationResult<String> {
         match expr {
-            Expr::Identifier(name) => {
-                Ok(self.dialect.quote_identifier(name))
-            }
-            Expr::Literal(literal) => {
-                self.generate_literal(literal)
-            }
-            Expr::Binary { left, operator, right } => {
+            Expr::Identifier(name) => Ok(self.dialect.quote_identifier(name)),
+            Expr::Literal(literal) => self.generate_literal(literal),
+            Expr::Binary {
+                left,
+                operator,
+                right,
+            } => {
                 let left_sql = self.generate_expression(left)?;
                 let right_sql = self.generate_expression(right)?;
                 let op_sql = self.generate_binary_operator(operator);
@@ -682,7 +723,11 @@ impl SqlGenerator {
         match literal {
             LiteralValue::String(s) => Ok(self.dialect.quote_string(s)),
             LiteralValue::Number(n) => Ok(n.to_string()),
-            LiteralValue::Boolean(b) => Ok(if *b { "TRUE".to_string() } else { "FALSE".to_string() }),
+            LiteralValue::Boolean(b) => Ok(if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }),
             LiteralValue::Null => Ok("NULL".to_string()),
         }
     }
@@ -722,7 +767,7 @@ impl SqlGenerator {
     ) -> GenerationResult<()> {
         // Check if we need subqueries for complex expressions
         let needs_subquery = self.mutate_needs_subquery(assignments, query_parts);
-        
+
         if needs_subquery {
             // For complex cases, we'll use a simpler approach for now
             // TODO: Implement full subquery/CTE support in future iterations
@@ -743,7 +788,7 @@ impl SqlGenerator {
         // 1. There are existing aggregations (GROUP BY + HAVING)
         // 2. Mutate expressions reference other mutated columns
         // 3. Complex window functions are used
-        
+
         if !query_parts.group_by.is_empty() {
             return true;
         }
@@ -785,6 +830,7 @@ impl SqlGenerator {
     }
 
     /// Checks if expression references any of the given columns.
+    #[allow(clippy::only_used_in_recursion)]
     fn expression_references_columns(
         &self,
         expr: &Expr,
@@ -796,21 +842,30 @@ impl SqlGenerator {
                 self.expression_references_columns(left, columns)
                     || self.expression_references_columns(right, columns)
             }
-            Expr::Function { args, .. } => {
-                args.iter().any(|arg| self.expression_references_columns(arg, columns))
-            }
+            Expr::Function { args, .. } => args
+                .iter()
+                .any(|arg| self.expression_references_columns(arg, columns)),
             Expr::Literal(_) => false,
         }
     }
 
     /// Checks if expression is complex and might need special handling.
+    #[allow(clippy::only_used_in_recursion)]
     fn expression_is_complex(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Function { name, .. } => {
                 // Window functions or complex aggregations
-                matches!(name.to_lowercase().as_str(), 
-                    "row_number" | "rank" | "dense_rank" | "lag" | "lead" | 
-                    "first_value" | "last_value" | "nth_value")
+                matches!(
+                    name.to_lowercase().as_str(),
+                    "row_number"
+                        | "rank"
+                        | "dense_rank"
+                        | "lag"
+                        | "lead"
+                        | "first_value"
+                        | "last_value"
+                        | "nth_value"
+                )
             }
             Expr::Binary { left, right, .. } => {
                 self.expression_is_complex(left) || self.expression_is_complex(right)
@@ -835,10 +890,10 @@ impl SqlGenerator {
         assignments: &[crate::parser::Assignment],
     ) -> GenerationResult<String> {
         let mut outer_select = Vec::new();
-        
+
         // Add all existing columns (SELECT *)
         outer_select.push("*".to_string());
-        
+
         // Add mutated columns
         for assignment in assignments {
             let column_expr = format!(
@@ -867,21 +922,24 @@ impl SqlGenerator {
     /// # Returns
     ///
     /// Returns SQL for the nested pipeline
-    pub fn generate_nested_pipeline(&self, operations: &[DplyrOperation]) -> GenerationResult<String> {
+    pub fn generate_nested_pipeline(
+        &self,
+        operations: &[DplyrOperation],
+    ) -> GenerationResult<String> {
         // Process nested operations recursively
         let mut nested_parts = QueryParts::new();
-        
+
         for operation in operations {
             self.process_operation(operation, &mut nested_parts)?;
         }
-        
+
         self.assemble_query(&nested_parts)
     }
 
     /// Assembles the final SQL query.
     fn assemble_query(&self, parts: &QueryParts) -> GenerationResult<String> {
         let mut query = String::new();
-        
+
         // SELECT clause
         query.push_str("SELECT ");
         if parts.select_columns.is_empty() {
@@ -889,29 +947,29 @@ impl SqlGenerator {
         } else {
             query.push_str(&parts.select_columns.join(", "));
         }
-        
+
         // FROM clause (using default table name)
         query.push_str("\nFROM ");
         query.push_str(&self.dialect.quote_identifier("data"));
-        
+
         // WHERE clause
         if !parts.where_clauses.is_empty() {
             query.push_str("\nWHERE ");
             query.push_str(&parts.where_clauses.join(" "));
         }
-        
+
         // GROUP BY clause
         if !parts.group_by.is_empty() {
             query.push_str("\nGROUP BY ");
             query.push_str(&parts.group_by);
         }
-        
+
         // ORDER BY clause
         if !parts.order_by.is_empty() {
             query.push_str("\nORDER BY ");
             query.push_str(&parts.order_by);
         }
-        
+
         Ok(query)
     }
 }
@@ -934,7 +992,10 @@ impl QueryParts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::{DplyrNode, DplyrOperation, Expr, ColumnExpr, Assignment, SourceLocation, OrderExpr, OrderDirection, Aggregation};
+    use crate::parser::{
+        Aggregation, Assignment, ColumnExpr, DplyrNode, DplyrOperation, Expr, OrderDirection,
+        OrderExpr, SourceLocation,
+    };
 
     // Helper function to normalize SQL for comparison
     fn normalize_sql(sql: &str) -> String {
@@ -1007,7 +1068,10 @@ mod tests {
         fn test_postgresql_dialect_string_concat() {
             let dialect = PostgreSqlDialect::new();
             assert_eq!(dialect.string_concat("a", "b"), "a || b");
-            assert_eq!(dialect.string_concat("'hello'", "'world'"), "'hello' || 'world'");
+            assert_eq!(
+                dialect.string_concat("'hello'", "'world'"),
+                "'hello' || 'world'"
+            );
         }
 
         #[test]
@@ -1021,7 +1085,10 @@ mod tests {
         fn test_mysql_dialect_string_concat() {
             let dialect = MySqlDialect::new();
             assert_eq!(dialect.string_concat("a", "b"), "CONCAT(a, b)");
-            assert_eq!(dialect.string_concat("'hello'", "'world'"), "CONCAT('hello', 'world')");
+            assert_eq!(
+                dialect.string_concat("'hello'", "'world'"),
+                "CONCAT('hello', 'world')"
+            );
         }
 
         #[test]
@@ -1045,7 +1112,7 @@ mod tests {
             let pg_dialect = PostgreSqlDialect::new();
             let mysql_dialect = MySqlDialect::new();
             let sqlite_dialect = SqliteDialect::new();
-            
+
             assert_eq!(pg_dialect.limit_clause(10), "LIMIT 10");
             assert_eq!(mysql_dialect.limit_clause(5), "LIMIT 5");
             assert_eq!(sqlite_dialect.limit_clause(100), "LIMIT 100");
@@ -1057,7 +1124,7 @@ mod tests {
             let mysql_dialect = MySqlDialect::new();
             let sqlite_dialect = SqliteDialect::new();
             let duckdb_dialect = DuckDbDialect::new();
-            
+
             assert!(!pg_dialect.is_case_sensitive());
             assert!(!mysql_dialect.is_case_sensitive());
             assert!(!sqlite_dialect.is_case_sensitive());
@@ -1073,7 +1140,7 @@ mod tests {
         #[test]
         fn test_select_clause_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let columns = vec![
                 ColumnExpr {
                     expr: Expr::Identifier("name".to_string()),
@@ -1084,7 +1151,7 @@ mod tests {
                     alias: Some("user_age".to_string()),
                 },
             ];
-            
+
             let result = generator.generate_select_columns(&columns).unwrap();
             assert_eq!(result.len(), 2);
             assert_eq!(result[0], "\"name\"");
@@ -1094,13 +1161,13 @@ mod tests {
         #[test]
         fn test_where_clause_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let condition = Expr::Binary {
                 left: Box::new(Expr::Identifier("age".to_string())),
                 operator: BinaryOp::GreaterThanOrEqual,
                 right: Box::new(Expr::Literal(LiteralValue::Number(18.0))),
             };
-            
+
             let result = generator.generate_expression(&condition).unwrap();
             assert_eq!(result, "(\"age\" >= 18)");
         }
@@ -1108,7 +1175,7 @@ mod tests {
         #[test]
         fn test_order_by_clause_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let columns = vec![
                 OrderExpr {
                     column: "name".to_string(),
@@ -1119,7 +1186,7 @@ mod tests {
                     direction: OrderDirection::Desc,
                 },
             ];
-            
+
             let result = generator.generate_order_by(&columns).unwrap();
             assert_eq!(result, "\"name\" ASC, \"age\" DESC");
         }
@@ -1127,7 +1194,7 @@ mod tests {
         #[test]
         fn test_aggregation_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let aggregations = vec![
                 Aggregation {
                     function: "mean".to_string(),
@@ -1140,7 +1207,7 @@ mod tests {
                     alias: Some("count".to_string()),
                 },
             ];
-            
+
             let result = generator.generate_aggregations(&aggregations).unwrap();
             assert_eq!(result.len(), 2);
             assert_eq!(result[0], "AVG(\"salary\") AS \"avg_salary\"");
@@ -1150,7 +1217,7 @@ mod tests {
         #[test]
         fn test_complex_expression_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             // Test nested binary expressions: (age > 18) AND (status = 'active')
             let condition = Expr::Binary {
                 left: Box::new(Expr::Binary {
@@ -1165,7 +1232,7 @@ mod tests {
                     right: Box::new(Expr::Literal(LiteralValue::String("active".to_string()))),
                 }),
             };
-            
+
             let result = generator.generate_expression(&condition).unwrap();
             assert_eq!(result, "((\"age\" > 18) AND (\"status\" = 'active'))");
         }
@@ -1173,12 +1240,12 @@ mod tests {
         #[test]
         fn test_function_expression_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let function_expr = Expr::Function {
                 name: "upper".to_string(),
                 args: vec![Expr::Identifier("name".to_string())],
             };
-            
+
             let result = generator.generate_expression(&function_expr).unwrap();
             assert_eq!(result, "UPPER(\"name\")");
         }
@@ -1186,12 +1253,35 @@ mod tests {
         #[test]
         fn test_literal_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
-            assert_eq!(generator.generate_literal(&LiteralValue::String("test".to_string())).unwrap(), "'test'");
-            assert_eq!(generator.generate_literal(&LiteralValue::Number(42.5)).unwrap(), "42.5");
-            assert_eq!(generator.generate_literal(&LiteralValue::Boolean(true)).unwrap(), "TRUE");
-            assert_eq!(generator.generate_literal(&LiteralValue::Boolean(false)).unwrap(), "FALSE");
-            assert_eq!(generator.generate_literal(&LiteralValue::Null).unwrap(), "NULL");
+
+            assert_eq!(
+                generator
+                    .generate_literal(&LiteralValue::String("test".to_string()))
+                    .unwrap(),
+                "'test'"
+            );
+            assert_eq!(
+                generator
+                    .generate_literal(&LiteralValue::Number(42.5))
+                    .unwrap(),
+                "42.5"
+            );
+            assert_eq!(
+                generator
+                    .generate_literal(&LiteralValue::Boolean(true))
+                    .unwrap(),
+                "TRUE"
+            );
+            assert_eq!(
+                generator
+                    .generate_literal(&LiteralValue::Boolean(false))
+                    .unwrap(),
+                "FALSE"
+            );
+            assert_eq!(
+                generator.generate_literal(&LiteralValue::Null).unwrap(),
+                "NULL"
+            );
         }
     }
 
@@ -1204,15 +1294,15 @@ mod tests {
         fn test_postgresql_vs_mysql_identifier_quoting() {
             let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
             let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
                 operations: vec![create_test_select_operation(vec!["name", "age"])],
                 location: SourceLocation::unknown(),
             };
-            
+
             let pg_sql = pg_generator.generate(&ast).unwrap();
             let mysql_sql = mysql_generator.generate(&ast).unwrap();
-            
+
             assert!(pg_sql.contains("\"name\""));
             assert!(pg_sql.contains("\"age\""));
             assert!(mysql_sql.contains("`name`"));
@@ -1223,7 +1313,7 @@ mod tests {
         fn test_string_concatenation_differences() {
             let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
             let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
-            
+
             let concat_expr = Expr::Function {
                 name: "concat".to_string(),
                 args: vec![
@@ -1232,10 +1322,10 @@ mod tests {
                     Expr::Identifier("last_name".to_string()),
                 ],
             };
-            
+
             let pg_result = pg_generator.generate_expression(&concat_expr).unwrap();
             let mysql_result = mysql_generator.generate_expression(&concat_expr).unwrap();
-            
+
             assert_eq!(pg_result, "CONCAT(\"first_name\", ' ', \"last_name\")");
             assert_eq!(mysql_result, "CONCAT(`first_name`, ' ', `last_name`)");
         }
@@ -1248,14 +1338,18 @@ mod tests {
                 Box::new(SqliteDialect::new()),
                 Box::new(DuckDbDialect::new()),
             ];
-            
+
             let common_functions = vec!["mean", "sum", "count", "min", "max", "n"];
-            
+
             for dialect in dialects {
                 for func in &common_functions {
                     let result = dialect.aggregate_function(func);
-                    assert!(!result.is_empty(), "Function {} should map to something", func);
-                    
+                    assert!(
+                        !result.is_empty(),
+                        "Function {} should map to something",
+                        func
+                    );
+
                     // Common mappings should be consistent
                     match *func {
                         "mean" => assert_eq!(result, "AVG"),
@@ -1273,7 +1367,7 @@ mod tests {
         #[test]
         fn test_duckdb_specific_functions() {
             let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
-            
+
             let aggregations = vec![
                 Aggregation {
                     function: "median".to_string(),
@@ -1286,8 +1380,10 @@ mod tests {
                     alias: None,
                 },
             ];
-            
-            let result = duckdb_generator.generate_aggregations(&aggregations).unwrap();
+
+            let result = duckdb_generator
+                .generate_aggregations(&aggregations)
+                .unwrap();
             assert_eq!(result[0], "MEDIAN(\"salary\")");
             assert_eq!(result[1], "MODE(\"category\")");
         }
@@ -1301,7 +1397,7 @@ mod tests {
         #[test]
         fn test_complete_pipeline_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
                 operations: vec![
                     create_test_select_operation(vec!["name", "age", "salary"]),
@@ -1316,10 +1412,10 @@ mod tests {
                 ],
                 location: SourceLocation::unknown(),
             };
-            
+
             let sql = generator.generate(&ast).unwrap();
             let normalized = normalize_sql(&sql);
-            
+
             assert!(normalized.contains("SELECT"));
             assert!(normalized.contains("\"NAME\""));
             assert!(normalized.contains("\"AGE\""));
@@ -1333,7 +1429,7 @@ mod tests {
         #[test]
         fn test_group_by_with_aggregation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
                 operations: vec![
                     DplyrOperation::GroupBy {
@@ -1358,10 +1454,10 @@ mod tests {
                 ],
                 location: SourceLocation::unknown(),
             };
-            
+
             let sql = generator.generate(&ast).unwrap();
             let normalized = normalize_sql(&sql);
-            
+
             assert!(normalized.contains("SELECT"));
             assert!(normalized.contains("AVG(\"SALARY\") AS \"AVG_SALARY\""));
             assert!(normalized.contains("COUNT(*) AS \"COUNT\""));
@@ -1372,7 +1468,7 @@ mod tests {
         #[test]
         fn test_multiple_filter_conditions() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
                 operations: vec![
                     create_test_select_operation(vec!["name"]),
@@ -1388,17 +1484,19 @@ mod tests {
                         condition: Expr::Binary {
                             left: Box::new(Expr::Identifier("status".to_string())),
                             operator: BinaryOp::Equal,
-                            right: Box::new(Expr::Literal(LiteralValue::String("active".to_string()))),
+                            right: Box::new(Expr::Literal(LiteralValue::String(
+                                "active".to_string(),
+                            ))),
                         },
                         location: SourceLocation::unknown(),
                     },
                 ],
                 location: SourceLocation::unknown(),
             };
-            
+
             let sql = generator.generate(&ast).unwrap();
             let normalized = normalize_sql(&sql);
-            
+
             assert!(normalized.contains("WHERE"));
             assert!(normalized.contains("\"AGE\" > 18"));
             assert!(normalized.contains("AND"));
@@ -1408,37 +1506,35 @@ mod tests {
         #[test]
         fn test_mutate_operation_integration() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
-                operations: vec![
-                    DplyrOperation::Mutate {
-                        assignments: vec![
-                            Assignment {
-                                column: "adult".to_string(),
-                                expr: Expr::Binary {
-                                    left: Box::new(Expr::Identifier("age".to_string())),
-                                    operator: BinaryOp::GreaterThanOrEqual,
-                                    right: Box::new(Expr::Literal(LiteralValue::Number(18.0))),
-                                },
+                operations: vec![DplyrOperation::Mutate {
+                    assignments: vec![
+                        Assignment {
+                            column: "adult".to_string(),
+                            expr: Expr::Binary {
+                                left: Box::new(Expr::Identifier("age".to_string())),
+                                operator: BinaryOp::GreaterThanOrEqual,
+                                right: Box::new(Expr::Literal(LiteralValue::Number(18.0))),
                             },
-                            Assignment {
-                                column: "salary_bonus".to_string(),
-                                expr: Expr::Binary {
-                                    left: Box::new(Expr::Identifier("salary".to_string())),
-                                    operator: BinaryOp::Multiply,
-                                    right: Box::new(Expr::Literal(LiteralValue::Number(1.1))),
-                                },
+                        },
+                        Assignment {
+                            column: "salary_bonus".to_string(),
+                            expr: Expr::Binary {
+                                left: Box::new(Expr::Identifier("salary".to_string())),
+                                operator: BinaryOp::Multiply,
+                                right: Box::new(Expr::Literal(LiteralValue::Number(1.1))),
                             },
-                        ],
-                        location: SourceLocation::unknown(),
-                    },
-                ],
+                        },
+                    ],
+                    location: SourceLocation::unknown(),
+                }],
                 location: SourceLocation::unknown(),
             };
-            
+
             let sql = generator.generate(&ast).unwrap();
             let normalized = normalize_sql(&sql);
-            
+
             assert!(normalized.contains("SELECT"));
             assert!(normalized.contains("\"AGE\" >= 18"));
             assert!(normalized.contains("AS \"ADULT\""));
@@ -1455,15 +1551,15 @@ mod tests {
         #[test]
         fn test_empty_pipeline_error() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::Pipeline {
                 operations: vec![],
                 location: SourceLocation::unknown(),
             };
-            
+
             let result = generator.generate(&ast);
             assert!(result.is_err());
-            
+
             match result.unwrap_err() {
                 GenerationError::InvalidAst { reason } => {
                     assert!(reason.contains("Empty pipeline"));
@@ -1475,7 +1571,7 @@ mod tests {
         #[test]
         fn test_invalid_expression_handling() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             // Test with deeply nested expressions that might cause issues
             let mut nested_expr = Expr::Identifier("base".to_string());
             for i in 0..100 {
@@ -1485,7 +1581,7 @@ mod tests {
                     right: Box::new(Expr::Literal(LiteralValue::Number(i as f64))),
                 };
             }
-            
+
             // This should not panic or cause stack overflow
             let result = generator.generate_expression(&nested_expr);
             assert!(result.is_ok(), "Should handle deeply nested expressions");
@@ -1494,12 +1590,12 @@ mod tests {
         #[test]
         fn test_data_source_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let ast = DplyrNode::DataSource {
                 name: "users".to_string(),
                 location: SourceLocation::unknown(),
             };
-            
+
             let sql = generator.generate(&ast).unwrap();
             assert_eq!(normalize_sql(&sql), "SELECT * FROM \"USERS\"");
         }
@@ -1507,7 +1603,7 @@ mod tests {
         #[test]
         fn test_binary_operator_coverage() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let operators = vec![
                 (BinaryOp::Equal, "="),
                 (BinaryOp::NotEqual, "!="),
@@ -1522,17 +1618,21 @@ mod tests {
                 (BinaryOp::Multiply, "*"),
                 (BinaryOp::Divide, "/"),
             ];
-            
+
             for (op, expected) in operators {
                 let result = generator.generate_binary_operator(&op);
-                assert_eq!(result, expected, "Operator {:?} should map to {}", op, expected);
+                assert_eq!(
+                    result, expected,
+                    "Operator {:?} should map to {}",
+                    op, expected
+                );
             }
         }
 
         #[test]
         fn test_special_characters_in_strings() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let test_strings = vec![
                 ("simple", "'simple'"),
                 ("it's", "'it''s'"),
@@ -1540,30 +1640,38 @@ mod tests {
                 ("line\nbreak", "'line\nbreak'"),
                 ("tab\there", "'tab\there'"),
             ];
-            
+
             for (input, expected) in test_strings {
                 let literal = LiteralValue::String(input.to_string());
                 let result = generator.generate_literal(&literal).unwrap();
-                assert_eq!(result, expected, "String '{}' should be quoted as {}", input, expected);
+                assert_eq!(
+                    result, expected,
+                    "String '{}' should be quoted as {}",
+                    input, expected
+                );
             }
         }
 
         #[test]
         fn test_edge_case_numbers() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            
+
             let test_numbers = vec![
                 (0.0, "0"),
                 (-1.0, "-1"),
-                (3.14159, "3.14159"),
+                (std::f64::consts::PI, "3.141592653589793"),
                 (1e6, "1000000"),
                 (1e-6, "0.000001"),
             ];
-            
+
             for (input, expected) in test_numbers {
                 let literal = LiteralValue::Number(input);
                 let result = generator.generate_literal(&literal).unwrap();
-                assert_eq!(result, expected, "Number {} should be formatted as {}", input, expected);
+                assert_eq!(
+                    result, expected,
+                    "Number {} should be formatted as {}",
+                    input, expected
+                );
             }
         }
     }
@@ -1603,20 +1711,18 @@ mod tests {
         #[test]
         fn test_mutate_with_window_functions() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-            let assignments = vec![
-                Assignment {
-                    column: "row_num".to_string(),
-                    expr: Expr::Function {
-                        name: "row_number".to_string(),
-                        args: vec![],
-                    },
+            let assignments = vec![Assignment {
+                column: "row_num".to_string(),
+                expr: Expr::Function {
+                    name: "row_number".to_string(),
+                    args: vec![],
                 },
-            ];
+            }];
 
             let query_parts = QueryParts::new();
             let is_complex = generator.expression_is_complex(&assignments[0].expr);
             assert!(is_complex, "Should detect window function as complex");
-            
+
             let needs_subquery = generator.mutate_needs_subquery(&assignments, &query_parts);
             assert!(needs_subquery, "Should need subquery for window functions");
         }
@@ -1625,19 +1731,21 @@ mod tests {
         fn test_mutate_subquery_generation() {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
             let base_query = "SELECT * FROM employees";
-            let assignments = vec![
-                Assignment {
-                    column: "bonus".to_string(),
-                    expr: Expr::Binary {
-                        left: Box::new(Expr::Identifier("salary".to_string())),
-                        operator: BinaryOp::Multiply,
-                        right: Box::new(Expr::Literal(LiteralValue::Number(0.1))),
-                    },
+            let assignments = vec![Assignment {
+                column: "bonus".to_string(),
+                expr: Expr::Binary {
+                    left: Box::new(Expr::Identifier("salary".to_string())),
+                    operator: BinaryOp::Multiply,
+                    right: Box::new(Expr::Literal(LiteralValue::Number(0.1))),
                 },
-            ];
+            }];
 
             let result = generator.generate_mutate_subquery(base_query, &assignments);
-            assert!(result.is_ok(), "Subquery generation should succeed: {:?}", result);
+            assert!(
+                result.is_ok(),
+                "Subquery generation should succeed: {:?}",
+                result
+            );
 
             let sql = result.unwrap();
             assert!(sql.contains("SELECT *, (\"salary\" * 0.1) AS \"bonus\""));
@@ -1659,24 +1767,26 @@ mod tests {
                     location: SourceLocation::unknown(),
                 },
                 DplyrOperation::Mutate {
-                    assignments: vec![
-                        Assignment {
-                            column: "category".to_string(),
-                            expr: Expr::Function {
-                                name: "case".to_string(),
-                                args: vec![
-                                    Expr::Identifier("score".to_string()),
-                                    Expr::Literal(LiteralValue::String("high".to_string())),
-                                ],
-                            },
+                    assignments: vec![Assignment {
+                        column: "category".to_string(),
+                        expr: Expr::Function {
+                            name: "case".to_string(),
+                            args: vec![
+                                Expr::Identifier("score".to_string()),
+                                Expr::Literal(LiteralValue::String("high".to_string())),
+                            ],
                         },
-                    ],
+                    }],
                     location: SourceLocation::unknown(),
                 },
             ];
 
             let result = generator.generate_nested_pipeline(&operations);
-            assert!(result.is_ok(), "Nested pipeline should succeed: {:?}", result);
+            assert!(
+                result.is_ok(),
+                "Nested pipeline should succeed: {:?}",
+                result
+            );
 
             let sql = result.unwrap();
             assert!(sql.contains("WHERE"));
@@ -1713,13 +1823,26 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             // Window functions should be detected as complex
-            let window_functions = vec!["row_number", "rank", "dense_rank", "lag", "lead", "first_value", "last_value", "nth_value"];
+            let window_functions = vec![
+                "row_number",
+                "rank",
+                "dense_rank",
+                "lag",
+                "lead",
+                "first_value",
+                "last_value",
+                "nth_value",
+            ];
             for func_name in window_functions {
                 let expr = Expr::Function {
                     name: func_name.to_string(),
                     args: vec![],
                 };
-                assert!(generator.expression_is_complex(&expr), "Function {} should be detected as complex", func_name);
+                assert!(
+                    generator.expression_is_complex(&expr),
+                    "Function {} should be detected as complex",
+                    func_name
+                );
             }
 
             // Regular functions should not be complex

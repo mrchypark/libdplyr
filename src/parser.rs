@@ -296,6 +296,7 @@ impl Parser {
     }
 
     /// Checks if the current token matches any of the expected tokens.
+    #[allow(dead_code)]
     fn match_token(&self, tokens: &[Token]) -> bool {
         tokens.iter().any(|token| {
             std::mem::discriminant(&self.current_token) == std::mem::discriminant(token)
@@ -311,12 +312,13 @@ impl Parser {
     }
 
     /// Checks if we've reached the end of input.
+    #[allow(dead_code)]
     fn is_at_end(&self) -> bool {
         self.current_token == Token::EOF
     }
 
     /// Parses a pipeline.
-    /// 
+    ///
     /// A pipeline can start with:
     /// 1. A data source identifier (e.g., "data %>% select(...)")
     /// 2. A dplyr operation directly (e.g., "select(...) %>% filter(...)")
@@ -339,27 +341,27 @@ impl Parser {
         if let Token::Identifier(name) = &self.current_token {
             let name = name.clone();
             self.advance()?;
-            
+
             // Skip newlines after identifier
             self.skip_newlines()?;
-            
+
             // If followed by pipe operator, this is a data source
             if self.current_token == Token::Pipe {
                 // This is a data source followed by operations
                 self.advance()?; // Skip %>%
                 self.skip_newlines()?; // Skip newlines after pipe
-                
+
                 // Parse the first operation after the data source
                 let first_operation = self.parse_operation()?;
                 operations.push(first_operation);
-                
+
                 // Parse additional operations connected by pipe operators
                 while self.current_token == Token::Pipe {
                     self.advance()?; // Skip %>%
                     self.skip_newlines()?; // Skip newlines after pipe
                     operations.push(self.parse_operation()?);
                 }
-                
+
                 return Ok(DplyrNode::Pipeline {
                     operations,
                     location: start_location,
@@ -572,18 +574,18 @@ impl Parser {
         // Check if this is an alias assignment (alias = expr)
         if let Token::Identifier(first_name) = &self.current_token {
             let first_name = first_name.clone();
-            
+
             // Advance past the identifier
             self.advance()?;
-            
+
             // Check if next token is assignment
             if self.current_token == Token::Assignment {
                 // This is an alias assignment: alias = expr
                 self.advance()?; // Skip =
                 let expr = self.parse_expression()?;
-                return Ok(ColumnExpr { 
-                    expr, 
-                    alias: Some(first_name) 
+                return Ok(ColumnExpr {
+                    expr,
+                    alias: Some(first_name),
                 });
             } else if self.current_token == Token::LeftParen {
                 // This is a function call, we need to backtrack and parse as expression
@@ -602,18 +604,21 @@ impl Parser {
                 }
 
                 self.expect_token(Token::RightParen)?;
-                let expr = Expr::Function { name: first_name, args };
+                let expr = Expr::Function {
+                    name: first_name,
+                    args,
+                };
                 return Ok(ColumnExpr { expr, alias: None });
             } else {
                 // Not an alias or function call, treat the identifier as a regular expression
                 // We already consumed the identifier, so create an Identifier expression
-                return Ok(ColumnExpr { 
-                    expr: Expr::Identifier(first_name), 
-                    alias: None 
+                return Ok(ColumnExpr {
+                    expr: Expr::Identifier(first_name),
+                    alias: None,
                 });
             }
         }
-        
+
         // Regular expression without alias (for non-identifier expressions)
         let expr = self.parse_expression()?;
         Ok(ColumnExpr { expr, alias: None })
@@ -1319,7 +1324,7 @@ mod tests {
     }
 
     // ===== select() 함수 파싱 테스트 =====
-    
+
     mod select_parsing_tests {
         use super::*;
 
@@ -1355,15 +1360,15 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 3);
-                    
+
                     // Check first column
                     assert_eq!(columns[0].expr, Expr::Identifier("name".to_string()));
                     assert_eq!(columns[0].alias, None);
-                    
+
                     // Check second column
                     assert_eq!(columns[1].expr, Expr::Identifier("age".to_string()));
                     assert_eq!(columns[1].alias, None);
-                    
+
                     // Check third column
                     assert_eq!(columns[2].expr, Expr::Identifier("salary".to_string()));
                     assert_eq!(columns[2].alias, None);
@@ -1386,11 +1391,11 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
-                    
+
                     // Check first column with alias
                     assert_eq!(columns[0].expr, Expr::Identifier("name".to_string()));
                     assert_eq!(columns[0].alias, Some("full_name".to_string()));
-                    
+
                     // Check second column with alias
                     assert_eq!(columns[1].expr, Expr::Identifier("age".to_string()));
                     assert_eq!(columns[1].alias, Some("years".to_string()));
@@ -1413,15 +1418,15 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 3);
-                    
+
                     // Check first column (no alias)
                     assert_eq!(columns[0].expr, Expr::Identifier("name".to_string()));
                     assert_eq!(columns[0].alias, None);
-                    
+
                     // Check second column (with alias)
                     assert_eq!(columns[1].expr, Expr::Identifier("first_name".to_string()));
                     assert_eq!(columns[1].alias, Some("full_name".to_string()));
-                    
+
                     // Check third column (no alias)
                     assert_eq!(columns[2].expr, Expr::Identifier("age".to_string()));
                     assert_eq!(columns[2].alias, None);
@@ -1444,7 +1449,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
-                    
+
                     // Check first column (function call)
                     if let Expr::Function { name, args } = &columns[0].expr {
                         assert_eq!(name, "upper");
@@ -1454,7 +1459,7 @@ mod tests {
                         panic!("Expected function call expression");
                     }
                     assert_eq!(columns[0].alias, None);
-                    
+
                     // Check second column (function call)
                     if let Expr::Function { name, args } = &columns[1].expr {
                         assert_eq!(name, "length");
@@ -1474,7 +1479,9 @@ mod tests {
 
         #[test]
         fn test_select_with_function_call_and_alias() {
-            let lexer = Lexer::new("select(name_upper = upper(name), desc_len = length(description))".to_string());
+            let lexer = Lexer::new(
+                "select(name_upper = upper(name), desc_len = length(description))".to_string(),
+            );
             let mut parser = Parser::new(lexer).unwrap();
 
             let ast = parser.parse().unwrap();
@@ -1483,7 +1490,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
-                    
+
                     // Check first column (function call with alias)
                     if let Expr::Function { name, args } = &columns[0].expr {
                         assert_eq!(name, "upper");
@@ -1493,7 +1500,7 @@ mod tests {
                         panic!("Expected function call expression");
                     }
                     assert_eq!(columns[0].alias, Some("name_upper".to_string()));
-                    
+
                     // Check second column (function call with alias)
                     if let Expr::Function { name, args } = &columns[1].expr {
                         assert_eq!(name, "length");
@@ -1541,13 +1548,19 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
-                    
+
                     // Check first column (string literal)
-                    assert_eq!(columns[0].expr, Expr::Literal(LiteralValue::String("name".to_string())));
+                    assert_eq!(
+                        columns[0].expr,
+                        Expr::Literal(LiteralValue::String("name".to_string()))
+                    );
                     assert_eq!(columns[0].alias, None);
-                    
+
                     // Check second column (string literal)
-                    assert_eq!(columns[1].expr, Expr::Literal(LiteralValue::String("age".to_string())));
+                    assert_eq!(
+                        columns[1].expr,
+                        Expr::Literal(LiteralValue::String("age".to_string()))
+                    );
                     assert_eq!(columns[1].alias, None);
                 } else {
                     panic!("Expected Select operation");
@@ -1568,9 +1581,14 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 1);
-                    
+
                     // Check arithmetic expression with alias
-                    if let Expr::Binary { left, operator, right } = &columns[0].expr {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = &columns[0].expr
+                    {
                         assert_eq!(**left, Expr::Identifier("salary".to_string()));
                         assert_eq!(*operator, BinaryOp::Multiply);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(2.0)));
@@ -1588,7 +1606,7 @@ mod tests {
     }
 
     // ===== filter() 함수 파싱 테스트 =====
-    
+
     mod filter_parsing_tests {
         use super::*;
 
@@ -1603,7 +1621,12 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                     // Check binary expression
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         assert_eq!(**left, Expr::Identifier("age".to_string()));
                         assert_eq!(*operator, BinaryOp::GreaterThan);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(18.0)));
@@ -1628,10 +1651,18 @@ mod tests {
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         assert_eq!(**left, Expr::Identifier("name".to_string()));
                         assert_eq!(*operator, BinaryOp::Equal);
-                        assert_eq!(**right, Expr::Literal(LiteralValue::String("John".to_string())));
+                        assert_eq!(
+                            **right,
+                            Expr::Literal(LiteralValue::String("John".to_string()))
+                        );
                     } else {
                         panic!("Expected binary expression");
                     }
@@ -1654,20 +1685,35 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                     // Check top-level AND operation
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         assert_eq!(*operator, BinaryOp::And);
-                        
+
                         // Check left side (age > 18)
-                        if let Expr::Binary { left: left_left, operator: left_op, right: left_right } = &**left {
+                        if let Expr::Binary {
+                            left: left_left,
+                            operator: left_op,
+                            right: left_right,
+                        } = &**left
+                        {
                             assert_eq!(**left_left, Expr::Identifier("age".to_string()));
                             assert_eq!(*left_op, BinaryOp::GreaterThan);
                             assert_eq!(**left_right, Expr::Literal(LiteralValue::Number(18.0)));
                         } else {
                             panic!("Expected binary expression on left side");
                         }
-                        
+
                         // Check right side (salary > 30000)
-                        if let Expr::Binary { left: right_left, operator: right_op, right: right_right } = &**right {
+                        if let Expr::Binary {
+                            left: right_left,
+                            operator: right_op,
+                            right: right_right,
+                        } = &**right
+                        {
                             assert_eq!(**right_left, Expr::Identifier("salary".to_string()));
                             assert_eq!(*right_op, BinaryOp::GreaterThan);
                             assert_eq!(**right_right, Expr::Literal(LiteralValue::Number(30000.0)));
@@ -1687,7 +1733,8 @@ mod tests {
 
         #[test]
         fn test_filter_logical_or() {
-            let lexer = Lexer::new("filter(department == \"IT\" | department == \"HR\")".to_string());
+            let lexer =
+                Lexer::new("filter(department == \"IT\" | department == \"HR\")".to_string());
             let mut parser = Parser::new(lexer).unwrap();
 
             let ast = parser.parse().unwrap();
@@ -1696,23 +1743,44 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                     // Check top-level OR operation
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         assert_eq!(*operator, BinaryOp::Or);
-                        
+
                         // Check left side (department == "IT")
-                        if let Expr::Binary { left: left_left, operator: left_op, right: left_right } = &**left {
+                        if let Expr::Binary {
+                            left: left_left,
+                            operator: left_op,
+                            right: left_right,
+                        } = &**left
+                        {
                             assert_eq!(**left_left, Expr::Identifier("department".to_string()));
                             assert_eq!(*left_op, BinaryOp::Equal);
-                            assert_eq!(**left_right, Expr::Literal(LiteralValue::String("IT".to_string())));
+                            assert_eq!(
+                                **left_right,
+                                Expr::Literal(LiteralValue::String("IT".to_string()))
+                            );
                         } else {
                             panic!("Expected binary expression on left side");
                         }
-                        
+
                         // Check right side (department == "HR")
-                        if let Expr::Binary { left: right_left, operator: right_op, right: right_right } = &**right {
+                        if let Expr::Binary {
+                            left: right_left,
+                            operator: right_op,
+                            right: right_right,
+                        } = &**right
+                        {
                             assert_eq!(**right_left, Expr::Identifier("department".to_string()));
                             assert_eq!(*right_op, BinaryOp::Equal);
-                            assert_eq!(**right_right, Expr::Literal(LiteralValue::String("HR".to_string())));
+                            assert_eq!(
+                                **right_right,
+                                Expr::Literal(LiteralValue::String("HR".to_string()))
+                            );
                         } else {
                             panic!("Expected binary expression on right side");
                         }
@@ -1737,7 +1805,12 @@ mod tests {
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         // Check left side is a function call
                         if let Expr::Function { name, args } = &**left {
                             assert_eq!(name, "length");
@@ -1746,7 +1819,7 @@ mod tests {
                         } else {
                             panic!("Expected function call on left side");
                         }
-                        
+
                         assert_eq!(*operator, BinaryOp::GreaterThan);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(5.0)));
                     } else {
@@ -1770,16 +1843,26 @@ mod tests {
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         // Check left side is an arithmetic expression
-                        if let Expr::Binary { left: arith_left, operator: arith_op, right: arith_right } = &**left {
+                        if let Expr::Binary {
+                            left: arith_left,
+                            operator: arith_op,
+                            right: arith_right,
+                        } = &**left
+                        {
                             assert_eq!(**arith_left, Expr::Identifier("salary".to_string()));
                             assert_eq!(*arith_op, BinaryOp::Multiply);
                             assert_eq!(**arith_right, Expr::Literal(LiteralValue::Number(12.0)));
                         } else {
                             panic!("Expected arithmetic expression on left side");
                         }
-                        
+
                         assert_eq!(*operator, BinaryOp::GreaterThan);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(600000.0)));
                     } else {
@@ -1795,7 +1878,9 @@ mod tests {
 
         #[test]
         fn test_filter_complex_nested_conditions() {
-            let lexer = Lexer::new("filter((age > 18 & age < 65) | (status == \"VIP\" & salary > 100000))".to_string());
+            let lexer = Lexer::new(
+                "filter((age > 18 & age < 65) | (status == \"VIP\" & salary > 100000))".to_string(),
+            );
             let mut parser = Parser::new(lexer).unwrap();
 
             let ast = parser.parse().unwrap();
@@ -1877,7 +1962,7 @@ mod tests {
     }
 
     // ===== mutate() 함수 파싱 테스트 =====
-    
+
     mod mutate_parsing_tests {
         use super::*;
 
@@ -1892,12 +1977,17 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 1);
-                    
+
                     // Check assignment
                     assert_eq!(assignments[0].column, "new_col");
-                    
+
                     // Check expression (age * 2)
-                    if let Expr::Binary { left, operator, right } = &assignments[0].expr {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = &assignments[0].expr
+                    {
                         assert_eq!(**left, Expr::Identifier("age".to_string()));
                         assert_eq!(*operator, BinaryOp::Multiply);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(2.0)));
@@ -1923,20 +2013,30 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 2);
-                    
+
                     // Check first assignment (doubled = age * 2)
                     assert_eq!(assignments[0].column, "doubled");
-                    if let Expr::Binary { left, operator, right } = &assignments[0].expr {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = &assignments[0].expr
+                    {
                         assert_eq!(**left, Expr::Identifier("age".to_string()));
                         assert_eq!(*operator, BinaryOp::Multiply);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(2.0)));
                     } else {
                         panic!("Expected binary expression for first assignment");
                     }
-                    
+
                     // Check second assignment (halved = age / 2)
                     assert_eq!(assignments[1].column, "halved");
-                    if let Expr::Binary { left, operator, right } = &assignments[1].expr {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = &assignments[1].expr
+                    {
                         assert_eq!(**left, Expr::Identifier("age".to_string()));
                         assert_eq!(*operator, BinaryOp::Divide);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(2.0)));
@@ -1962,7 +2062,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 1);
-                    
+
                     // Check assignment (name_upper = upper(name))
                     assert_eq!(assignments[0].column, "name_upper");
                     if let Expr::Function { name, args } = &assignments[0].expr {
@@ -1991,24 +2091,34 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 1);
-                    
+
                     // Check assignment (bonus = salary * 0.1 + 1000)
                     assert_eq!(assignments[0].column, "bonus");
-                    
+
                     // This should parse as: (salary * 0.1) + 1000
                     // So top level should be addition
-                    if let Expr::Binary { left, operator, right } = &assignments[0].expr {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = &assignments[0].expr
+                    {
                         assert_eq!(*operator, BinaryOp::Plus);
-                        
+
                         // Left side should be salary * 0.1
-                        if let Expr::Binary { left: mult_left, operator: mult_op, right: mult_right } = &**left {
+                        if let Expr::Binary {
+                            left: mult_left,
+                            operator: mult_op,
+                            right: mult_right,
+                        } = &**left
+                        {
                             assert_eq!(**mult_left, Expr::Identifier("salary".to_string()));
                             assert_eq!(*mult_op, BinaryOp::Multiply);
                             assert_eq!(**mult_right, Expr::Literal(LiteralValue::Number(0.1)));
                         } else {
                             panic!("Expected multiplication on left side");
                         }
-                        
+
                         // Right side should be 1000
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(1000.0)));
                     } else {
@@ -2033,14 +2143,20 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 2);
-                    
+
                     // Check first assignment (status = "active")
                     assert_eq!(assignments[0].column, "status");
-                    assert_eq!(assignments[0].expr, Expr::Literal(LiteralValue::String("active".to_string())));
-                    
+                    assert_eq!(
+                        assignments[0].expr,
+                        Expr::Literal(LiteralValue::String("active".to_string()))
+                    );
+
                     // Check second assignment (is_valid = TRUE)
                     assert_eq!(assignments[1].column, "is_valid");
-                    assert_eq!(assignments[1].expr, Expr::Literal(LiteralValue::Boolean(true)));
+                    assert_eq!(
+                        assignments[1].expr,
+                        Expr::Literal(LiteralValue::Boolean(true))
+                    );
                 } else {
                     panic!("Expected Mutate operation");
                 }
@@ -2060,7 +2176,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 1);
-                    
+
                     // Check assignment (age_copy = age)
                     assert_eq!(assignments[0].column, "age_copy");
                     assert_eq!(assignments[0].expr, Expr::Identifier("age".to_string()));
@@ -2083,17 +2199,21 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                     assert_eq!(assignments.len(), 1);
-                    
+
                     // Check assignment (processed = upper(substr(name, 1, 3)))
                     assert_eq!(assignments[0].column, "processed");
-                    
+
                     // Check outer function call (upper)
                     if let Expr::Function { name, args } = &assignments[0].expr {
                         assert_eq!(name, "upper");
                         assert_eq!(args.len(), 1);
-                        
+
                         // Check inner function call (substr)
-                        if let Expr::Function { name: inner_name, args: inner_args } = &args[0] {
+                        if let Expr::Function {
+                            name: inner_name,
+                            args: inner_args,
+                        } = &args[0]
+                        {
                             assert_eq!(inner_name, "substr");
                             assert_eq!(inner_args.len(), 3);
                             assert_eq!(inner_args[0], Expr::Identifier("name".to_string()));
@@ -2152,7 +2272,7 @@ mod tests {
                     if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                         assert_eq!(assignments.len(), 1);
                         assert_eq!(assignments[0].column, "result");
-                        
+
                         if let Expr::Binary { operator, .. } = &assignments[0].expr {
                             assert_eq!(*operator, expected_op, "Failed for input: {}", input);
                         } else {
@@ -2169,7 +2289,7 @@ mod tests {
     }
 
     // ===== arrange() 함수 파싱 테스트 =====
-    
+
     mod arrange_parsing_tests {
         use super::*;
 
@@ -2247,15 +2367,15 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 3);
-                    
+
                     // First column: name (ascending by default)
                     assert_eq!(columns[0].column, "name");
                     assert_eq!(columns[0].direction, OrderDirection::Asc);
-                    
+
                     // Second column: age (ascending by default)
                     assert_eq!(columns[1].column, "age");
                     assert_eq!(columns[1].direction, OrderDirection::Asc);
-                    
+
                     // Third column: salary (descending)
                     assert_eq!(columns[2].column, "salary");
                     assert_eq!(columns[2].direction, OrderDirection::Desc);
@@ -2278,15 +2398,15 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 3);
-                    
+
                     // First column: name (explicit ascending)
                     assert_eq!(columns[0].column, "name");
                     assert_eq!(columns[0].direction, OrderDirection::Asc);
-                    
+
                     // Second column: age (descending)
                     assert_eq!(columns[1].column, "age");
                     assert_eq!(columns[1].direction, OrderDirection::Desc);
-                    
+
                     // Third column: salary (ascending by default)
                     assert_eq!(columns[2].column, "salary");
                     assert_eq!(columns[2].direction, OrderDirection::Asc);
@@ -2328,11 +2448,11 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
-                    
+
                     // First column: first_name (ascending by default)
                     assert_eq!(columns[0].column, "first_name");
                     assert_eq!(columns[0].direction, OrderDirection::Asc);
-                    
+
                     // Second column: last_name (descending)
                     assert_eq!(columns[1].column, "last_name");
                     assert_eq!(columns[1].direction, OrderDirection::Desc);
@@ -2355,15 +2475,15 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 3);
-                    
+
                     // First column: column_1 (ascending by default)
                     assert_eq!(columns[0].column, "column_1");
                     assert_eq!(columns[0].direction, OrderDirection::Asc);
-                    
+
                     // Second column: column_2 (descending)
                     assert_eq!(columns[1].column, "column_2");
                     assert_eq!(columns[1].direction, OrderDirection::Desc);
-                    
+
                     // Third column: column_3 (explicit ascending)
                     assert_eq!(columns[2].column, "column_3");
                     assert_eq!(columns[2].direction, OrderDirection::Asc);
@@ -2377,7 +2497,7 @@ mod tests {
     }
 
     // ===== group_by() 함수 파싱 테스트 =====
-    
+
     mod group_by_parsing_tests {
         use super::*;
 
@@ -2509,7 +2629,7 @@ mod tests {
     }
 
     // ===== summarise() 함수 파싱 테스트 =====
-    
+
     mod summarise_parsing_tests {
         use super::*;
 
@@ -2524,7 +2644,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 1);
-                    
+
                     // Check aggregation (avg_age = mean(age))
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "age");
@@ -2548,7 +2668,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 1);
-                    
+
                     // Check aggregation (mean(age))
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "age");
@@ -2563,7 +2683,10 @@ mod tests {
 
         #[test]
         fn test_summarise_multiple_aggregations() {
-            let lexer = Lexer::new("summarise(avg_age = mean(age), total_count = n(), max_salary = max(salary))".to_string());
+            let lexer = Lexer::new(
+                "summarise(avg_age = mean(age), total_count = n(), max_salary = max(salary))"
+                    .to_string(),
+            );
             let mut parser = Parser::new(lexer).unwrap();
 
             let ast = parser.parse().unwrap();
@@ -2572,17 +2695,17 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 3);
-                    
+
                     // First aggregation: avg_age = mean(age)
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "age");
                     assert_eq!(aggregations[0].alias, Some("avg_age".to_string()));
-                    
+
                     // Second aggregation: total_count = n()
                     assert_eq!(aggregations[1].function, "n");
                     assert_eq!(aggregations[1].column, ""); // n() has no column
                     assert_eq!(aggregations[1].alias, Some("total_count".to_string()));
-                    
+
                     // Third aggregation: max_salary = max(salary)
                     assert_eq!(aggregations[2].function, "max");
                     assert_eq!(aggregations[2].column, "salary");
@@ -2606,7 +2729,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 1);
-                    
+
                     // Check n() function (no column argument)
                     assert_eq!(aggregations[0].function, "n");
                     assert_eq!(aggregations[0].column, "");
@@ -2630,7 +2753,7 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 1);
-                    
+
                     // Check n() function without alias
                     assert_eq!(aggregations[0].function, "n");
                     assert_eq!(aggregations[0].column, "");
@@ -2665,9 +2788,22 @@ mod tests {
                     assert_eq!(operations.len(), 1);
                     if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                         assert_eq!(aggregations.len(), 1);
-                        assert_eq!(aggregations[0].function, expected_func, "Failed for input: {}", input);
-                        assert_eq!(aggregations[0].column, expected_col, "Failed for input: {}", input);
-                        assert_eq!(aggregations[0].alias, Some("result".to_string()), "Failed for input: {}", input);
+                        assert_eq!(
+                            aggregations[0].function, expected_func,
+                            "Failed for input: {}",
+                            input
+                        );
+                        assert_eq!(
+                            aggregations[0].column, expected_col,
+                            "Failed for input: {}",
+                            input
+                        );
+                        assert_eq!(
+                            aggregations[0].alias,
+                            Some("result".to_string()),
+                            "Failed for input: {}",
+                            input
+                        );
                     } else {
                         panic!("Expected Summarise operation for input: {}", input);
                     }
@@ -2688,17 +2824,17 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 3);
-                    
+
                     // First aggregation: mean(age) - no alias
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "age");
                     assert_eq!(aggregations[0].alias, None);
-                    
+
                     // Second aggregation: total = n() - with alias
                     assert_eq!(aggregations[1].function, "n");
                     assert_eq!(aggregations[1].column, "");
                     assert_eq!(aggregations[1].alias, Some("total".to_string()));
-                    
+
                     // Third aggregation: max(salary) - no alias
                     assert_eq!(aggregations[2].function, "max");
                     assert_eq!(aggregations[2].column, "salary");
@@ -2732,7 +2868,9 @@ mod tests {
 
         #[test]
         fn test_summarise_with_underscore_columns() {
-            let lexer = Lexer::new("summarise(avg_salary = mean(base_salary), count_employees = n())".to_string());
+            let lexer = Lexer::new(
+                "summarise(avg_salary = mean(base_salary), count_employees = n())".to_string(),
+            );
             let mut parser = Parser::new(lexer).unwrap();
 
             let ast = parser.parse().unwrap();
@@ -2741,12 +2879,12 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 2);
-                    
+
                     // First aggregation: avg_salary = mean(base_salary)
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "base_salary");
                     assert_eq!(aggregations[0].alias, Some("avg_salary".to_string()));
-                    
+
                     // Second aggregation: count_employees = n()
                     assert_eq!(aggregations[1].function, "n");
                     assert_eq!(aggregations[1].column, "");
@@ -2770,12 +2908,12 @@ mod tests {
                 assert_eq!(operations.len(), 1);
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                     assert_eq!(aggregations.len(), 2);
-                    
+
                     // First aggregation: avg1 = mean(col1)
                     assert_eq!(aggregations[0].function, "mean");
                     assert_eq!(aggregations[0].column, "col1");
                     assert_eq!(aggregations[0].alias, Some("avg1".to_string()));
-                    
+
                     // Second aggregation: sum2 = sum(col2)
                     assert_eq!(aggregations[1].function, "sum");
                     assert_eq!(aggregations[1].column, "col2");
@@ -2790,7 +2928,7 @@ mod tests {
     }
 
     // ===== 파이프라인 파싱 테스트 =====
-    
+
     mod pipeline_parsing_tests {
         use super::*;
 
@@ -2803,7 +2941,7 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 2);
-                
+
                 // First operation: select(name)
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 1);
@@ -2811,10 +2949,15 @@ mod tests {
                 } else {
                     panic!("Expected Select operation");
                 }
-                
+
                 // Second operation: filter(age > 18)
                 if let DplyrOperation::Filter { condition, .. } = &operations[1] {
-                    if let Expr::Binary { left, operator, right } = condition {
+                    if let Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } = condition
+                    {
                         assert_eq!(**left, Expr::Identifier("age".to_string()));
                         assert_eq!(*operator, BinaryOp::GreaterThan);
                         assert_eq!(**right, Expr::Literal(LiteralValue::Number(18.0)));
@@ -2839,7 +2982,7 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 4);
-                
+
                 // Check operation types
                 assert!(matches!(operations[0], DplyrOperation::Select { .. }));
                 assert!(matches!(operations[1], DplyrOperation::Filter { .. }));
@@ -2859,7 +3002,7 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 2);
-                
+
                 // First operation: select(name, age)
                 if let DplyrOperation::Select { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 2);
@@ -2868,7 +3011,7 @@ mod tests {
                 } else {
                     panic!("Expected Select operation");
                 }
-                
+
                 // Second operation: filter(age > 18)
                 assert!(matches!(operations[1], DplyrOperation::Filter { .. }));
             } else {
@@ -2907,10 +3050,14 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 3);
-                
+
                 // Check filter with complex condition
                 if let DplyrOperation::Filter { condition, .. } = &operations[1] {
-                    if let Expr::Binary { operator: BinaryOp::And, .. } = condition {
+                    if let Expr::Binary {
+                        operator: BinaryOp::And,
+                        ..
+                    } = condition
+                    {
                         // Complex AND condition parsed correctly
                     } else {
                         panic!("Expected AND condition in filter");
@@ -2918,7 +3065,7 @@ mod tests {
                 } else {
                     panic!("Expected Filter operation");
                 }
-                
+
                 // Check mutate with complex expression
                 if let DplyrOperation::Mutate { assignments, .. } = &operations[2] {
                     assert_eq!(assignments.len(), 1);
@@ -2939,7 +3086,8 @@ mod tests {
 
         #[test]
         fn test_pipeline_with_group_by_and_summarise() {
-            let input = "group_by(department) %>% summarise(avg_salary = mean(salary), count = n())";
+            let input =
+                "group_by(department) %>% summarise(avg_salary = mean(salary), count = n())";
             let lexer = Lexer::new(input.to_string());
             let mut parser = Parser::new(lexer).unwrap();
 
@@ -2947,7 +3095,7 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 2);
-                
+
                 // Check group_by
                 if let DplyrOperation::GroupBy { columns, .. } = &operations[0] {
                     assert_eq!(columns.len(), 1);
@@ -2955,7 +3103,7 @@ mod tests {
                 } else {
                     panic!("Expected GroupBy operation");
                 }
-                
+
                 // Check summarise
                 if let DplyrOperation::Summarise { aggregations, .. } = &operations[1] {
                     assert_eq!(aggregations.len(), 2);
@@ -3010,7 +3158,8 @@ mod tests {
 
         #[test]
         fn test_pipeline_operation_order_preservation() {
-            let input = "filter(age > 18) %>% select(name) %>% mutate(adult = TRUE) %>% arrange(name)";
+            let input =
+                "filter(age > 18) %>% select(name) %>% mutate(adult = TRUE) %>% arrange(name)";
             let lexer = Lexer::new(input.to_string());
             let mut parser = Parser::new(lexer).unwrap();
 
@@ -3018,13 +3167,13 @@ mod tests {
 
             if let DplyrNode::Pipeline { operations, .. } = ast {
                 assert_eq!(operations.len(), 4);
-                
+
                 // Verify operation order is preserved
                 assert!(matches!(operations[0], DplyrOperation::Filter { .. }));
                 assert!(matches!(operations[1], DplyrOperation::Select { .. }));
                 assert!(matches!(operations[2], DplyrOperation::Mutate { .. }));
                 assert!(matches!(operations[3], DplyrOperation::Arrange { .. }));
-                
+
                 // Verify operation names
                 assert_eq!(operations[0].operation_name(), "filter");
                 assert_eq!(operations[1].operation_name(), "select");
@@ -3174,7 +3323,7 @@ mod tests {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Select { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 2);
-                            
+
                             // First column: upper(name)
                             if let Expr::Function { name, args } = &columns[0].expr {
                                 assert_eq!(name, "upper");
@@ -3183,7 +3332,7 @@ mod tests {
                             } else {
                                 panic!("Expected function call expression");
                             }
-                            
+
                             // Second column: round(salary)
                             if let Expr::Function { name, args } = &columns[1].expr {
                                 assert_eq!(name, "round");
@@ -3229,7 +3378,12 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                            if let Expr::Binary { left, operator, right } = condition {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = condition
+                            {
                                 assert_eq!(**left, Expr::Identifier("age".to_string()));
                                 assert_eq!(*operator, BinaryOp::GreaterThan);
                                 assert_eq!(**right, Expr::Literal(LiteralValue::Number(18.0)));
@@ -3254,23 +3408,44 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                            if let Expr::Binary { left, operator, right } = condition {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = condition
+                            {
                                 assert_eq!(*operator, BinaryOp::And);
-                                
+
                                 // Left side: age >= 18
-                                if let Expr::Binary { left: l_left, operator: l_op, right: l_right } = left.as_ref() {
+                                if let Expr::Binary {
+                                    left: l_left,
+                                    operator: l_op,
+                                    right: l_right,
+                                } = left.as_ref()
+                                {
                                     assert_eq!(**l_left, Expr::Identifier("age".to_string()));
                                     assert_eq!(*l_op, BinaryOp::GreaterThanOrEqual);
-                                    assert_eq!(**l_right, Expr::Literal(LiteralValue::Number(18.0)));
+                                    assert_eq!(
+                                        **l_right,
+                                        Expr::Literal(LiteralValue::Number(18.0))
+                                    );
                                 } else {
                                     panic!("Expected binary expression on left side");
                                 }
-                                
+
                                 // Right side: age <= 65
-                                if let Expr::Binary { left: r_left, operator: r_op, right: r_right } = right.as_ref() {
+                                if let Expr::Binary {
+                                    left: r_left,
+                                    operator: r_op,
+                                    right: r_right,
+                                } = right.as_ref()
+                                {
                                     assert_eq!(**r_left, Expr::Identifier("age".to_string()));
                                     assert_eq!(*r_op, BinaryOp::LessThanOrEqual);
-                                    assert_eq!(**r_right, Expr::Literal(LiteralValue::Number(65.0)));
+                                    assert_eq!(
+                                        **r_right,
+                                        Expr::Literal(LiteralValue::Number(65.0))
+                                    );
                                 } else {
                                     panic!("Expected binary expression on right side");
                                 }
@@ -3295,10 +3470,18 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Filter { condition, .. } = &operations[0] {
-                            if let Expr::Binary { left, operator, right } = condition {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = condition
+                            {
                                 assert_eq!(**left, Expr::Identifier("name".to_string()));
                                 assert_eq!(*operator, BinaryOp::Equal);
-                                assert_eq!(**right, Expr::Literal(LiteralValue::String("John".to_string())));
+                                assert_eq!(
+                                    **right,
+                                    Expr::Literal(LiteralValue::String("John".to_string()))
+                                );
                             } else {
                                 panic!("Expected binary expression");
                             }
@@ -3322,8 +3505,13 @@ mod tests {
                         if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                             assert_eq!(assignments.len(), 1);
                             assert_eq!(assignments[0].column, "adult");
-                            
-                            if let Expr::Binary { left, operator, right } = &assignments[0].expr {
+
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = &assignments[0].expr
+                            {
                                 assert_eq!(**left, Expr::Identifier("age".to_string()));
                                 assert_eq!(*operator, BinaryOp::GreaterThanOrEqual);
                                 assert_eq!(**right, Expr::Literal(LiteralValue::Number(18.0)));
@@ -3340,7 +3528,9 @@ mod tests {
 
                 #[test]
                 fn test_mutate_multiple_assignments() {
-                    let lexer = Lexer::new("mutate(adult = age >= 18, salary_k = salary / 1000)".to_string());
+                    let lexer = Lexer::new(
+                        "mutate(adult = age >= 18, salary_k = salary / 1000)".to_string(),
+                    );
                     let mut parser = Parser::new(lexer).unwrap();
 
                     let ast = parser.parse().unwrap();
@@ -3349,7 +3539,7 @@ mod tests {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                             assert_eq!(assignments.len(), 2);
-                            
+
                             // First assignment: adult = age >= 18
                             assert_eq!(assignments[0].column, "adult");
                             if let Expr::Binary { operator, .. } = &assignments[0].expr {
@@ -3357,10 +3547,15 @@ mod tests {
                             } else {
                                 panic!("Expected binary expression");
                             }
-                            
+
                             // Second assignment: salary_k = salary / 1000
                             assert_eq!(assignments[1].column, "salary_k");
-                            if let Expr::Binary { left, operator, right } = &assignments[1].expr {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = &assignments[1].expr
+                            {
                                 assert_eq!(**left, Expr::Identifier("salary".to_string()));
                                 assert_eq!(*operator, BinaryOp::Divide);
                                 assert_eq!(**right, Expr::Literal(LiteralValue::Number(1000.0)));
@@ -3428,13 +3623,13 @@ mod tests {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 3);
-                            
+
                             assert_eq!(columns[0].column, "department");
                             assert_eq!(columns[0].direction, OrderDirection::Asc);
-                            
+
                             assert_eq!(columns[1].column, "salary");
                             assert_eq!(columns[1].direction, OrderDirection::Desc);
-                            
+
                             assert_eq!(columns[2].column, "name");
                             assert_eq!(columns[2].direction, OrderDirection::Asc);
                         } else {
@@ -3520,17 +3715,17 @@ mod tests {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                             assert_eq!(aggregations.len(), 3);
-                            
+
                             // First aggregation: avg_salary = mean(salary)
                             assert_eq!(aggregations[0].function, "mean");
                             assert_eq!(aggregations[0].column, "salary");
                             assert_eq!(aggregations[0].alias, Some("avg_salary".to_string()));
-                            
+
                             // Second aggregation: total_count = n()
                             assert_eq!(aggregations[1].function, "n");
                             assert_eq!(aggregations[1].column, "");
                             assert_eq!(aggregations[1].alias, Some("total_count".to_string()));
-                            
+
                             // Third aggregation: max_age = max(age)
                             assert_eq!(aggregations[2].function, "max");
                             assert_eq!(aggregations[2].column, "age");
@@ -3554,12 +3749,12 @@ mod tests {
                         assert_eq!(operations.len(), 1);
                         if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                             assert_eq!(aggregations.len(), 2);
-                            
+
                             // First aggregation: mean(salary)
                             assert_eq!(aggregations[0].function, "mean");
                             assert_eq!(aggregations[0].column, "salary");
                             assert_eq!(aggregations[0].alias, None);
-                            
+
                             // Second aggregation: n()
                             assert_eq!(aggregations[1].function, "n");
                             assert_eq!(aggregations[1].column, "");
@@ -3580,7 +3775,7 @@ mod tests {
                 #[test]
                 fn test_full_data_analysis_pipeline() {
                     let input = "data %>% select(name, age, salary, department) %>% filter(age >= 18 & salary > 30000) %>% mutate(adult = TRUE, salary_k = salary / 1000, age_group = age / 10) %>% group_by(department, age_group) %>% summarise(avg_salary = mean(salary_k), count = n(), max_age = max(age)) %>% arrange(desc(avg_salary), department)";
-                    
+
                     let lexer = Lexer::new(input.to_string());
                     let mut parser = Parser::new(lexer).unwrap();
 
@@ -3588,7 +3783,7 @@ mod tests {
 
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 6);
-                        
+
                         // Verify operation sequence
                         assert!(matches!(operations[0], DplyrOperation::Select { .. }));
                         assert!(matches!(operations[1], DplyrOperation::Filter { .. }));
@@ -3596,7 +3791,7 @@ mod tests {
                         assert!(matches!(operations[3], DplyrOperation::GroupBy { .. }));
                         assert!(matches!(operations[4], DplyrOperation::Summarise { .. }));
                         assert!(matches!(operations[5], DplyrOperation::Arrange { .. }));
-                        
+
                         // Verify select operation
                         if let DplyrOperation::Select { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 4);
@@ -3605,7 +3800,7 @@ mod tests {
                             assert_eq!(columns[2].expr, Expr::Identifier("salary".to_string()));
                             assert_eq!(columns[3].expr, Expr::Identifier("department".to_string()));
                         }
-                        
+
                         // Verify mutate operation with multiple assignments
                         if let DplyrOperation::Mutate { assignments, .. } = &operations[2] {
                             assert_eq!(assignments.len(), 3);
@@ -3613,14 +3808,14 @@ mod tests {
                             assert_eq!(assignments[1].column, "salary_k");
                             assert_eq!(assignments[2].column, "age_group");
                         }
-                        
+
                         // Verify group_by operation
                         if let DplyrOperation::GroupBy { columns, .. } = &operations[3] {
                             assert_eq!(columns.len(), 2);
                             assert_eq!(columns[0], "department");
                             assert_eq!(columns[1], "age_group");
                         }
-                        
+
                         // Verify summarise operation
                         if let DplyrOperation::Summarise { aggregations, .. } = &operations[4] {
                             assert_eq!(aggregations.len(), 3);
@@ -3628,7 +3823,7 @@ mod tests {
                             assert_eq!(aggregations[1].alias, Some("count".to_string()));
                             assert_eq!(aggregations[2].alias, Some("max_age".to_string()));
                         }
-                        
+
                         // Verify arrange operation
                         if let DplyrOperation::Arrange { columns, .. } = &operations[5] {
                             assert_eq!(columns.len(), 2);
@@ -3650,16 +3845,20 @@ mod tests {
 
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 2);
-                        
+
                         // Verify select with nested function calls
                         if let DplyrOperation::Select { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 2);
-                            
+
                             // First column: upper(trim(name))
                             if let Expr::Function { name, args } = &columns[0].expr {
                                 assert_eq!(name, "upper");
                                 assert_eq!(args.len(), 1);
-                                if let Expr::Function { name: inner_name, args: inner_args } = &args[0] {
+                                if let Expr::Function {
+                                    name: inner_name,
+                                    args: inner_args,
+                                } = &args[0]
+                                {
                                     assert_eq!(inner_name, "trim");
                                     assert_eq!(inner_args.len(), 1);
                                     assert_eq!(inner_args[0], Expr::Identifier("name".to_string()));
@@ -3669,12 +3868,15 @@ mod tests {
                             } else {
                                 panic!("Expected function call");
                             }
-                            
+
                             // Second column: round(sqrt(salary), 2)
                             if let Expr::Function { name, args } = &columns[1].expr {
                                 assert_eq!(name, "round");
                                 assert_eq!(args.len(), 2);
-                                if let Expr::Function { name: inner_name, .. } = &args[0] {
+                                if let Expr::Function {
+                                    name: inner_name, ..
+                                } = &args[0]
+                                {
                                     assert_eq!(inner_name, "sqrt");
                                 } else {
                                     panic!("Expected nested function call");
@@ -3684,10 +3886,15 @@ mod tests {
                                 panic!("Expected function call");
                             }
                         }
-                        
+
                         // Verify filter with function call
                         if let DplyrOperation::Filter { condition, .. } = &operations[1] {
-                            if let Expr::Binary { left, operator, right } = condition {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = condition
+                            {
                                 if let Expr::Function { name, args } = left.as_ref() {
                                     assert_eq!(name, "length");
                                     assert_eq!(args.len(), 1);
@@ -3716,10 +3923,10 @@ mod tests {
 
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 1);
-                        
+
                         if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                             assert_eq!(assignments.len(), 2);
-                            
+
                             // First assignment: score = (math + science) * 0.5 + english * 0.3
                             assert_eq!(assignments[0].column, "score");
                             if let Expr::Binary { operator, .. } = &assignments[0].expr {
@@ -3727,10 +3934,15 @@ mod tests {
                             } else {
                                 panic!("Expected complex arithmetic expression");
                             }
-                            
+
                             // Second assignment: grade = score / 10
                             assert_eq!(assignments[1].column, "grade");
-                            if let Expr::Binary { left, operator, right } = &assignments[1].expr {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = &assignments[1].expr
+                            {
                                 assert_eq!(**left, Expr::Identifier("score".to_string()));
                                 assert_eq!(*operator, BinaryOp::Divide);
                                 assert_eq!(**right, Expr::Literal(LiteralValue::Number(10.0)));
@@ -3755,7 +3967,7 @@ mod tests {
 
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         assert_eq!(operations.len(), 1);
-                        
+
                         if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                             // The expression should be parsed as a complex AND expression
                             // We'll just verify it's a binary expression with AND operator
@@ -3783,7 +3995,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains("dplyr function"));
                             assert!(found.contains("invalid_function"));
                         }
@@ -3797,7 +4011,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains("("));
                             assert_eq!(found, "name");
                         }
@@ -3811,7 +4027,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains(")"));
                             assert_eq!(found, "EOF");
                         }
@@ -3825,7 +4043,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains(",") || expected.contains(")"));
                             assert_eq!(found, "age");
                         }
@@ -3839,7 +4059,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains("="));
                             assert_eq!(found, "age");
                         }
@@ -3853,8 +4075,12 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
-                            assert!(expected.contains("expression") || expected.contains("identifier"));
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
+                            assert!(
+                                expected.contains("expression") || expected.contains("identifier")
+                            );
                             assert_eq!(found, ")");
                         }
                         other => panic!("Expected UnexpectedToken error, got: {:?}", other),
@@ -3881,8 +4107,12 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
-                            assert!(expected.contains("expression") || expected.contains("identifier"));
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
+                            assert!(
+                                expected.contains("expression") || expected.contains("identifier")
+                            );
                             assert_eq!(found, ")");
                         }
                         other => panic!("Expected UnexpectedToken error, got: {:?}", other),
@@ -3895,7 +4125,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains("column identifier"));
                             assert_eq!(found, ")");
                         }
@@ -3911,7 +4143,7 @@ mod tests {
                     // This should parse successfully but the function name will be "invalid_agg"
                     // The validation of function names should happen at a later stage
                     let ast = parser.parse().unwrap();
-                    
+
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                             assert_eq!(aggregations[0].function, "invalid_agg");
@@ -3925,7 +4157,9 @@ mod tests {
                     let mut parser = Parser::new(lexer).unwrap();
 
                     match parser.parse() {
-                        Err(ParseError::UnexpectedToken { expected, found, .. }) => {
+                        Err(ParseError::UnexpectedToken {
+                            expected, found, ..
+                        }) => {
                             assert!(expected.contains("dplyr function"));
                             assert!(found.contains("%>%"));
                         }
@@ -3995,7 +4229,9 @@ mod tests {
 
                 #[test]
                 fn test_expression_tree_structure() {
-                    let lexer = Lexer::new("filter(age >= 18 & (status == \"active\" | priority > 5))".to_string());
+                    let lexer = Lexer::new(
+                        "filter(age >= 18 & (status == \"active\" | priority > 5))".to_string(),
+                    );
                     let mut parser = Parser::new(lexer).unwrap();
 
                     let ast = parser.parse().unwrap();
@@ -4003,18 +4239,31 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                             // Verify the complex expression tree structure
-                            if let Expr::Binary { left, operator, right } = condition {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = condition
+                            {
                                 assert_eq!(*operator, BinaryOp::And);
-                                
+
                                 // Left side: age >= 18
-                                if let Expr::Binary { left: l_left, operator: l_op, right: l_right } = left.as_ref() {
+                                if let Expr::Binary {
+                                    left: l_left,
+                                    operator: l_op,
+                                    right: l_right,
+                                } = left.as_ref()
+                                {
                                     assert_eq!(**l_left, Expr::Identifier("age".to_string()));
                                     assert_eq!(*l_op, BinaryOp::GreaterThanOrEqual);
-                                    assert_eq!(**l_right, Expr::Literal(LiteralValue::Number(18.0)));
+                                    assert_eq!(
+                                        **l_right,
+                                        Expr::Literal(LiteralValue::Number(18.0))
+                                    );
                                 } else {
                                     panic!("Expected binary expression on left");
                                 }
-                                
+
                                 // Right side: (status == "active" | priority > 5)
                                 if let Expr::Binary { operator: r_op, .. } = right.as_ref() {
                                     assert_eq!(*r_op, BinaryOp::Or);
@@ -4034,7 +4283,9 @@ mod tests {
 
                 #[test]
                 fn test_column_expression_structure() {
-                    let lexer = Lexer::new("select(full_name = concat(first_name, last_name), age)".to_string());
+                    let lexer = Lexer::new(
+                        "select(full_name = concat(first_name, last_name), age)".to_string(),
+                    );
                     let mut parser = Parser::new(lexer).unwrap();
 
                     let ast = parser.parse().unwrap();
@@ -4042,7 +4293,7 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Select { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 2);
-                            
+
                             // First column: full_name = concat(first_name, last_name)
                             assert_eq!(columns[0].alias, Some("full_name".to_string()));
                             if let Expr::Function { name, args } = &columns[0].expr {
@@ -4053,7 +4304,7 @@ mod tests {
                             } else {
                                 panic!("Expected function call expression");
                             }
-                            
+
                             // Second column: age
                             assert_eq!(columns[1].alias, None);
                             assert_eq!(columns[1].expr, Expr::Identifier("age".to_string()));
@@ -4067,7 +4318,10 @@ mod tests {
 
                 #[test]
                 fn test_assignment_structure() {
-                    let lexer = Lexer::new("mutate(full_name = concat(first, last), age_months = age * 12)".to_string());
+                    let lexer = Lexer::new(
+                        "mutate(full_name = concat(first, last), age_months = age * 12)"
+                            .to_string(),
+                    );
                     let mut parser = Parser::new(lexer).unwrap();
 
                     let ast = parser.parse().unwrap();
@@ -4075,7 +4329,7 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
                             assert_eq!(assignments.len(), 2);
-                            
+
                             // First assignment: full_name = concat(first, last)
                             assert_eq!(assignments[0].column, "full_name");
                             if let Expr::Function { name, args } = &assignments[0].expr {
@@ -4084,10 +4338,15 @@ mod tests {
                             } else {
                                 panic!("Expected function call");
                             }
-                            
+
                             // Second assignment: age_months = age * 12
                             assert_eq!(assignments[1].column, "age_months");
-                            if let Expr::Binary { left, operator, right } = &assignments[1].expr {
+                            if let Expr::Binary {
+                                left,
+                                operator,
+                                right,
+                            } = &assignments[1].expr
+                            {
                                 assert_eq!(**left, Expr::Identifier("age".to_string()));
                                 assert_eq!(*operator, BinaryOp::Multiply);
                                 assert_eq!(**right, Expr::Literal(LiteralValue::Number(12.0)));
@@ -4104,7 +4363,10 @@ mod tests {
 
                 #[test]
                 fn test_aggregation_structure() {
-                    let lexer = Lexer::new("summarise(avg_score = mean(score), total = sum(points), count = n())".to_string());
+                    let lexer = Lexer::new(
+                        "summarise(avg_score = mean(score), total = sum(points), count = n())"
+                            .to_string(),
+                    );
                     let mut parser = Parser::new(lexer).unwrap();
 
                     let ast = parser.parse().unwrap();
@@ -4112,17 +4374,17 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Summarise { aggregations, .. } = &operations[0] {
                             assert_eq!(aggregations.len(), 3);
-                            
+
                             // First aggregation: avg_score = mean(score)
                             assert_eq!(aggregations[0].function, "mean");
                             assert_eq!(aggregations[0].column, "score");
                             assert_eq!(aggregations[0].alias, Some("avg_score".to_string()));
-                            
+
                             // Second aggregation: total = sum(points)
                             assert_eq!(aggregations[1].function, "sum");
                             assert_eq!(aggregations[1].column, "points");
                             assert_eq!(aggregations[1].alias, Some("total".to_string()));
-                            
+
                             // Third aggregation: count = n()
                             assert_eq!(aggregations[2].function, "n");
                             assert_eq!(aggregations[2].column, ""); // n() has no column
@@ -4145,15 +4407,15 @@ mod tests {
                     if let DplyrNode::Pipeline { operations, .. } = ast {
                         if let DplyrOperation::Arrange { columns, .. } = &operations[0] {
                             assert_eq!(columns.len(), 3);
-                            
+
                             // First column: name (ascending by default)
                             assert_eq!(columns[0].column, "name");
                             assert_eq!(columns[0].direction, OrderDirection::Asc);
-                            
+
                             // Second column: desc(age)
                             assert_eq!(columns[1].column, "age");
                             assert_eq!(columns[1].direction, OrderDirection::Desc);
-                            
+
                             // Third column: salary (ascending by default)
                             assert_eq!(columns[2].column, "salary");
                             assert_eq!(columns[2].direction, OrderDirection::Asc);

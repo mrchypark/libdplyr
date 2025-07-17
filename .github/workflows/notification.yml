@@ -1,0 +1,519 @@
+name: CI Notifications
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  notify-failure:
+    name: Notify on CI Failure
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Get workflow run details
+        id: workflow_details
+        run: |
+          echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+          echo "run_number=${{ github.event.workflow_run.run_number }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+          echo "commit=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          echo "actor=${{ github.event.workflow_run.actor.login }}" >> $GITHUB_OUTPUT
+          echo "event=${{ github.event.workflow_run.event }}" >> $GITHUB_OUTPUT
+          echo "url=${{ github.event.workflow_run.html_url }}" >> $GITHUB_OUTPUT
+          
+          # Get commit message
+          COMMIT_MSG=$(git log --format=%B -n 1 ${{ github.event.workflow_run.head_sha }} 2>/dev/null || echo "Unable to fetch commit message")
+          echo "commit_message<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download CI artifacts for analysis
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }}
+            });
+            
+            console.log(`Found ${artifacts.data.artifacts.length} artifacts`);
+            
+            // Download key artifacts for failure analysis
+            const keyArtifacts = ['ci-monitoring-reports', 'test-results', 'coverage-reports', 'security-reports'];
+            
+            for (const artifact of artifacts.data.artifacts) {
+              if (keyArtifacts.some(key => artifact.name.includes(key))) {
+                console.log(`Downloading artifact: ${artifact.name}`);
+                try {
+                  const download = await github.rest.actions.downloadArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: artifact.id,
+                    archive_format: 'zip'
+                  });
+                  
+                  const fs = require('fs');
+                  fs.writeFileSync(`${artifact.name}.zip`, Buffer.from(download.data));
+                } catch (error) {
+                  console.log(`Failed to download ${artifact.name}: ${error.message}`);
+                }
+              }
+            }
+
+      - name: Extract and analyze failure information
+        run: |
+          echo "Analyzing CI failure information..."
+          
+          # Create failure analysis report
+          cat > failure-analysis.md << 'EOF'
+          # 🚨 CI Pipeline Failure Analysis
+          
+          ## Failure Summary
+          - **Workflow**: CI
+          - **Run ID**: ${{ steps.workflow_details.outputs.run_id }}
+          - **Run Number**: #${{ steps.workflow_details.outputs.run_number }}
+          - **Branch**: ${{ steps.workflow_details.outputs.branch }}
+          - **Commit**: ${{ steps.workflow_details.outputs.commit }}
+          - **Actor**: ${{ steps.workflow_details.outputs.actor }}
+          - **Event**: ${{ steps.workflow_details.outputs.event }}
+          - **Failure Time**: $(date)
+          - **Workflow URL**: ${{ steps.workflow_details.outputs.url }}
+          
+          ## Commit Information
+          ```
+          ${{ steps.workflow_details.outputs.commit_message }}
+          ```
+          
+          ## Failure Analysis
+          EOF
+          
+          # Extract failure information from artifacts if available
+          if [ -f "ci-monitoring-reports.zip" ]; then
+            unzip -q ci-monitoring-reports.zip -d ci-monitoring/ || true
+            
+            if [ -f "ci-monitoring/ci-execution-report.md" ]; then
+              echo "" >> failure-analysis.md
+              echo "### Detailed CI Execution Report" >> failure-analysis.md
+              echo "" >> failure-analysis.md
+              
+              # Extract failed jobs information
+              if grep -q "FAILED" ci-monitoring/ci-execution-report.md; then
+                echo "**Failed Jobs Detected:**" >> failure-analysis.md
+                grep -A 10 -B 2 "failure" ci-monitoring/ci-execution-report.md | head -20 >> failure-analysis.md || true
+                echo "" >> failure-analysis.md
+              fi
+              
+              # Extract recommendations
+              if grep -q "Recommendations" ci-monitoring/ci-execution-report.md; then
+                echo "### Recommendations from CI Analysis" >> failure-analysis.md
+                sed -n '/## Recommendations/,/## Next Steps/p' ci-monitoring/ci-execution-report.md | head -20 >> failure-analysis.md || true
+                echo "" >> failure-analysis.md
+              fi
+            fi
+          fi
+          
+          # Analyze test failures if available
+          if ls test-results-*.zip >/dev/null 2>&1; then
+            echo "### Test Failure Analysis" >> failure-analysis.md
+            echo "" >> failure-analysis.md
+            
+            for zip_file in test-results-*.zip; do
+              if [ -f "$zip_file" ]; then
+                unzip -q "$zip_file" -d "test-results/" || true
+                
+                # Look for test failure information
+                if find test-results/ -name "*.log" -exec grep -l "FAILED\|ERROR" {} \; | head -5; then
+                  echo "**Test failures detected in multiple platforms/configurations**" >> failure-analysis.md
+                  echo "" >> failure-analysis.md
+                  
+                  # Extract sample failure messages
+                  find test-results/ -name "*.log" -exec grep -l "FAILED\|ERROR" {} \; | head -3 | while read log_file; do
+                    echo "#### Failure in $(basename "$log_file")" >> failure-analysis.md
+                    echo "\`\`\`" >> failure-analysis.md
+                    grep -A 5 -B 5 "FAILED\|ERROR" "$log_file" | head -20 >> failure-analysis.md || true
+                    echo "\`\`\`" >> failure-analysis.md
+                    echo "" >> failure-analysis.md
+                  done
+                fi
+              fi
+            done
+          fi
+          
+          # Analyze security failures if available
+          if [ -f "security-reports.zip" ]; then
+            unzip -q security-reports.zip -d security-reports/ || true
+            
+            if [ -f "security-reports/security-report.md" ]; then
+              if grep -q "CRITICAL\|FAILED" security-reports/security-report.md; then
+                echo "### Security Issues Detected" >> failure-analysis.md
+                echo "" >> failure-analysis.md
+                echo "**Critical security vulnerabilities found:**" >> failure-analysis.md
+                echo "" >> failure-analysis.md
+                
+                # Extract security vulnerability information
+                sed -n '/Vulnerabilities Found/,/Summary/p' security-reports/security-report.md | head -30 >> failure-analysis.md || true
+                echo "" >> failure-analysis.md
+              fi
+            fi
+          fi
+          
+          # Add troubleshooting section
+          cat >> failure-analysis.md << 'EOF'
+          
+          ## Troubleshooting Steps
+          
+          1. **Review the full workflow logs**: Click on the workflow URL above to see detailed logs
+          2. **Check recent changes**: Review the commit that triggered this failure
+          3. **Run tests locally**: 
+             ```bash
+             cargo test --all-features
+             cargo clippy --all-features
+             cargo fmt --check
+             ```
+          4. **Check for dependency issues**:
+             ```bash
+             cargo update
+             cargo audit
+             ```
+          5. **Verify environment**: Ensure your local environment matches CI requirements
+          
+          ## Quick Fixes
+          
+          ### For Test Failures
+          - Run `cargo test` locally to reproduce the issue
+          - Check for race conditions or environment-specific issues
+          - Verify test data and expectations
+          
+          ### For Formatting Issues
+          - Run `cargo fmt` to fix formatting
+          - Commit the formatting changes
+          
+          ### For Clippy Issues
+          - Run `cargo clippy --all-features -- -D warnings`
+          - Address the warnings or add `#[allow(...)]` if justified
+          
+          ### For Security Issues
+          - Run `cargo audit` to see vulnerabilities
+          - Update dependencies with `cargo update`
+          - Check for alternative crates if needed
+          
+          ## Need Help?
+          
+          - 📖 Check the [project documentation](README.md)
+          - 🐛 [Create an issue](../../issues/new) if this seems like a bug
+          - 💬 Ask questions in [discussions](../../discussions)
+          
+          ---
+          *This analysis was generated automatically by the CI notification system*
+          EOF
+          
+          echo "::notice::Failure analysis completed"
+
+      - name: Create GitHub issue for CI failure
+        if: github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'develop'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read the failure analysis
+            let failureAnalysis = '';
+            try {
+              failureAnalysis = fs.readFileSync('failure-analysis.md', 'utf8');
+            } catch (error) {
+              failureAnalysis = 'Failed to generate detailed analysis.';
+            }
+            
+            const title = `🚨 CI Failure on ${context.payload.workflow_run.head_branch} - Run #${context.payload.workflow_run.run_number}`;
+            
+            const body = `${failureAnalysis}
+            
+            ## Auto-generated Issue
+            This issue was automatically created due to a CI failure on the \`${context.payload.workflow_run.head_branch}\` branch.
+            
+            **Please:**
+            1. Investigate the failure using the information above
+            2. Fix the underlying issue
+            3. Close this issue once resolved
+            
+            If this is a flaky test or infrastructure issue, please label it accordingly.`;
+            
+            // Check if a similar issue already exists
+            const existingIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure',
+              per_page: 10
+            });
+            
+            const recentFailure = existingIssues.data.find(issue => 
+              issue.title.includes(`CI Failure on ${context.payload.workflow_run.head_branch}`) &&
+              (Date.now() - new Date(issue.created_at).getTime()) < 24 * 60 * 60 * 1000 // Within 24 hours
+            );
+            
+            if (!recentFailure) {
+              // Create new issue
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['ci-failure', 'bug', 'needs-investigation']
+              });
+              
+              console.log(`Created issue #${issue.data.number} for CI failure`);
+              
+              // Add comment with workflow link
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.data.number,
+                body: `🔗 **Workflow Run**: ${context.payload.workflow_run.html_url}\n\n` +
+                      `📊 **Commit**: ${context.payload.workflow_run.head_sha}\n\n` +
+                      `👤 **Triggered by**: @${context.payload.workflow_run.actor.login}`
+              });
+            } else {
+              // Add comment to existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: recentFailure.number,
+                body: `🔄 **Another CI failure occurred**\n\n` +
+                      `**Run #${context.payload.workflow_run.run_number}**: ${context.payload.workflow_run.html_url}\n` +
+                      `**Commit**: ${context.payload.workflow_run.head_sha}\n` +
+                      `**Time**: ${new Date().toISOString()}\n\n` +
+                      `This appears to be a recurring issue. Please investigate urgently.`
+              });
+              
+              console.log(`Added comment to existing issue #${recentFailure.number}`);
+            }
+
+      - name: Send Slack notification (if configured)
+        if: env.SLACK_WEBHOOK_URL != ''
+        run: |
+          # Send Slack notification if webhook is configured
+          SLACK_MESSAGE=$(cat << 'EOF'
+          {
+            "text": "🚨 CI Pipeline Failure",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚨 CI Pipeline Failure"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Repository:*\n${{ github.repository }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n${{ steps.workflow_details.outputs.branch }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Run:*\n#${{ steps.workflow_details.outputs.run_number }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Actor:*\n${{ steps.workflow_details.outputs.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Commit:* `${{ steps.workflow_details.outputs.commit }}`\n*Message:* ${{ steps.workflow_details.outputs.commit_message }}"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Workflow"
+                    },
+                    "url": "${{ steps.workflow_details.outputs.url }}"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Repository"
+                    },
+                    "url": "https://github.com/${{ github.repository }}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          )
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$SLACK_MESSAGE" \
+            "$SLACK_WEBHOOK_URL"
+          
+          echo "::notice::Slack notification sent"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Upload failure analysis
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: failure-analysis-${{ steps.workflow_details.outputs.run_number }}
+          path: |
+            failure-analysis.md
+            ci-monitoring/
+            test-results/
+            security-reports/
+
+  notify-success:
+    name: Notify on CI Success
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'develop') }}
+    steps:
+      - name: Get workflow run details
+        id: workflow_details
+        run: |
+          echo "run_number=${{ github.event.workflow_run.run_number }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+          echo "commit=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          echo "actor=${{ github.event.workflow_run.actor.login }}" >> $GITHUB_OUTPUT
+
+      - name: Close related CI failure issues
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Find open CI failure issues for this branch
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure'
+            });
+            
+            const branchFailureIssues = issues.data.filter(issue => 
+              issue.title.includes(`CI Failure on ${context.payload.workflow_run.head_branch}`)
+            );
+            
+            for (const issue of branchFailureIssues) {
+              // Add success comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `✅ **CI Pipeline Fixed**\n\n` +
+                      `The CI pipeline is now passing on the \`${context.payload.workflow_run.head_branch}\` branch.\n\n` +
+                      `**Successful Run**: #${context.payload.workflow_run.run_number}\n` +
+                      `**Commit**: ${context.payload.workflow_run.head_sha}\n` +
+                      `**Time**: ${new Date().toISOString()}\n\n` +
+                      `Automatically closing this issue as the CI is now stable.`
+              });
+              
+              // Close the issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                labels: [...issue.labels.map(l => l.name), 'resolved']
+              });
+              
+              console.log(`Closed CI failure issue #${issue.number}`);
+            }
+
+      - name: Send success notification (if configured)
+        if: env.SLACK_WEBHOOK_URL != ''
+        run: |
+          # Send success notification for main/develop branches
+          SLACK_MESSAGE=$(cat << 'EOF'
+          {
+            "text": "✅ CI Pipeline Success",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "✅ *CI Pipeline Success* on `${{ steps.workflow_details.outputs.branch }}` branch\n\n*Run:* #${{ steps.workflow_details.outputs.run_number }}\n*Commit:* `${{ steps.workflow_details.outputs.commit }}`\n*Actor:* ${{ steps.workflow_details.outputs.actor }}"
+                }
+              }
+            ]
+          }
+          EOF
+          )
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$SLACK_MESSAGE" \
+            "$SLACK_WEBHOOK_URL"
+          
+          echo "::notice::Success notification sent"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  cleanup-old-failure-issues:
+    name: Cleanup Old Failure Issues
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Close stale CI failure issues
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Find old CI failure issues (older than 7 days)
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure',
+              sort: 'created',
+              direction: 'asc',
+              per_page: 50
+            });
+            
+            const staleIssues = issues.data.filter(issue => 
+              new Date(issue.created_at) < sevenDaysAgo
+            );
+            
+            for (const issue of staleIssues) {
+              // Add stale comment and close
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `🧹 **Automatically closing stale CI failure issue**\n\n` +
+                      `This CI failure issue has been open for more than 7 days and appears to be stale.\n` +
+                      `If the issue persists, please create a new issue with current information.\n\n` +
+                      `Closed automatically by the CI notification system.`
+              });
+              
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                labels: [...issue.labels.map(l => l.name), 'stale']
+              });
+              
+              console.log(`Closed stale CI failure issue #${issue.number}`);
+            }

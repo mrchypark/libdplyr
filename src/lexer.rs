@@ -391,7 +391,7 @@ mod tests {
     fn tokenize_all(input: &str) -> LexResult<Vec<Token>> {
         let mut lexer = Lexer::new(input.to_string());
         let mut tokens = Vec::new();
-        
+
         loop {
             let token = lexer.next_token()?;
             if token == Token::EOF {
@@ -400,18 +400,22 @@ mod tests {
             }
             tokens.push(token);
         }
-        
+
         Ok(tokens)
     }
 
     // Helper function to assert token sequence
     fn assert_tokens(input: &str, expected: Vec<Token>) {
         let tokens = tokenize_all(input).expect("Tokenization should succeed");
-        assert_eq!(tokens, expected, "Token sequence mismatch for input: '{}'", input);
+        assert_eq!(
+            tokens, expected,
+            "Token sequence mismatch for input: '{}'",
+            input
+        );
     }
 
     // ===== 기본 토큰 파싱 테스트 =====
-    
+
     mod basic_token_parsing {
         use super::*;
 
@@ -420,26 +424,48 @@ mod tests {
             assert_tokens("()", vec![Token::LeftParen, Token::RightParen, Token::EOF]);
             assert_tokens(",", vec![Token::Comma, Token::EOF]);
             assert_tokens(".", vec![Token::Dot, Token::EOF]);
-            assert_tokens("(),.)", vec![
-                Token::LeftParen, Token::RightParen, Token::Comma, 
-                Token::Dot, Token::RightParen, Token::EOF
-            ]);
+            assert_tokens(
+                "(),.)",
+                vec![
+                    Token::LeftParen,
+                    Token::RightParen,
+                    Token::Comma,
+                    Token::Dot,
+                    Token::RightParen,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_arithmetic_operators() {
-            assert_tokens("+ - * /", vec![
-                Token::Plus, Token::Minus, Token::Multiply, Token::Divide, Token::EOF
-            ]);
+            assert_tokens(
+                "+ - * /",
+                vec![
+                    Token::Plus,
+                    Token::Minus,
+                    Token::Multiply,
+                    Token::Divide,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_comparison_operators() {
-            assert_tokens("= == != < <= > >=", vec![
-                Token::Assignment, Token::Equal, Token::NotEqual,
-                Token::LessThan, Token::LessThanOrEqual,
-                Token::GreaterThan, Token::GreaterThanOrEqual, Token::EOF
-            ]);
+            assert_tokens(
+                "= == != < <= > >=",
+                vec![
+                    Token::Assignment,
+                    Token::Equal,
+                    Token::NotEqual,
+                    Token::LessThan,
+                    Token::LessThanOrEqual,
+                    Token::GreaterThan,
+                    Token::GreaterThanOrEqual,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
@@ -449,10 +475,22 @@ mod tests {
 
         #[test]
         fn test_identifiers_basic() {
-            assert_tokens("name", vec![Token::Identifier("name".to_string()), Token::EOF]);
-            assert_tokens("column_name", vec![Token::Identifier("column_name".to_string()), Token::EOF]);
-            assert_tokens("_private", vec![Token::Identifier("_private".to_string()), Token::EOF]);
-            assert_tokens("var123", vec![Token::Identifier("var123".to_string()), Token::EOF]);
+            assert_tokens(
+                "name",
+                vec![Token::Identifier("name".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "column_name",
+                vec![Token::Identifier("column_name".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "_private",
+                vec![Token::Identifier("_private".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "var123",
+                vec![Token::Identifier("var123".to_string()), Token::EOF],
+            );
         }
 
         #[test]
@@ -460,47 +498,89 @@ mod tests {
             // Single character identifiers
             assert_tokens("a", vec![Token::Identifier("a".to_string()), Token::EOF]);
             assert_tokens("_", vec![Token::Identifier("_".to_string()), Token::EOF]);
-            
+
             // Mixed case identifiers
-            assert_tokens("MyColumn", vec![Token::Identifier("MyColumn".to_string()), Token::EOF]);
-            assert_tokens("camelCase", vec![Token::Identifier("camelCase".to_string()), Token::EOF]);
-            
+            assert_tokens(
+                "MyColumn",
+                vec![Token::Identifier("MyColumn".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "camelCase",
+                vec![Token::Identifier("camelCase".to_string()), Token::EOF],
+            );
+
             // Long identifiers
             let long_name = "very_long_column_name_with_many_underscores_123";
-            assert_tokens(long_name, vec![Token::Identifier(long_name.to_string()), Token::EOF]);
+            assert_tokens(
+                long_name,
+                vec![Token::Identifier(long_name.to_string()), Token::EOF],
+            );
         }
 
         #[test]
         fn test_string_literals_double_quotes() {
-            assert_tokens("\"hello\"", vec![Token::String("hello".to_string()), Token::EOF]);
-            assert_tokens("\"hello world\"", vec![Token::String("hello world".to_string()), Token::EOF]);
+            assert_tokens(
+                "\"hello\"",
+                vec![Token::String("hello".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "\"hello world\"",
+                vec![Token::String("hello world".to_string()), Token::EOF],
+            );
             assert_tokens("\"\"", vec![Token::String("".to_string()), Token::EOF]);
         }
 
         #[test]
         fn test_string_literals_single_quotes() {
-            assert_tokens("'hello'", vec![Token::String("hello".to_string()), Token::EOF]);
-            assert_tokens("'hello world'", vec![Token::String("hello world".to_string()), Token::EOF]);
+            assert_tokens(
+                "'hello'",
+                vec![Token::String("hello".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "'hello world'",
+                vec![Token::String("hello world".to_string()), Token::EOF],
+            );
             assert_tokens("''", vec![Token::String("".to_string()), Token::EOF]);
         }
 
         #[test]
         fn test_string_literals_with_escapes() {
-            assert_tokens("\"hello\\nworld\"", vec![Token::String("hello\nworld".to_string()), Token::EOF]);
-            assert_tokens("\"tab\\there\"", vec![Token::String("tab\there".to_string()), Token::EOF]);
-            assert_tokens("\"quote\\\"here\"", vec![Token::String("quote\"here".to_string()), Token::EOF]);
-            assert_tokens("'single\\'quote'", vec![Token::String("single'quote".to_string()), Token::EOF]);
-            assert_tokens("\"backslash\\\\\"", vec![Token::String("backslash\\".to_string()), Token::EOF]);
-            assert_tokens("\"carriage\\rreturn\"", vec![Token::String("carriage\rreturn".to_string()), Token::EOF]);
+            assert_tokens(
+                "\"hello\\nworld\"",
+                vec![Token::String("hello\nworld".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "\"tab\\there\"",
+                vec![Token::String("tab\there".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "\"quote\\\"here\"",
+                vec![Token::String("quote\"here".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "'single\\'quote'",
+                vec![Token::String("single'quote".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "\"backslash\\\\\"",
+                vec![Token::String("backslash\\".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "\"carriage\\rreturn\"",
+                vec![Token::String("carriage\rreturn".to_string()), Token::EOF],
+            );
         }
 
         #[test]
         fn test_string_literals_mixed_quotes() {
-            assert_tokens("\"hello\" 'world'", vec![
-                Token::String("hello".to_string()),
-                Token::String("world".to_string()),
-                Token::EOF
-            ]);
+            assert_tokens(
+                "\"hello\" 'world'",
+                vec![
+                    Token::String("hello".to_string()),
+                    Token::String("world".to_string()),
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
@@ -521,7 +601,10 @@ mod tests {
         #[test]
         fn test_numbers_edge_cases() {
             assert_tokens("0.0000001", vec![Token::Number(0.0000001), Token::EOF]);
-            assert_tokens("999999.999999", vec![Token::Number(999999.999999), Token::EOF]);
+            assert_tokens(
+                "999999.999999",
+                vec![Token::Number(999999.999999), Token::EOF],
+            );
         }
 
         #[test]
@@ -541,7 +624,7 @@ mod tests {
     }
 
     // ===== dplyr 함수 토큰 인식 테스트 =====
-    
+
     mod dplyr_function_recognition {
         use super::*;
 
@@ -571,32 +654,54 @@ mod tests {
         #[test]
         fn test_dplyr_functions_case_sensitivity() {
             // These should be treated as identifiers, not keywords
-            assert_tokens("SELECT", vec![Token::Identifier("SELECT".to_string()), Token::EOF]);
-            assert_tokens("Filter", vec![Token::Identifier("Filter".to_string()), Token::EOF]);
-            assert_tokens("MUTATE", vec![Token::Identifier("MUTATE".to_string()), Token::EOF]);
+            assert_tokens(
+                "SELECT",
+                vec![Token::Identifier("SELECT".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "Filter",
+                vec![Token::Identifier("Filter".to_string()), Token::EOF],
+            );
+            assert_tokens(
+                "MUTATE",
+                vec![Token::Identifier("MUTATE".to_string()), Token::EOF],
+            );
         }
 
         #[test]
         fn test_dplyr_functions_in_sequence() {
-            assert_tokens("select filter mutate", vec![
-                Token::Select, Token::Filter, Token::Mutate, Token::EOF
-            ]);
+            assert_tokens(
+                "select filter mutate",
+                vec![Token::Select, Token::Filter, Token::Mutate, Token::EOF],
+            );
         }
 
         #[test]
         fn test_dplyr_functions_with_parentheses() {
-            assert_tokens("select()", vec![
-                Token::Select, Token::LeftParen, Token::RightParen, Token::EOF
-            ]);
-            assert_tokens("filter(age)", vec![
-                Token::Filter, Token::LeftParen, 
-                Token::Identifier("age".to_string()), Token::RightParen, Token::EOF
-            ]);
+            assert_tokens(
+                "select()",
+                vec![
+                    Token::Select,
+                    Token::LeftParen,
+                    Token::RightParen,
+                    Token::EOF,
+                ],
+            );
+            assert_tokens(
+                "filter(age)",
+                vec![
+                    Token::Filter,
+                    Token::LeftParen,
+                    Token::Identifier("age".to_string()),
+                    Token::RightParen,
+                    Token::EOF,
+                ],
+            );
         }
     }
 
     // ===== 파이프 연산자 및 특수 문자 처리 테스트 =====
-    
+
     mod pipe_operator_and_special_chars {
         use super::*;
 
@@ -607,64 +712,79 @@ mod tests {
 
         #[test]
         fn test_pipe_operator_in_expression() {
-            assert_tokens("data %>% select", vec![
-                Token::Identifier("data".to_string()),
-                Token::Pipe,
-                Token::Select,
-                Token::EOF
-            ]);
+            assert_tokens(
+                "data %>% select",
+                vec![
+                    Token::Identifier("data".to_string()),
+                    Token::Pipe,
+                    Token::Select,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_multiple_pipe_operators() {
-            assert_tokens("data %>% select %>% filter", vec![
-                Token::Identifier("data".to_string()),
-                Token::Pipe,
-                Token::Select,
-                Token::Pipe,
-                Token::Filter,
-                Token::EOF
-            ]);
+            assert_tokens(
+                "data %>% select %>% filter",
+                vec![
+                    Token::Identifier("data".to_string()),
+                    Token::Pipe,
+                    Token::Select,
+                    Token::Pipe,
+                    Token::Filter,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_pipe_operator_with_whitespace() {
-            assert_tokens("data  %>%  select", vec![
-                Token::Identifier("data".to_string()),
-                Token::Pipe,
-                Token::Select,
-                Token::EOF
-            ]);
+            assert_tokens(
+                "data  %>%  select",
+                vec![
+                    Token::Identifier("data".to_string()),
+                    Token::Pipe,
+                    Token::Select,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_newline_handling() {
-            assert_tokens("select\nfilter", vec![
-                Token::Select, Token::Newline, Token::Filter, Token::EOF
-            ]);
-            
-            assert_tokens("data %>%\nselect(name)", vec![
-                Token::Identifier("data".to_string()),
-                Token::Pipe,
-                Token::Newline,
-                Token::Select,
-                Token::LeftParen,
-                Token::Identifier("name".to_string()),
-                Token::RightParen,
-                Token::EOF
-            ]);
+            assert_tokens(
+                "select\nfilter",
+                vec![Token::Select, Token::Newline, Token::Filter, Token::EOF],
+            );
+
+            assert_tokens(
+                "data %>%\nselect(name)",
+                vec![
+                    Token::Identifier("data".to_string()),
+                    Token::Pipe,
+                    Token::Newline,
+                    Token::Select,
+                    Token::LeftParen,
+                    Token::Identifier("name".to_string()),
+                    Token::RightParen,
+                    Token::EOF,
+                ],
+            );
         }
 
         #[test]
         fn test_whitespace_preservation() {
             // Whitespace should be skipped except newlines
-            assert_tokens("  select   filter  ", vec![
-                Token::Select, Token::Filter, Token::EOF
-            ]);
-            
-            assert_tokens("\t\tselect\t\tfilter\t\t", vec![
-                Token::Select, Token::Filter, Token::EOF
-            ]);
+            assert_tokens(
+                "  select   filter  ",
+                vec![Token::Select, Token::Filter, Token::EOF],
+            );
+
+            assert_tokens(
+                "\t\tselect\t\tfilter\t\t",
+                vec![Token::Select, Token::Filter, Token::EOF],
+            );
         }
 
         #[test]
@@ -697,7 +817,7 @@ mod tests {
     }
 
     // ===== 오류 케이스 테스트 =====
-    
+
     mod error_cases {
         use super::*;
 
@@ -705,7 +825,7 @@ mod tests {
         fn test_unterminated_string_double_quote() {
             let mut lexer = Lexer::new("\"unterminated".to_string());
             match lexer.next_token() {
-                Err(LexError::UnterminatedString(_)) => {},
+                Err(LexError::UnterminatedString(_)) => {}
                 other => panic!("Expected UnterminatedString error, got: {:?}", other),
             }
         }
@@ -714,7 +834,7 @@ mod tests {
         fn test_unterminated_string_single_quote() {
             let mut lexer = Lexer::new("'unterminated".to_string());
             match lexer.next_token() {
-                Err(LexError::UnterminatedString(_)) => {},
+                Err(LexError::UnterminatedString(_)) => {}
                 other => panic!("Expected UnterminatedString error, got: {:?}", other),
             }
         }
@@ -723,7 +843,7 @@ mod tests {
         fn test_unterminated_string_with_escape() {
             let mut lexer = Lexer::new("\"test\\".to_string());
             match lexer.next_token() {
-                Err(LexError::UnterminatedString(_)) => {},
+                Err(LexError::UnterminatedString(_)) => {}
                 other => panic!("Expected UnterminatedString error, got: {:?}", other),
             }
         }
@@ -734,7 +854,7 @@ mod tests {
             match lexer.next_token() {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%>");
-                },
+                }
                 other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
             }
         }
@@ -745,7 +865,7 @@ mod tests {
             match lexer.next_token() {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%<");
-                },
+                }
                 other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
             }
         }
@@ -756,7 +876,7 @@ mod tests {
             match lexer.next_token() {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%");
-                },
+                }
                 other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
             }
         }
@@ -767,7 +887,7 @@ mod tests {
             match lexer.next_token() {
                 Err(LexError::InvalidNumber(num, _)) => {
                     assert_eq!(num, "123.45.67");
-                },
+                }
                 other => panic!("Expected InvalidNumber error, got: {:?}", other),
             }
         }
@@ -782,14 +902,17 @@ mod tests {
         #[test]
         fn test_unexpected_character_symbols() {
             let test_cases = vec!['@', '#', '$', '^', '~', '`', '[', ']', '{', '}'];
-            
+
             for ch in test_cases {
                 let mut lexer = Lexer::new(ch.to_string());
                 match lexer.next_token() {
                     Err(LexError::UnexpectedCharacter(found_ch, _)) => {
                         assert_eq!(found_ch, ch, "Expected character '{}' in error", ch);
-                    },
-                    other => panic!("Expected UnexpectedCharacter error for '{}', got: {:?}", ch, other),
+                    }
+                    other => panic!(
+                        "Expected UnexpectedCharacter error for '{}', got: {:?}",
+                        ch, other
+                    ),
                 }
             }
         }
@@ -798,8 +921,11 @@ mod tests {
         fn test_unexpected_character_unicode() {
             let mut lexer = Lexer::new("한글".to_string());
             match lexer.next_token() {
-                Err(LexError::UnexpectedCharacter('한', _)) => {},
-                other => panic!("Expected UnexpectedCharacter error for Unicode, got: {:?}", other),
+                Err(LexError::UnexpectedCharacter('한', _)) => {}
+                other => panic!(
+                    "Expected UnexpectedCharacter error for Unicode, got: {:?}",
+                    other
+                ),
             }
         }
 
@@ -807,30 +933,33 @@ mod tests {
         fn test_exclamation_without_equals() {
             let mut lexer = Lexer::new("!".to_string());
             match lexer.next_token() {
-                Err(LexError::UnexpectedCharacter('!', _)) => {},
-                other => panic!("Expected UnexpectedCharacter error for '!', got: {:?}", other),
+                Err(LexError::UnexpectedCharacter('!', _)) => {}
+                other => panic!(
+                    "Expected UnexpectedCharacter error for '!', got: {:?}",
+                    other
+                ),
             }
         }
 
         #[test]
         fn test_error_position_tracking() {
             let mut lexer = Lexer::new("select @".to_string());
-            
+
             // First token should be fine
             assert_eq!(lexer.next_token().unwrap(), Token::Select);
-            
+
             // Second token should error at position 7
             match lexer.next_token() {
                 Err(LexError::UnexpectedCharacter('@', pos)) => {
                     assert_eq!(pos, 7, "Error position should be 7");
-                },
+                }
                 other => panic!("Expected UnexpectedCharacter error, got: {:?}", other),
             }
         }
     }
 
     // ===== 통합 테스트 =====
-    
+
     mod integration_tests {
         use super::*;
 
@@ -855,17 +984,25 @@ mod tests {
                 group_by(department) %>%
                 summarise(avg_salary = mean(salary))
             "#;
-            
+
             let tokens = tokenize_all(input).expect("Should tokenize successfully");
-            
+
             // Verify we have the expected dplyr functions
-            let function_tokens: Vec<&Token> = tokens.iter()
-                .filter(|t| matches!(t, 
-                    Token::Select | Token::Filter | Token::Mutate | 
-                    Token::Arrange | Token::GroupBy | Token::Summarise
-                ))
+            let function_tokens: Vec<&Token> = tokens
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t,
+                        Token::Select
+                            | Token::Filter
+                            | Token::Mutate
+                            | Token::Arrange
+                            | Token::GroupBy
+                            | Token::Summarise
+                    )
+                })
                 .collect();
-            
+
             assert_eq!(function_tokens.len(), 6, "Should have 6 dplyr functions");
         }
 
@@ -873,7 +1010,7 @@ mod tests {
         fn test_mixed_quotes_and_operators() {
             let input = r#"filter(name == "John" | name == 'Jane' & age != 25)"#;
             let tokens = tokenize_all(input).expect("Should tokenize successfully");
-            
+
             // Should contain both string types and various operators
             assert!(tokens.contains(&Token::Filter));
             assert!(tokens.contains(&Token::String("John".to_string())));
@@ -888,7 +1025,7 @@ mod tests {
         fn test_numbers_in_expressions() {
             let input = "filter(age > 18.5 & salary >= 1000.0 & score == 95)";
             let tokens = tokenize_all(input).expect("Should tokenize successfully");
-            
+
             assert!(tokens.contains(&Token::Number(18.5)));
             assert!(tokens.contains(&Token::Number(1000.0)));
             assert!(tokens.contains(&Token::Number(95.0)));
@@ -898,7 +1035,7 @@ mod tests {
         fn test_boolean_and_null_in_context() {
             let input = "filter(active == TRUE & deleted != FALSE & notes != NULL)";
             let tokens = tokenize_all(input).expect("Should tokenize successfully");
-            
+
             assert!(tokens.contains(&Token::Boolean(true)));
             assert!(tokens.contains(&Token::Boolean(false)));
             assert!(tokens.contains(&Token::Null));

@@ -3,7 +3,7 @@
 //! This example demonstrates complex dplyr pipeline operations and showcases
 //! the power of chaining multiple operations together.
 
-use libdplyr::{Transpiler, PostgreSqlDialect, MySqlDialect, SqliteDialect, DuckDbDialect};
+use libdplyr::{DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect, Transpiler};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== libdplyr Pipeline Examples ===\n");
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn test_complex_pipeline_parsing() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let complex_pipeline = r#"
             select(id, name, category, price) %>%
             filter(price > 10 & category == "electronics") %>%
@@ -108,8 +108,12 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(complex_pipeline);
-        assert!(result.is_ok(), "Complex pipeline should parse successfully: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Complex pipeline should parse successfully: {:?}",
+            result
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"), "Should contain SELECT");
         assert!(sql.contains("WHERE"), "Should contain WHERE");
@@ -120,7 +124,7 @@ mod tests {
     #[test]
     fn test_nested_conditions() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let nested_pipeline = r#"
             select(name, age, salary, department) %>%
             filter(
@@ -131,8 +135,12 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(nested_pipeline);
-        assert!(result.is_ok(), "Nested conditions should parse: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Nested conditions should parse: {:?}",
+            result
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("WHERE"), "Should generate WHERE clause");
         assert!(sql.contains("AND"), "Should contain AND operators");
@@ -142,7 +150,7 @@ mod tests {
     #[test]
     fn test_multiple_mutations() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let mutation_pipeline = r#"
             select(first_name, last_name, birth_date, salary) %>%
             mutate(
@@ -158,8 +166,12 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(mutation_pipeline);
-        assert!(result.is_ok(), "Multiple mutations should work: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Multiple mutations should work: {:?}",
+            result
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"), "Should contain SELECT");
         assert!(sql.contains("||"), "Should contain string concatenation");
@@ -169,7 +181,7 @@ mod tests {
     #[test]
     fn test_aggregation_with_grouping() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let agg_pipeline = r#"
             group_by(department, location) %>%
             summarise(
@@ -182,8 +194,12 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(agg_pipeline);
-        assert!(result.is_ok(), "Aggregation with grouping should work: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Aggregation with grouping should work: {:?}",
+            result
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("GROUP BY"), "Should contain GROUP BY");
         assert!(sql.contains("COUNT(*)"), "Should convert n() to COUNT(*)");
@@ -196,15 +212,19 @@ mod tests {
     #[test]
     fn test_ordering_with_multiple_columns() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let order_pipeline = r#"
             select(name, department, salary, hire_date) %>%
             arrange(department, desc(salary), hire_date)
         "#;
 
         let result = transpiler.transpile(order_pipeline);
-        assert!(result.is_ok(), "Multiple column ordering should work: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Multiple column ordering should work: {:?}",
+            result
+        );
+
         let sql = result.unwrap();
         assert!(sql.contains("ORDER BY"), "Should contain ORDER BY");
         assert!(sql.contains("DESC"), "Should contain DESC for salary");

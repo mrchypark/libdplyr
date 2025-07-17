@@ -4,7 +4,7 @@
 //! Each dialect has its own syntax quirks and optimizations.
 
 use libdplyr::{
-    DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect, Transpiler, TranspileError,
+    DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect, TranspileError, Transpiler,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for (dialect_name, dialect) in &dialects {
             let transpiler = Transpiler::new(dialect.clone_box());
-            
+
             match transpiler.transpile(dplyr_code) {
                 Ok(sql) => {
                     println!("**{} SQL:**", dialect_name);
@@ -73,10 +73,16 @@ fn demonstrate_dialect_specific_features() -> Result<(), Box<dyn std::error::Err
     // DuckDB-specific analytical functions
     println!("### DuckDB Analytical Functions\n");
     let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
-    
+
     let analytical_queries = vec![
-        ("Median calculation", "group_by(department) %>% summarise(median_salary = median(salary))"),
-        ("Mode calculation", "group_by(category) %>% summarise(most_common = mode(status))"),
+        (
+            "Median calculation",
+            "group_by(department) %>% summarise(median_salary = median(salary))",
+        ),
+        (
+            "Mode calculation",
+            "group_by(category) %>% summarise(most_common = mode(status))",
+        ),
     ];
 
     for (desc, query) in analytical_queries {
@@ -84,7 +90,7 @@ fn demonstrate_dialect_specific_features() -> Result<(), Box<dyn std::error::Err
         println!("```r");
         println!("{}", query);
         println!("```");
-        
+
         match duckdb_transpiler.transpile(query) {
             Ok(sql) => {
                 println!("```sql");
@@ -101,21 +107,21 @@ fn demonstrate_dialect_specific_features() -> Result<(), Box<dyn std::error::Err
     println!("### MySQL String Concatenation\n");
     let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
     let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-    
+
     let concat_query = r#"select(first_name, last_name) %>% mutate(full_name = concat(first_name, " ", last_name))"#;
-    
+
     println!("**Query:**");
     println!("```r");
     println!("{}", concat_query);
     println!("```\n");
-    
+
     println!("**MySQL (uses CONCAT function):**");
     if let Ok(sql) = mysql_transpiler.transpile(concat_query) {
         println!("```sql");
         println!("{}", format_sql_for_display(&sql));
         println!("```\n");
     }
-    
+
     println!("**PostgreSQL (uses || operator):**");
     if let Ok(sql) = pg_transpiler.transpile(concat_query) {
         println!("```sql");
@@ -166,7 +172,9 @@ fn demonstrate_error_handling() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     TranspileError::GenerationError(gen_err) => {
                         println!("Generation Error: {}", gen_err);
-                        println!("Hint: The operation may not be supported in the selected SQL dialect");
+                        println!(
+                            "Hint: The operation may not be supported in the selected SQL dialect"
+                        );
                     }
                 }
                 println!("```\n");
@@ -180,11 +188,11 @@ fn demonstrate_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 /// Formats SQL for better display in examples
 fn format_sql_for_display(sql: &str) -> String {
     sql.replace(" FROM ", "\nFROM ")
-       .replace(" WHERE ", "\nWHERE ")
-       .replace(" GROUP BY ", "\nGROUP BY ")
-       .replace(" ORDER BY ", "\nORDER BY ")
-       .replace(" AND ", "\n  AND ")
-       .replace(" OR ", "\n  OR ")
+        .replace(" WHERE ", "\nWHERE ")
+        .replace(" GROUP BY ", "\nGROUP BY ")
+        .replace(" ORDER BY ", "\nORDER BY ")
+        .replace(" AND ", "\n  AND ")
+        .replace(" OR ", "\n  OR ")
 }
 
 #[cfg(test)]
@@ -213,14 +221,20 @@ mod tests {
     fn test_dialect_specific_identifier_quoting() {
         let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
-        
+
         let query = "select(user_name)";
-        
+
         let pg_sql = pg_transpiler.transpile(query).unwrap();
         let mysql_sql = mysql_transpiler.transpile(query).unwrap();
-        
-        assert!(pg_sql.contains("\"user_name\""), "PostgreSQL should use double quotes");
-        assert!(mysql_sql.contains("`user_name`"), "MySQL should use backticks");
+
+        assert!(
+            pg_sql.contains("\"user_name\""),
+            "PostgreSQL should use double quotes"
+        );
+        assert!(
+            mysql_sql.contains("`user_name`"),
+            "MySQL should use backticks"
+        );
     }
 
     #[test]
@@ -245,7 +259,7 @@ mod tests {
             let transpiler = Transpiler::new(dialect);
             let result = transpiler.transpile(complex_query);
             assert!(result.is_ok(), "Complex query should work for all dialects");
-            
+
             let sql = result.unwrap();
             assert!(sql.contains("SELECT"), "Should contain SELECT");
             assert!(sql.contains("WHERE"), "Should contain WHERE");
@@ -256,7 +270,7 @@ mod tests {
     #[test]
     fn test_error_handling_consistency() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        
+
         let invalid_queries = vec![
             "invalid_function(test)",
             "select(name %>% filter",
@@ -265,18 +279,22 @@ mod tests {
 
         for query in invalid_queries {
             let result = transpiler.transpile(query);
-            assert!(result.is_err(), "Invalid query '{}' should return error", query);
+            assert!(
+                result.is_err(),
+                "Invalid query '{}' should return error",
+                query
+            );
         }
     }
 
     #[test]
     fn test_duckdb_specific_functions() {
         let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
-        
+
         // Test median function (DuckDB specific)
         let median_query = "group_by(category) %>% summarise(median_value = median(price))";
         let result = duckdb_transpiler.transpile(median_query);
-        
+
         assert!(result.is_ok(), "DuckDB should support median function");
         let sql = result.unwrap();
         assert!(sql.contains("MEDIAN"), "Should contain MEDIAN function");
@@ -286,10 +304,22 @@ mod tests {
     fn test_format_sql_for_display() {
         let input = "SELECT name FROM users WHERE age > 18 GROUP BY department ORDER BY name";
         let formatted = format_sql_for_display(input);
-        
-        assert!(formatted.contains("\nFROM"), "Should format FROM on new line");
-        assert!(formatted.contains("\nWHERE"), "Should format WHERE on new line");
-        assert!(formatted.contains("\nGROUP BY"), "Should format GROUP BY on new line");
-        assert!(formatted.contains("\nORDER BY"), "Should format ORDER BY on new line");
+
+        assert!(
+            formatted.contains("\nFROM"),
+            "Should format FROM on new line"
+        );
+        assert!(
+            formatted.contains("\nWHERE"),
+            "Should format WHERE on new line"
+        );
+        assert!(
+            formatted.contains("\nGROUP BY"),
+            "Should format GROUP BY on new line"
+        );
+        assert!(
+            formatted.contains("\nORDER BY"),
+            "Should format ORDER BY on new line"
+        );
     }
 }

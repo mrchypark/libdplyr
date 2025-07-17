@@ -8,7 +8,9 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 use crate::error::TranspileError;
-use crate::{DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect, Transpiler};
+use crate::{
+    DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect, Transpiler,
+};
 
 /// CLI arguments structure
 #[derive(Debug, Clone)]
@@ -319,10 +321,11 @@ fn print_cli_error(error: &str) {
 }
 
 /// Prints I/O errors in Korean.
+#[allow(clippy::borrowed_box)]
 fn print_io_error(error: &Box<dyn std::error::Error>) {
     eprintln!("파일 입출력 오류: {}", error);
     eprintln!();
-    
+
     let error_str = error.to_string();
     if error_str.contains("Input file not found") {
         eprintln!("해결 방법:");
@@ -390,12 +393,14 @@ fn print_transpile_error(error: &TranspileError) {
             eprintln!();
             eprintln!("올바른 예시:");
             eprintln!("  data %>% select(\"name\", \"age\") %>% filter(age > 18)");
-            
+
             // 구체적인 렉서 오류 정보 제공
             let error_str = lex_error.to_string();
             if error_str.contains("Unexpected character") {
                 eprintln!();
-                eprintln!("힌트: 예상치 못한 문자가 발견되었습니다. R 문법에 맞는 문자만 사용하세요.");
+                eprintln!(
+                    "힌트: 예상치 못한 문자가 발견되었습니다. R 문법에 맞는 문자만 사용하세요."
+                );
             } else if error_str.contains("Unterminated string") {
                 eprintln!();
                 eprintln!("힌트: 문자열이 제대로 닫히지 않았습니다. 따옴표를 확인하세요.");
@@ -414,7 +419,7 @@ fn print_transpile_error(error: &TranspileError) {
             eprintln!("  data %>% select(name, age) %>% filter(age > 18)");
             eprintln!("  data %>% mutate(adult = age >= 18) %>% arrange(desc(age))");
             eprintln!("  data %>% group_by(category) %>% summarise(count = n())");
-            
+
             // 구체적인 파서 오류 정보 제공
             let error_str = parse_error.to_string();
             if error_str.contains("Unexpected token") {
@@ -439,7 +444,7 @@ fn print_transpile_error(error: &TranspileError) {
             eprintln!("  • mysql - MySQL 특화 기능");
             eprintln!("  • sqlite - 경량 데이터베이스용");
             eprintln!("  • duckdb - 분석용 데이터베이스");
-            
+
             // 구체적인 생성 오류 정보 제공
             let error_str = gen_error.to_string();
             if error_str.contains("Unsupported operation") {
@@ -451,7 +456,7 @@ fn print_transpile_error(error: &TranspileError) {
             }
         }
     }
-    
+
     eprintln!();
     eprintln!("추가 도움이 필요하시면 --help 옵션을 사용하거나 문서를 참조하세요.");
 }
@@ -473,11 +478,13 @@ fn read_input(args: &CliArgs) -> Result<String, Box<dyn std::error::Error>> {
         io::stdin()
             .read_to_string(&mut input)
             .map_err(|e| format!("Standard input read error: {}", e))?;
-        
+
         if input.trim().is_empty() {
-            return Err("No input provided. Use -i <file>, -t <text>, or pipe input via stdin.".into());
+            return Err(
+                "No input provided. Use -i <file>, -t <text>, or pipe input via stdin.".into(),
+            );
         }
-        
+
         Ok(input)
     }
 }
@@ -498,14 +505,14 @@ fn write_output(args: &CliArgs, sql: &str) -> Result<(), Box<dyn std::error::Err
 /// Pretty-formats SQL with proper indentation and line breaks.
 fn format_sql(sql: &str) -> String {
     let mut formatted = sql.to_string();
-    
+
     // Join clauses (process specific joins first before generic JOIN)
     formatted = formatted.replace(" LEFT JOIN ", "\nLEFT JOIN ");
     formatted = formatted.replace(" RIGHT JOIN ", "\nRIGHT JOIN ");
     formatted = formatted.replace(" INNER JOIN ", "\nINNER JOIN ");
     formatted = formatted.replace(" OUTER JOIN ", "\nOUTER JOIN ");
     formatted = formatted.replace(" JOIN ", "\nJOIN ");
-    
+
     // Main SQL clauses
     formatted = formatted.replace(" FROM ", "\nFROM ");
     formatted = formatted.replace(" WHERE ", "\nWHERE ");
@@ -513,15 +520,15 @@ fn format_sql(sql: &str) -> String {
     formatted = formatted.replace(" HAVING ", "\nHAVING ");
     formatted = formatted.replace(" ORDER BY ", "\nORDER BY ");
     formatted = formatted.replace(" LIMIT ", "\nLIMIT ");
-    
+
     // Logical operators with proper indentation
     formatted = formatted.replace(" AND ", "\n  AND ");
     formatted = formatted.replace(" OR ", "\n  OR ");
-    
+
     // Subquery formatting
     formatted = formatted.replace(" UNION ", "\nUNION ");
     formatted = formatted.replace(" UNION ALL ", "\nUNION ALL ");
-    
+
     // Clean up extra whitespace but preserve indentation for AND/OR
     formatted = formatted
         .lines()
@@ -535,12 +542,12 @@ fn format_sql(sql: &str) -> String {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    
+
     // Add final newline
     if !formatted.ends_with('\n') {
         formatted.push('\n');
     }
-    
+
     formatted
 }
 
@@ -680,12 +687,15 @@ mod tests {
 
         let result = read_input(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Input file not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Input file not found"));
     }
 
     #[test]
     fn test_read_input_no_input_provided() {
-        let args = CliArgs {
+        let _args = CliArgs {
             input_file: None,
             output_file: None,
             dialect: SqlDialectType::PostgreSql,
@@ -693,7 +703,7 @@ mod tests {
             input_text: None,
         };
 
-        // 이 테스트는 실제로는 stdin에서 읽으려고 시도하므로 
+        // 이 테스트는 실제로는 stdin에서 읽으려고 시도하므로
         // 실제 환경에서는 실행하지 않습니다.
         // 대신 에러 메시지 형식만 확인합니다.
         let error_msg = "No input provided. Use -i <file>, -t <text>, or pipe input via stdin.";
@@ -704,7 +714,10 @@ mod tests {
     fn test_cli_error_handling() {
         // CLI 에러 메시지 형식 테스트
         let test_cases = vec![
-            ("required arguments were not provided", "필수 인수가 제공되지 않았습니다"),
+            (
+                "required arguments were not provided",
+                "필수 인수가 제공되지 않았습니다",
+            ),
             ("invalid value", "잘못된 값이 제공되었습니다"),
             ("conflicts with", "충돌하는 옵션이 함께 사용되었습니다"),
         ];
@@ -719,7 +732,7 @@ mod tests {
             } else {
                 input
             };
-            
+
             assert!(result.contains(expected));
         }
     }
@@ -740,13 +753,13 @@ mod tests {
 
         let test_sql = "SELECT * FROM test_table;";
         let result = write_output(&args, test_sql);
-        
+
         assert!(result.is_ok());
         assert!(Path::new(temp_file).exists());
-        
+
         let content = fs::read_to_string(temp_file).unwrap();
         assert_eq!(content, test_sql);
-        
+
         // 테스트 파일 정리
         let _ = fs::remove_file(temp_file);
     }
@@ -755,14 +768,17 @@ mod tests {
     fn test_format_sql_with_joins() {
         let sql = "SELECT u.name FROM users u INNER JOIN orders o ON u.id = o.user_id";
         let formatted = format_sql(sql);
-        
+
         println!("Original: {}", sql);
         println!("Formatted: {}", formatted);
-        
+
         assert!(formatted.contains("SELECT u.name"));
         assert!(formatted.contains("\nFROM users u"));
         // JOIN이 새 줄로 시작하는지 확인
-        assert!(formatted.contains("\nINNER JOIN orders o") || formatted.contains("INNER\nJOIN orders o"));
+        assert!(
+            formatted.contains("\nINNER JOIN orders o")
+                || formatted.contains("INNER\nJOIN orders o")
+        );
         assert!(formatted.ends_with('\n'));
     }
 
@@ -770,7 +786,7 @@ mod tests {
     fn test_format_sql_with_logical_operators() {
         let sql = "SELECT * FROM users WHERE age > 18 AND status = 'active' OR premium = true";
         let formatted = format_sql(sql);
-        
+
         assert!(formatted.contains("\nWHERE age > 18"));
         assert!(formatted.contains("\n  AND status = 'active'"));
         assert!(formatted.contains("\n  OR premium = true"));
