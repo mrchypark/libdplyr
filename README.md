@@ -94,27 +94,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### 🔄 stdin/stdout Pipeline (Recommended)
 
+The most efficient way to use libdplyr is through stdin/stdout pipelines:
+
 ```bash
 # Basic usage - read from stdin, output to stdout
 echo "select(name, age) %>% filter(age > 18)" | libdplyr
 
-# Specify SQL dialect
-echo "select(name)" | libdplyr -d mysql
+# Specify SQL dialect (postgresql, mysql, sqlite, duckdb)
+echo "select(name)" | libdplyr --dialect mysql
+echo "select(name)" | libdplyr -d postgresql
 
-# Pretty format output
+# Output formatting options
 echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
-
-# JSON format output with metadata
+echo "select(name, age)" | libdplyr --compact
 echo "select(name)" | libdplyr --json
 
-# Compact format (single line)
-echo "select(name, age)" | libdplyr --compact
-
-# Validate syntax only (no SQL generation)
+# Validation mode - check syntax without generating SQL
 echo "select(name, age)" | libdplyr --validate-only
 
-# Verbose output with debug information
+# Verbose and debug modes for troubleshooting
+echo "select(name)" | libdplyr --verbose
+echo "select(name)" | libdplyr --debug
 echo "select(name)" | libdplyr --verbose --debug
+
+# Combine options
+echo "select(name)" | libdplyr --json --verbose --dialect mysql
+```
+
+#### 📊 Output Format Examples
+
+**Default Format:**
+```bash
+$ echo "select(name, age) %>% filter(age > 18)" | libdplyr
+SELECT "name", "age" FROM "data" WHERE "age" > 18
+```
+
+**Pretty Format:**
+```bash
+$ echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
+SELECT "name", "age"
+FROM "data"
+WHERE "age" > 18
+```
+
+**Compact Format:**
+```bash
+$ echo "select(name, age) %>% filter(age > 18)" | libdplyr --compact
+SELECT "name","age" FROM "data" WHERE "age">18
+```
+
+**JSON Format:**
+```bash
+$ echo "select(name)" | libdplyr --json
+{
+  "success": true,
+  "sql": "SELECT \"name\" FROM \"data\"",
+  "metadata": {
+    "dialect": "postgresql",
+    "timestamp": 1640995200,
+    "stats": {
+      "total_time_us": 1250,
+      "input_size_bytes": 13,
+      "output_size_bytes": 25
+    },
+    "version": "0.1.0"
+  }
+}
+```
+
+**Validation Only:**
+```bash
+$ echo "select(name, age)" | libdplyr --validate-only
+Valid dplyr syntax
+
+$ echo "invalid_syntax(" | libdplyr --validate-only
+Validation failed: Unexpected token: expected 'expression' but found EOF
 ```
 
 #### 📁 File-based Operations
@@ -130,26 +184,92 @@ libdplyr -i query.R --pretty
 libdplyr -t "select(name, age) %>% filter(age > 18)" -d mysql
 ```
 
-#### 🔗 Pipeline Integration
+#### 🔗 Pipeline Integration & Best Practices
 
+**Database Integration:**
 ```bash
-# Chain with other tools
-cat analysis.R | libdplyr -d postgresql | psql -d mydb
+# PostgreSQL integration
+echo "select(name, age) %>% filter(age > 18)" | libdplyr -d postgresql | psql -d mydb
 
-# Conditional processing
-if echo "select(invalid)" | libdplyr --validate-only; then
-    echo "Valid syntax"
+# MySQL integration  
+echo "select(name) %>% arrange(name)" | libdplyr -d mysql | mysql -u user -p database
+
+# SQLite integration
+echo "select(count = n()) %>% group_by(category)" | libdplyr -d sqlite | sqlite3 data.db
+
+# DuckDB integration
+echo "select(name, value) %>% filter(value > 100)" | libdplyr -d duckdb | duckdb mydata.db
+```
+
+**Validation and Error Handling:**
+```bash
+# Validate before processing
+if echo "select(name, age)" | libdplyr --validate-only --json | jq -r '.success'; then
+    echo "select(name, age)" | libdplyr -d postgresql | psql -d mydb
 else
-    echo "Syntax error"
+    echo "Invalid dplyr syntax"
 fi
 
-# Batch processing
-find . -name "*.R" -exec sh -c 'libdplyr -i "$1" -o "${1%.R}.sql"' _ {} \;
+# Handle errors gracefully
+echo "invalid_syntax(" | libdplyr --json 2>/dev/null | jq -r '.error.message // "No error"'
 
-# Process multiple queries
-cat queries.txt | while read query; do
-    echo "$query" | libdplyr --json
-done
+# Check exit codes
+echo "select(name)" | libdplyr --validate-only
+echo "Exit code: $?"  # 0 for success, 4 for validation error
+```
+
+**Batch Processing:**
+```bash
+# Process multiple files
+find . -name "*.R" -exec sh -c '
+    echo "Processing: $1"
+    if libdplyr -i "$1" --validate-only; then
+        libdplyr -i "$1" -o "${1%.R}.sql" -d postgresql --pretty
+        echo "✓ Converted: ${1%.R}.sql"
+    else
+        echo "✗ Invalid syntax in: $1"
+    fi
+' _ {} \;
+
+# Process queries from a file
+while IFS= read -r query; do
+    echo "Query: $query"
+    echo "$query" | libdplyr --json | jq -r '.sql // .error.message'
+    echo "---"
+done < queries.txt
+
+# Parallel processing with xargs
+cat queries.txt | xargs -I {} -P 4 sh -c 'echo "{}" | libdplyr --compact'
+```
+
+**Performance Optimization:**
+```bash
+# Use compact format for minimal output
+echo "select(name)" | libdplyr --compact
+
+# Validate syntax first for large batches
+echo "select(name, age)" | libdplyr --validate-only && \
+echo "select(name, age)" | libdplyr -d postgresql
+
+# Use appropriate dialect for your database
+echo "select(name)" | libdplyr -d mysql    # for MySQL
+echo "select(name)" | libdplyr -d sqlite   # for SQLite
+```
+
+**Monitoring and Logging:**
+```bash
+# Verbose mode for debugging
+echo "select(name)" | libdplyr --verbose --debug 2>debug.log
+
+# JSON output for structured logging
+echo "select(name)" | libdplyr --json | jq '{
+    success: .success,
+    processing_time: .metadata.stats.total_time_us,
+    dialect: .metadata.dialect
+}'
+
+# Performance monitoring
+time echo "select(name, age) %>% filter(age > 18)" | libdplyr --compact
 ```
 
 #### 🆘 Help and Options
@@ -283,10 +403,109 @@ let dplyr_code = r#"
 let sql = transpiler.transpile(dplyr_code)?;
 ```
 
-## Error Handling
+## Error Handling & Troubleshooting
 
-libdplyr provides detailed error information:
+### 🔍 Common Error Types
 
+libdplyr provides detailed error information with specific exit codes:
+
+| Exit Code | Error Type | Description |
+|-----------|------------|-------------|
+| 0 | Success | Operation completed successfully |
+| 1 | General Error | Unspecified error occurred |
+| 2 | Invalid Arguments | Command line arguments are invalid |
+| 3 | I/O Error | File or stdin/stdout operations failed |
+| 4 | Validation Error | dplyr syntax validation failed |
+| 5 | Transpilation Error | SQL generation failed |
+| 6 | Configuration Error | Invalid configuration or settings |
+
+### 🛠 Troubleshooting Guide
+
+**Syntax Errors:**
+```bash
+# Check syntax before processing
+$ echo "invalid_function(" | libdplyr --validate-only
+Validation failed: Unexpected token: expected 'expression' but found EOF
+
+# Get detailed error information with JSON
+$ echo "invalid_function(" | libdplyr --json
+{
+  "success": false,
+  "error": {
+    "error_type": "parse",
+    "message": "Unexpected token: expected 'expression' but found EOF",
+    "suggestions": [
+      "Check dplyr function syntax and arguments",
+      "Ensure proper use of pipe operator (%>%)",
+      "Verify function names are spelled correctly"
+    ]
+  }
+}
+```
+
+**Common Syntax Issues:**
+```bash
+# Missing closing parenthesis
+$ echo "select(name" | libdplyr --validate-only
+# Fix: echo "select(name)" | libdplyr --validate-only
+
+# Invalid function name
+$ echo "invalid_func(name)" | libdplyr --validate-only  
+# Fix: echo "select(name)" | libdplyr --validate-only
+
+# Incomplete pipe operation
+$ echo "select(name) %>%" | libdplyr --validate-only
+# Fix: echo "select(name) %>% filter(age > 18)" | libdplyr --validate-only
+
+# Missing quotes for string literals
+$ echo "filter(name == John)" | libdplyr --validate-only
+# Fix: echo "filter(name == \"John\")" | libdplyr --validate-only
+```
+
+**File I/O Issues:**
+```bash
+# File not found
+$ libdplyr -i nonexistent.R
+# Fix: Check file path and permissions
+
+# Permission denied
+$ libdplyr -i protected.R -o /root/output.sql
+# Fix: Use accessible output directory or run with proper permissions
+
+# Empty input
+$ echo "" | libdplyr
+# Fix: Provide valid dplyr code
+```
+
+**Dialect-Specific Issues:**
+```bash
+# Unsupported dialect
+$ echo "select(name)" | libdplyr -d unsupported_db
+# Fix: Use supported dialects: postgresql, mysql, sqlite, duckdb
+
+# Dialect-specific function not supported
+$ echo "select(name) %>% mutate(id = uuid())" | libdplyr -d sqlite
+# Fix: Check dialect documentation for supported functions
+```
+
+### 🐛 Debug Mode
+
+Use debug mode for detailed troubleshooting:
+
+```bash
+# Enable verbose and debug output
+$ echo "select(name, age)" | libdplyr --verbose --debug 2>debug.log
+
+# Debug output includes:
+# - Tokenization steps
+# - AST structure
+# - SQL generation process
+# - Performance metrics
+```
+
+### 📊 Error Handling in Code
+
+**Rust Library:**
 ```rust
 use libdplyr::{Transpiler, TranspileError, PostgreSqlDialect};
 
@@ -297,14 +516,91 @@ match result {
     Ok(sql) => println!("SQL: {}", sql),
     Err(TranspileError::LexError(e)) => {
         eprintln!("Tokenization error: {}", e);
+        // Handle lexical errors (invalid characters, malformed strings)
     }
     Err(TranspileError::ParseError(e)) => {
         eprintln!("Parsing error: {}", e);
+        // Handle syntax errors (invalid dplyr functions, wrong arguments)
     }
     Err(TranspileError::GenerationError(e)) => {
         eprintln!("SQL generation error: {}", e);
+        // Handle unsupported operations for specific SQL dialects
+    }
+    Err(TranspileError::IoError(e)) => {
+        eprintln!("I/O error: {}", e);
+        // Handle file read/write errors
+    }
+    Err(TranspileError::ValidationError(e)) => {
+        eprintln!("Validation error: {}", e);
+        // Handle validation-specific errors
+    }
+    Err(TranspileError::ConfigurationError(e)) => {
+        eprintln!("Configuration error: {}", e);
+        // Handle configuration issues
     }
 }
+```
+
+**Shell Scripts:**
+```bash
+#!/bin/bash
+
+# Function to handle libdplyr errors
+process_dplyr() {
+    local query="$1"
+    local dialect="${2:-postgresql}"
+    
+    # Validate first
+    if ! echo "$query" | libdplyr --validate-only >/dev/null 2>&1; then
+        echo "Error: Invalid dplyr syntax in query: $query" >&2
+        return 4
+    fi
+    
+    # Process with error handling
+    local result
+    result=$(echo "$query" | libdplyr -d "$dialect" 2>&1)
+    local exit_code=$?
+    
+    case $exit_code in
+        0) echo "$result" ;;
+        2) echo "Error: Invalid arguments or unsupported dialect: $dialect" >&2 ;;
+        3) echo "Error: I/O operation failed" >&2 ;;
+        4) echo "Error: Validation failed for query: $query" >&2 ;;
+        5) echo "Error: SQL generation failed" >&2 ;;
+        *) echo "Error: Unknown error (code: $exit_code)" >&2 ;;
+    esac
+    
+    return $exit_code
+}
+
+# Usage example
+process_dplyr "select(name, age) %>% filter(age > 18)" "postgresql"
+```
+
+### 🔧 Performance Issues
+
+**Slow Processing:**
+```bash
+# Use compact format for faster processing
+echo "select(name)" | libdplyr --compact
+
+# Validate syntax first for large batches
+echo "select(name)" | libdplyr --validate-only && \
+echo "select(name)" | libdplyr
+
+# Monitor performance
+time echo "complex_query" | libdplyr --json | jq '.metadata.stats.total_time_us'
+```
+
+**Memory Issues:**
+```bash
+# Process large files in chunks
+split -l 1000 large_queries.txt chunk_
+for chunk in chunk_*; do
+    while read -r query; do
+        echo "$query" | libdplyr --compact
+    done < "$chunk"
+done
 ```
 
 ## Performance

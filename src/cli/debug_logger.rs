@@ -3,7 +3,6 @@
 //! This module provides utilities for verbose and debug output during CLI operations.
 //! It handles different verbosity levels and formats debug information appropriately.
 
-use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use colored::Colorize;
 
@@ -62,9 +61,9 @@ impl DebugLogger {
     pub fn verbose(&self, message: &str) {
         if self.config.verbose || self.config.debug {
             let prefix = if self.config.use_colors {
-                "[INFO]".bright_blue()
+                self.colorize_info("[INFO]")
             } else {
-                "[INFO]".normal()
+                "[INFO]".to_string()
             };
             
             eprintln!("{} {}", prefix, message);
@@ -75,9 +74,9 @@ impl DebugLogger {
     pub fn debug(&self, message: &str) {
         if self.config.debug {
             let prefix = if self.config.use_colors {
-                "[DEBUG]".bright_yellow()
+                self.colorize_debug("[DEBUG]")
             } else {
-                "[DEBUG]".normal()
+                "[DEBUG]".to_string()
             };
             
             eprintln!("{} {}", prefix, message);
@@ -89,9 +88,9 @@ impl DebugLogger {
         if self.config.debug {
             let elapsed = self.step_time.elapsed();
             let prefix = if self.config.use_colors {
-                "[TIME]".bright_green()
+                self.colorize_time("[TIME]")
             } else {
-                "[TIME]".normal()
+                "[TIME]".to_string()
             };
             
             eprintln!("{} {} took {:.2?}", prefix, label, elapsed);
@@ -104,9 +103,9 @@ impl DebugLogger {
         if self.config.verbose || self.config.debug {
             let elapsed = self.start_time.elapsed();
             let prefix = if self.config.use_colors {
-                "[TOTAL]".bright_magenta()
+                self.colorize_total("[TOTAL]")
             } else {
-                "[TOTAL]".normal()
+                "[TOTAL]".to_string()
             };
             
             eprintln!("{} Execution completed in {:.2?}", prefix, elapsed);
@@ -117,9 +116,9 @@ impl DebugLogger {
     pub fn log_ast(&self, ast: &impl std::fmt::Debug) {
         if self.config.debug {
             let prefix = if self.config.use_colors {
-                "[AST]".bright_cyan()
+                self.colorize_ast("[AST]")
             } else {
-                "[AST]".normal()
+                "[AST]".to_string()
             };
             
             eprintln!("{} Structure:\\n{:#?}", prefix, ast);
@@ -130,9 +129,9 @@ impl DebugLogger {
     pub fn log_sql_generation(&self, sql: &str, dialect: &str) {
         if self.config.debug {
             let prefix = if self.config.use_colors {
-                "[SQL]".bright_green()
+                self.colorize_sql("[SQL]")
             } else {
-                "[SQL]".normal()
+                "[SQL]".to_string()
             };
             
             eprintln!("{} Generated {} SQL:\\n{}", prefix, dialect, sql);
@@ -143,9 +142,9 @@ impl DebugLogger {
     pub fn log_stats(&self, stats: &impl std::fmt::Display) {
         if self.config.debug {
             let prefix = if self.config.use_colors {
-                "[STATS]".bright_blue()
+                self.colorize_stats("[STATS]")
             } else {
-                "[STATS]".normal()
+                "[STATS]".to_string()
             };
             
             eprintln!("{} {}", prefix, stats);
@@ -165,6 +164,63 @@ impl DebugLogger {
     /// Get elapsed time since last step
     pub fn step_elapsed(&self) -> Duration {
         self.step_time.elapsed()
+    }
+
+    // Color helper methods
+    fn colorize_info(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_blue().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_debug(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_yellow().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_time(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_green().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_total(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_magenta().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_ast(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_cyan().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_sql(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_green().to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn colorize_stats(&self, text: &str) -> String {
+        if self.config.use_colors {
+            text.bright_blue().to_string()
+        } else {
+            text.to_string()
+        }
     }
 }
 

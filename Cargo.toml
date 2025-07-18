@@ -26,10 +26,14 @@ is-terminal = "0.4"
 signal-hook = "0.3"
 libc = "0.2"
 
-# Optional serialization support
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
-colored = "3.0.0"
+# Serialization support
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+colored = "2.0"
+
+# Windows-specific dependencies
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["consoleapi", "wincon", "minwindef"] }
 
 [dev-dependencies]
 # Dependencies for benchmarking
@@ -40,8 +44,7 @@ pretty_assertions = "1.4"
 tempfile = "3.20.0"
 
 [features]
-default = ["serde"]
-serde = ["dep:serde", "dep:serde_json"]
+default = []
 
 [[bin]]
 name = "libdplyr"

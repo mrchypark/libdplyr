@@ -164,7 +164,7 @@ impl ErrorHandler {
     /// Creates a new error handler with default settings
     pub fn new() -> Self {
         Self {
-            use_korean: true,
+            use_korean: false,  // Use English by default
             verbose: false,
             use_colors: false,
         }

@@ -89,21 +89,21 @@
   - JSON 직렬화 성능 최적화
   - _Requirements: 7.4_
 
-- [ ] 14. 문서 업데이트 및 사용 예시 추가
+- [x] 14. 문서 업데이트 및 사용 예시 추가
   - README.md에 stdin/stdout 사용법 추가
   - CLI 도움말 메시지 모두 영어로
   - 파이프라인 사용 예시 및 베스트 프랙티스 문서화
   - 오류 해결 가이드 업데이트
   - _Requirements: 6.5_
 
-- [ ] 15. 크로스 플랫폼 호환성 테스트 및 수정
+- [x] 15. 크로스 플랫폼 호환성 테스트 및 수정
   - Unix 시스템에서 파이프 감지 테스트
   - Windows 호환성 확인 및 조건부 컴파일 적용
   - 시그널 처리의 플랫폼별 구현 테스트
   - CI/CD 파이프라인에서 다중 플랫폼 테스트
   - _Requirements: 7.1, 7.3_
 
-- [ ] 16. GitHub Actions 릴리즈 워크플로우 구현
+- [x] 16. GitHub Actions 릴리즈 워크플로우 구현
   - `.github/workflows/release.yml` 파일 생성
   - 크로스 플랫폼 빌드 매트릭스 설정 (Linux x86_64/ARM64, macOS Intel/Apple Silicon, Windows x86_64)
   - 바이너리 빌드, 스트립, 아티팩트 업로드 단계 구현

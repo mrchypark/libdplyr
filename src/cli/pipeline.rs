@@ -304,7 +304,7 @@ impl ProcessingPipeline {
         
         let output_formatter = OutputFormatter::with_format(config.output_format.clone());
         let json_formatter = JsonOutputFormatter::new();
-        let error_handler = ErrorHandler::with_settings(true, config.verbose, false);
+        let error_handler = ErrorHandler::with_settings(false, config.verbose, false);
         let debug_logger = DebugLogger::with_settings(config.verbose, config.debug);
         
         // Initialize signal handling for Unix pipeline integration

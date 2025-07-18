@@ -4,280 +4,323 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        default: 'v0.1.0'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Create release
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get tag name
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get the previous tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        
+        # Generate changelog
+        if [ -n "$PREV_TAG" ]; then
+          echo "## Changes since $PREV_TAG" > release_notes.md
+          echo "" >> release_notes.md
+          git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> release_notes.md
+        else
+          echo "## Initial Release" > release_notes.md
+          echo "" >> release_notes.md
+          echo "This is the first release of libdplyr." >> release_notes.md
+        fi
+        
+        echo "" >> release_notes.md
+        echo "## Installation" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Quick Install" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "**Linux/macOS:**" >> release_notes.md
+        echo '```bash' >> release_notes.md
+        echo 'curl -sSL https://raw.githubusercontent.com/yourusername/libdplyr/main/install.sh | bash' >> release_notes.md
+        echo '```' >> release_notes.md
+        echo "" >> release_notes.md
+        echo "**Windows (PowerShell):**" >> release_notes.md
+        echo '```powershell' >> release_notes.md
+        echo 'Irm https://raw.githubusercontent.com/yourusername/libdplyr/main/install.ps1 | iex' >> release_notes.md
+        echo '```' >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Manual Download" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "Download the appropriate binary for your platform from the assets below." >> release_notes.md
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}
+        release_name: Release ${{ steps.get_tag.outputs.tag }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(steps.get_tag.outputs.tag, 'alpha') || contains(steps.get_tag.outputs.tag, 'beta') || contains(steps.get_tag.outputs.tag, 'rc') }}
+
+  # Build binaries for different platforms
   build:
-    name: Build for ${{ matrix.target }}
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: create-release
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: libdplyr
-            asset_name: libdplyr-linux-x86_64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact_name: libdplyr
-            asset_name: libdplyr-linux-aarch64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: libdplyr
-            asset_name: libdplyr-macos-x86_64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: libdplyr
-            asset_name: libdplyr-macos-aarch64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: libdplyr.exe
-            asset_name: libdplyr-windows-x86_64.exe
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_name: libdplyr-linux-x86_64
+            
+          # Linux ARM64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_name: libdplyr-linux-aarch64
+            
+          # macOS Intel
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive_name: libdplyr-macos-x86_64
+            
+          # macOS Apple Silicon
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive_name: libdplyr-macos-aarch64
+            
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive_name: libdplyr-windows-x86_64
+            extension: .exe
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-          components: rustfmt, clippy
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Configure cross-compilation (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
-          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+    # Install cross-compilation tools for Linux ARM64
+    - name: Install cross-compilation tools
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-
+    # Build the binary
+    - name: Build binary
+      run: |
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+        fi
+        cargo build --release --target ${{ matrix.target }}
+      shell: bash
 
-      - name: Build binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+    # Strip binary (Unix only)
+    - name: Strip binary
+      if: matrix.os != 'windows-latest'
+      run: |
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/libdplyr
+        else
+          strip target/${{ matrix.target }}/release/libdplyr
+        fi
 
-      - name: Strip binary (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          else
-            strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          fi
+    # Prepare archive
+    - name: Prepare archive
+      run: |
+        mkdir -p dist
+        
+        # Copy binary
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp target/${{ matrix.target }}/release/libdplyr.exe dist/
+        else
+          cp target/${{ matrix.target }}/release/libdplyr dist/
+        fi
+        
+        # Copy additional files
+        cp README.md dist/
+        cp LICENSE dist/ 2>/dev/null || echo "MIT License" > dist/LICENSE
+        
+        # Create archive
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cd dist && 7z a ../${{ matrix.archive_name }}.zip *
+        else
+          tar -czf ${{ matrix.archive_name }}.tar.gz -C dist .
+        fi
+      shell: bash
 
-      - name: Prepare binary for upload
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
+    # Upload release asset
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ matrix.os == 'windows-latest' && format('{0}.zip', matrix.archive_name) || format('{0}.tar.gz', matrix.archive_name) }}
+        asset_name: ${{ matrix.os == 'windows-latest' && format('{0}.zip', matrix.archive_name) || format('{0}.tar.gz', matrix.archive_name) }}
+        asset_content_type: ${{ matrix.os == 'windows-latest' && 'application/zip' || 'application/gzip' }}
 
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.asset_name }}
-          path: artifacts/${{ matrix.asset_name }}
-
-  release:
-    name: Create Release
-    needs: build
+  # Generate checksums
+  checksums:
+    name: Generate Checksums
     runs-on: ubuntu-latest
+    needs: [create-release, build]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v3
-        with:
-          path: artifacts
+    - name: Generate checksums
+      run: |
+        # Download release assets
+        gh release download ${{ github.ref_name }} --repo ${{ github.repository }}
+        
+        # Generate checksums
+        sha256sum *.tar.gz *.zip > checksums.txt
+        
+        echo "## Checksums" >> checksums.txt
+        echo "" >> checksums.txt
+        echo "Verify your download with:" >> checksums.txt
+        echo '```bash' >> checksums.txt
+        echo 'sha256sum -c checksums.txt' >> checksums.txt
+        echo '```' >> checksums.txt
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: List artifacts
-        run: find artifacts -type f -ls
+    - name: Upload checksums
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: checksums.txt
+        asset_name: checksums.txt
+        asset_content_type: text/plain
 
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          cat > release_notes.md << EOF
-          # libdplyr ${VERSION}
-          
-          R dplyr 문법을 SQL 쿼리로 변환하는 고성능 Rust 기반 트랜스파일러입니다.
-          
-          ## 🚀 새로운 기능
-          
-          - **stdin/stdout 파이프라인 지원**: Unix 파이프라인과 완벽 통합
-          - **다양한 출력 형식**: JSON, Pretty, Compact 형식 지원
-          - **문법 검증 모드**: SQL 변환 없이 dplyr 문법 검증
-          - **향상된 오류 처리**: 상세한 오류 메시지와 해결 힌트
-          - **크로스 플랫폼 지원**: Linux, macOS, Windows 바이너리 제공
-          
-          ## 📦 지원 플랫폼
-          
-          - **Linux**: x86_64, ARM64 (aarch64)
-          - **macOS**: Intel (x86_64), Apple Silicon (ARM64)
-          - **Windows**: x86_64
-          
-          ## 🛠 설치 방법
-          
-          ### 자동 설치 (권장)
-          
-          \`\`\`bash
-          # 최신 버전 설치
-          curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
-          
-          # 특정 버전 설치
-          LIBDPLYR_VERSION=${VERSION} curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
-          \`\`\`
-          
-          ### 수동 설치
-          
-          1. 아래에서 플랫폼에 맞는 바이너리를 다운로드
-          2. 바이너리를 PATH에 포함된 디렉토리로 이동
-          3. 실행 권한 부여: \`chmod +x libdplyr\`
-          
-          ## 📖 사용법
-          
-          \`\`\`bash
-          # 기본 사용법
-          echo "select(name, age) %>% filter(age > 18)" | libdplyr
-          
-          # SQL 방언 지정
-          echo "select(name)" | libdplyr -d mysql
-          
-          # 출력 형식 지정
-          echo "select(name)" | libdplyr --pretty
-          echo "select(name)" | libdplyr --json
-          
-          # 문법 검증만 수행
-          echo "select(name, age)" | libdplyr --validate-only
-          \`\`\`
-          
-          ## 🔧 지원되는 dplyr 함수
-          
-          - \`select()\` - 컬럼 선택
-          - \`filter()\` - 행 필터링  
-          - \`mutate()\` - 컬럼 생성/수정
-          - \`arrange()\` - 정렬
-          - \`group_by()\` - 그룹화
-          - \`summarise()\` - 집계
-          
-          ## 🗄 지원되는 SQL 방언
-          
-          - PostgreSQL (기본값)
-          - MySQL
-          - SQLite
-          - DuckDB
-          
-          전체 문서는 [GitHub 저장소](https://github.com/libdplyr/libdplyr)를 참조하세요.
-          EOF
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: libdplyr ${{ github.ref_name }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for dir in artifacts/*/; do
-            if [ -d "$dir" ]; then
-              asset_name=$(basename "$dir")
-              asset_path="$dir$asset_name"
-              if [ -f "$asset_path" ]; then
-                echo "Uploading $asset_path as $asset_name"
-                gh release upload ${{ github.ref_name }} "$asset_path" --clobber
-              else
-                echo "Warning: Asset file not found at $asset_path"
-              fi
-            fi
-          done
-
-  test-installation:
-    name: Test Installation Script
-    needs: release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  # Update installation scripts
+  update-install-scripts:
+    name: Update Installation Scripts
+    runs-on: ubuntu-latest
+    needs: [create-release, build]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test installation script
-        run: |
-          # 설치 스크립트가 존재하는지 확인
-          if [ -f "install.sh" ]; then
-            echo "Testing installation script..."
-            # 실제 설치는 하지 않고 스크립트 문법만 확인
-            bash -n install.sh
-            echo "Installation script syntax is valid"
-          else
-            echo "Warning: install.sh not found"
-          fi
+    - name: Get tag name
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
 
-      - name: Test binary download (simulation)
-        run: |
-          VERSION=${{ github.ref_name }}
-          echo "Testing binary download for version $VERSION"
-          
-          # 플랫폼 감지 테스트
-          case "$(uname -s)" in
-            Linux*)     platform="linux" ;;
-            Darwin*)    platform="macos" ;;
-            *)          echo "Unsupported OS"; exit 1 ;;
-          esac
-          
-          case "$(uname -m)" in
-            x86_64|amd64)   arch="x86_64" ;;
-            aarch64|arm64)  arch="aarch64" ;;
-            *)              echo "Unsupported arch"; exit 1 ;;
-          esac
-          
-          binary_name="libdplyr-${platform}-${arch}"
-          download_url="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${binary_name}"
-          
-          echo "Would download: $download_url"
-          
-          # 실제 다운로드 테스트 (릴리즈가 완료된 후)
-          sleep 30  # 릴리즈 완료 대기
-          if curl -f -L -o "/tmp/libdplyr-test" "$download_url"; then
-            echo "Binary download successful"
-            chmod +x "/tmp/libdplyr-test"
-            if "/tmp/libdplyr-test" --version; then
-              echo "Binary execution successful"
-            else
-              echo "Binary execution failed"
-              exit 1
-            fi
-          else
-            echo "Binary download failed"
-            exit 1
-          fi
+    - name: Update version in install scripts
+      run: |
+        # Update install.sh
+        sed -i 's/VERSION=".*"/VERSION="${{ steps.get_tag.outputs.tag }}"/' install.sh
+        
+        # Update install.ps1
+        sed -i 's/\$VERSION = ".*"/\$VERSION = "${{ steps.get_tag.outputs.tag }}"/' install.ps1
+        
+        # Update Cargo.toml version
+        VERSION_NUM=$(echo "${{ steps.get_tag.outputs.tag }}" | sed 's/^v//')
+        sed -i "s/version = \".*\"/version = \"$VERSION_NUM\"/" Cargo.toml
+
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add install.sh install.ps1 Cargo.toml
+        git diff --staged --quiet || git commit -m "Update version to ${{ steps.get_tag.outputs.tag }}"
+        git push
+
+  # Publish to crates.io (optional)
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [create-release, build]
+    if: ${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Publish to crates.io
+      run: cargo publish --token ${{ secrets.CRATES_TOKEN }}
+      continue-on-error: true
+
+  # Notify on completion
+  notify:
+    name: Notify Release Complete
+    runs-on: ubuntu-latest
+    needs: [create-release, build, checksums, update-install-scripts]
+    if: always()
+    steps:
+    - name: Get tag name
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Notify success
+      if: ${{ needs.create-release.result == 'success' && needs.build.result == 'success' }}
+      run: |
+        echo "✅ Release ${{ steps.get_tag.outputs.tag }} completed successfully!"
+        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_tag.outputs.tag }}"
+
+    - name: Notify failure
+      if: ${{ needs.create-release.result == 'failure' || needs.build.result == 'failure' }}
+      run: |
+        echo "❌ Release ${{ steps.get_tag.outputs.tag }} failed!"
+        echo "Please check the workflow logs for details."
+        exit 1

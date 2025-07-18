@@ -1,7 +1,8 @@
-//! Signal handling for Unix pipeline integration
+//! Signal handling for cross-platform pipeline integration
 //!
 //! This module provides signal handling capabilities for proper integration
 //! with Unix pipelines, including SIGINT, SIGTERM, and SIGPIPE handling.
+//! On Windows, it provides basic interrupt handling.
 
 use signal_hook::{consts::*, iterator::Signals};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,7 +44,8 @@ impl SignalHandler {
         })
     }
     
-    /// Monitor signals in a separate thread
+    /// Monitor signals in a separate thread (Unix implementation)
+    #[cfg(unix)]
     fn monitor_signals(
         shutdown_flag: Arc<AtomicBool>,
         sigpipe_flag: Arc<AtomicBool>,
@@ -72,6 +74,64 @@ impl SignalHandler {
         }
         
         Ok(())
+    }
+    
+    /// Monitor signals in a separate thread (Windows implementation)
+    #[cfg(windows)]
+    fn monitor_signals(
+        shutdown_flag: Arc<AtomicBool>,
+        _sigpipe_flag: Arc<AtomicBool>,
+    ) -> Result<(), SignalError> {
+        use std::sync::mpsc;
+        use winapi::um::consoleapi::SetConsoleCtrlHandler;
+        use winapi::um::wincon::{CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT};
+        use winapi::shared::minwindef::{BOOL, DWORD, TRUE, FALSE};
+        
+        static mut SHUTDOWN_SENDER: Option<mpsc::Sender<()>> = None;
+        
+        let (tx, rx) = mpsc::channel();
+        
+        unsafe extern "system" fn ctrl_handler(ctrl_type: DWORD) -> BOOL {
+            match ctrl_type {
+                CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT => {
+                    eprintln!("Received interrupt signal, shutting down gracefully...");
+                    if let Some(ref sender) = SHUTDOWN_SENDER {
+                        let _ = sender.send(());
+                    }
+                    TRUE
+                }
+                _ => FALSE,
+            }
+        }
+        
+        unsafe {
+            SHUTDOWN_SENDER = Some(tx);
+            if SetConsoleCtrlHandler(Some(ctrl_handler), TRUE) == 0 {
+                return Err(SignalError::SetupError(
+                    "Failed to set console control handler".to_string()
+                ));
+            }
+        }
+        
+        // Wait for shutdown signal
+        if rx.recv().is_ok() {
+            shutdown_flag.store(true, Ordering::Relaxed);
+        }
+        
+        Ok(())
+    }
+    
+    /// Monitor signals in a separate thread (fallback implementation)
+    #[cfg(not(any(unix, windows)))]
+    fn monitor_signals(
+        _shutdown_flag: Arc<AtomicBool>,
+        _sigpipe_flag: Arc<AtomicBool>,
+    ) -> Result<(), SignalError> {
+        // On unsupported platforms, just sleep indefinitely
+        // The application will need to be terminated externally
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
     }
     
     /// Check if shutdown was requested via signal
@@ -156,6 +216,7 @@ pub mod utils {
     
     /// Install a simple SIGPIPE handler that ignores the signal
     /// This prevents the process from terminating when the pipe is closed
+    #[cfg(unix)]
     pub fn ignore_sigpipe() -> Result<(), SignalError> {
         unsafe {
             if libc::signal(libc::SIGPIPE, libc::SIG_IGN) == libc::SIG_ERR {
@@ -164,6 +225,14 @@ pub mod utils {
                 ));
             }
         }
+        Ok(())
+    }
+    
+    /// Install a simple SIGPIPE handler that ignores the signal (Windows no-op)
+    /// On Windows, SIGPIPE doesn't exist, so this is a no-op
+    #[cfg(not(unix))]
+    pub fn ignore_sigpipe() -> Result<(), SignalError> {
+        // SIGPIPE doesn't exist on Windows, so this is a no-op
         Ok(())
     }
     
@@ -237,8 +306,8 @@ impl SignalAwareProcessor {
             let chunk_results = processor(chunk)?;
             results.extend(chunk_results);
             
-            // Small delay to allow signal checking
-            thread::sleep(Duration::from_millis(1));
+            // Use the configured check interval for signal checking
+            thread::sleep(self.check_interval);
         }
         
         Ok(results)
