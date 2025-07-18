@@ -218,13 +218,13 @@ jobs:
         gh release download ${{ github.ref_name }} --repo ${{ github.repository }}
         
         # Generate checksums
-        sha256sum *.tar.gz *.zip > checksums.txt
+        shasum -a 256 *.tar.gz *.zip > checksums.txt
         
         echo "## Checksums" >> checksums.txt
         echo "" >> checksums.txt
         echo "Verify your download with:" >> checksums.txt
         echo '```bash' >> checksums.txt
-        echo 'sha256sum -c checksums.txt' >> checksums.txt
+        echo 'shasum -a 256 -c checksums.txt' >> checksums.txt
         echo '```' >> checksums.txt
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

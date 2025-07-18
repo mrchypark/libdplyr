@@ -1,0 +1,35 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Rust with optimized caching
+        uses: ./.github/actions/setup-rust-cache
+        with:
+          toolchain: stable
+          cache-key-suffix: bench
+
+      - name: Run benchmarks
+        run: cargo bench --all-features -- --output-format bencher | tee benchmark-output.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-output.txt
+
+      - name: Check for performance regressions
+        run: |
+          # This is a placeholder for a more sophisticated regression check.
+          # For a real implementation, you would compare the current benchmark
+          # results with the results from the previous commit on the main branch.
+          echo "Performance regression check is not yet implemented."

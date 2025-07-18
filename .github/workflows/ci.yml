@@ -199,6 +199,33 @@ jobs:
       - name: Run cargo clippy (tests)
         run: cargo clippy --tests --all-features -- -D warnings
 
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Rust with optimized caching
+        uses: ./.github/actions/setup-rust-cache
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+          cache-key-suffix: coverage
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate and check code coverage
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+          cargo llvm-cov --all-features --workspace --fail-under-lines 85 --fail-under-branches 80
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
+
       - name: Run cargo clippy (benches)
         run: cargo clippy --benches --all-features -- -D warnings
 
@@ -213,7 +240,7 @@ jobs:
 
       - name: Upload clippy results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: clippy-results
           path: clippy-results.md
@@ -237,41 +264,14 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
       - name: Upload documentation
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: documentation
           path: target/doc/
 
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
-        uses: ./.github/actions/setup-rust-cache
-        with:
-          toolchain: stable
-          cache-key-suffix: coverage
-
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Generate code coverage
-        run: |
-          echo "Generating code coverage report..."
-          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml --out html --out json
-        continue-on-error: true
-
-      - name: Generate coverage report and validate threshold
-        if: always()
-        run: |
-          echo "# Code Coverage Report" > coverage-report.md
-          echo "" >> coverage-report.md
           
-          # Set minimum coverage threshold (70%)
-          MIN_COVERAGE=70
+
           
           if [ -f cobertura.xml ]; then
             echo "✅ **Coverage Generation**: Successful" >> coverage-report.md
