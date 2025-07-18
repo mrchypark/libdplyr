@@ -55,6 +55,14 @@ harness = false
 name = "performance_analysis"
 harness = false
 
+[[bench]]
+name = "cli_performance_benchmark"
+harness = false
+
+[[bench]]
+name = "simple_test"
+harness = false
+
 [lib]
 name = "libdplyr"
 path = "src/lib.rs"

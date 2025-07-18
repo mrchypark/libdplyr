@@ -167,6 +167,23 @@ impl JsonOutputFormatter {
         self.serialize_output(&output)
     }
     
+    /// Formats a successful transpilation result as JSON with pre-allocated capacity
+    pub fn format_success_with_capacity(
+        &self,
+        sql: &str,
+        metadata: TranspileMetadata,
+        estimated_size: usize,
+    ) -> JsonResult<String> {
+        let output = JsonOutput {
+            success: true,
+            sql: Some(sql.to_string()),
+            error: None,
+            metadata,
+        };
+        
+        self.serialize_output_with_capacity(&output, estimated_size)
+    }
+    
     /// Formats a failed transpilation result as JSON
     pub fn format_error(
         &self,
@@ -261,6 +278,21 @@ impl JsonOutputFormatter {
             Ok(serde_json::to_string_pretty(output)?)
         } else {
             Ok(serde_json::to_string(output)?)
+        }
+    }
+    
+    /// Serializes the JSON output with pre-allocated capacity
+    fn serialize_output_with_capacity(&self, output: &JsonOutput, estimated_size: usize) -> JsonResult<String> {
+        if self.pretty_print {
+            let mut buf = String::with_capacity(estimated_size);
+            let pretty_json = serde_json::to_string_pretty(output)?;
+            buf.push_str(&pretty_json);
+            Ok(buf)
+        } else {
+            let mut buf = String::with_capacity(estimated_size);
+            let json = serde_json::to_string(output)?;
+            buf.push_str(&json);
+            Ok(buf)
         }
     }
 }

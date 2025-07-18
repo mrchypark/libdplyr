@@ -216,50 +216,15 @@ impl OutputFormatter {
         Ok(formatted)
     }
     
-    /// Compact formatting - minimal whitespace
+    /// Compact formatting - minimal whitespace (optimized)
     fn format_compact(&self, sql: &str) -> FormatResult<String> {
-        // Remove all unnecessary whitespace
-        let compact = sql
+        // Simply normalize whitespace - most compact approach
+        let result = sql
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
         
-        // Ensure proper spacing around operators and keywords
-        let mut result = compact;
-        
-        // Fix spacing around operators
-        result = result.replace(" = ", "=");
-        result = result.replace(" > ", ">");
-        result = result.replace(" < ", "<");
-        result = result.replace(" >= ", ">=");
-        result = result.replace(" <= ", "<=");
-        result = result.replace(" != ", "!=");
-        result = result.replace(" <> ", "<>");
-        
-        // But ensure space after commas
-        result = result.replace(",", ", ");
-        result = result.replace(",  ", ", "); // Fix double spaces
-        
-        // Ensure space around keywords
-        let keywords = [
-            "SELECT", "FROM", "WHERE", "GROUP BY", "HAVING", 
-            "ORDER BY", "LIMIT", "OFFSET", "JOIN", "LEFT JOIN", 
-            "RIGHT JOIN", "INNER JOIN", "OUTER JOIN", "UNION", 
-            "INTERSECT", "EXCEPT", "AND", "OR"
-        ];
-        
-        for keyword in &keywords {
-            // Ensure space before and after keywords
-            result = result.replace(&format!(" {}", keyword), &format!(" {} ", keyword));
-            result = result.replace(&format!("{}  ", keyword), &format!("{} ", keyword));
-        }
-        
-        // Clean up multiple spaces
-        while result.contains("  ") {
-            result = result.replace("  ", " ");
-        }
-        
-        Ok(result.trim().to_string())
+        Ok(result)
     }
     
     /// Applies final formatting options like newlines
