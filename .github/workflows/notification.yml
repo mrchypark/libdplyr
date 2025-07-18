@@ -377,7 +377,7 @@ jobs:
 
       - name: Upload failure analysis
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: failure-analysis-${{ steps.workflow_details.outputs.run_number }}
           path: |
