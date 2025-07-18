@@ -13,8 +13,8 @@ BLUE='\033[0;34m'
 CLEAR='\033[0m'
 
 # Configuration
-REPO_URL="https://github.com/yourusername/libdplyr"
-INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/yourusername/libdplyr/main/install.sh"
+REPO_URL="https://github.com/mrchyaprk/libdplyr"
+INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.sh"
 TEST_DIR="/tmp/libdplyr-install-test"
 
 echo -e "${BLUE}libdplyr Installation Test Script${CLEAR}"
@@ -179,7 +179,7 @@ test_manual_download() {
     # Get latest release info
     echo -e "${BLUE}Getting latest release information${CLEAR}"
     local latest_release
-    latest_release=$(curl -s "https://api.github.com/repos/yourusername/libdplyr/releases/latest")
+    latest_release=$(curl -s "https://api.github.com/repos/mrchyaprk/libdplyr/releases/latest")
     
     if [ $? -ne 0 ]; then
         echo -e "${YELLOW}⚠ Could not fetch release information${CLEAR}"

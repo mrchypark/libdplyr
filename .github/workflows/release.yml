@@ -61,12 +61,12 @@ jobs:
         echo "" >> release_notes.md
         echo "**Linux/macOS:**" >> release_notes.md
         echo '```bash' >> release_notes.md
-        echo 'curl -sSL https://raw.githubusercontent.com/yourusername/libdplyr/main/install.sh | bash' >> release_notes.md
+        echo 'curl -sSL https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.sh | bash' >> release_notes.md
         echo '```' >> release_notes.md
         echo "" >> release_notes.md
         echo "**Windows (PowerShell):**" >> release_notes.md
         echo '```powershell' >> release_notes.md
-        echo 'Irm https://raw.githubusercontent.com/yourusername/libdplyr/main/install.ps1 | iex' >> release_notes.md
+        echo 'Irm https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.ps1 | iex' >> release_notes.md
         echo '```' >> release_notes.md
         echo "" >> release_notes.md
         echo "### Manual Download" >> release_notes.md

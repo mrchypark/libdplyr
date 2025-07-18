@@ -28,10 +28,10 @@
 3. **Test installation:**
    ```bash
    # Test Linux/macOS installation
-   curl -sSL https://raw.githubusercontent.com/yourusername/libdplyr/main/install.sh | bash
+   curl -sSL https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.sh | bash
    
    # Test Windows installation (PowerShell)
-   Irm https://raw.githubusercontent.com/yourusername/libdplyr/main/install.ps1 | iex
+   Irm https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.ps1 | iex
    ```
 
 4. **Verify release:**
@@ -77,12 +77,12 @@
 
 **Linux/macOS:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/libdplyr/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-Irm https://raw.githubusercontent.com/yourusername/libdplyr/main/install.ps1 | iex
+Irm https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.ps1 | iex
 ```
 
 ### Manual Download
@@ -107,7 +107,7 @@ sha256sum -c checksums.txt
 
 ## Full Changelog
 
-**Full Changelog**: https://github.com/yourusername/libdplyr/compare/v0.0.1...v0.1.0
+**Full Changelog**: https://github.com/mrchyaprk/libdplyr/compare/v0.0.1...v0.1.0
 ```
 
 ## Troubleshooting Release Issues

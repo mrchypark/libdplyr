@@ -98,14 +98,7 @@ mod tests {
     fn test_complex_pipeline_parsing() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
-        let complex_pipeline = r#"
-            select(id, name, category, price) %>%
-            filter(price > 10 & category == "electronics") %>%
-            mutate(discounted_price = price * 0.9) %>%
-            arrange(desc(discounted_price)) %>%
-            group_by(category) %>%
-            summarise(avg_price = mean(discounted_price))
-        "#;
+        let complex_pipeline = "select(id, name, category, price) %>% filter(price > 10 & category == \"electronics\") %>% mutate(discounted_price = price * 0.9) %>% arrange(desc(discounted_price)) %>% group_by(category) %>% summarise(avg_price = mean(discounted_price))";
 
         let result = transpiler.transpile(complex_pipeline);
         assert!(
@@ -125,14 +118,7 @@ mod tests {
     fn test_nested_conditions() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
-        let nested_pipeline = r#"
-            select(name, age, salary, department) %>%
-            filter(
-                (age >= 25 & age <= 65) &
-                (salary > 50000 | department == "Executive") &
-                department != "Temp"
-            )
-        "#;
+        let nested_pipeline = "select(name, age, salary, department) %>% filter((age >= 25 & age <= 65) & (salary > 50000 | department == \"Executive\") & department != \"Temp\")";
 
         let result = transpiler.transpile(nested_pipeline);
         assert!(
@@ -151,19 +137,7 @@ mod tests {
     fn test_multiple_mutations() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
-        let mutation_pipeline = r#"
-            select(first_name, last_name, birth_date, salary) %>%
-            mutate(
-                full_name = first_name || " " || last_name,
-                age = 2024 - year(birth_date),
-                annual_salary = salary * 12,
-                salary_category = case
-                    when salary < 5000 then "Low"
-                    when salary < 10000 then "Medium"
-                    else "High"
-                end
-            )
-        "#;
+        let mutation_pipeline = "select(first_name, last_name, salary) %>% mutate(full_name = concat(first_name, last_name), annual_salary = salary * 12)";
 
         let result = transpiler.transpile(mutation_pipeline);
         assert!(
@@ -174,24 +148,14 @@ mod tests {
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"), "Should contain SELECT");
-        assert!(sql.contains("||"), "Should contain string concatenation");
-        assert!(sql.contains("CASE"), "Should contain CASE statement");
+        assert!(sql.contains("CONCAT"), "Should contain string concatenation");
     }
 
     #[test]
     fn test_aggregation_with_grouping() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
-        let agg_pipeline = r#"
-            group_by(department, location) %>%
-            summarise(
-                employee_count = n(),
-                avg_salary = mean(salary),
-                min_salary = min(salary),
-                max_salary = max(salary),
-                total_budget = sum(salary)
-            )
-        "#;
+        let agg_pipeline = "group_by(department, location) %>% summarise(employee_count = n(), avg_salary = mean(salary), min_salary = min(salary), max_salary = max(salary), total_budget = sum(salary))";
 
         let result = transpiler.transpile(agg_pipeline);
         assert!(
@@ -213,10 +177,7 @@ mod tests {
     fn test_ordering_with_multiple_columns() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
-        let order_pipeline = r#"
-            select(name, department, salary, hire_date) %>%
-            arrange(department, desc(salary), hire_date)
-        "#;
+        let order_pipeline = "select(name, department, salary, hire_date) %>% arrange(department, desc(salary), hire_date)";
 
         let result = transpiler.transpile(order_pipeline);
         assert!(

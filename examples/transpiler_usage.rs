@@ -112,6 +112,9 @@ fn error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
             Err(TranspileError::ConfigurationError(e)) => {
                 println!("❌ Configuration error: {}", e);
             }
+            Err(TranspileError::SystemError(e)) => {
+                println!("❌ System error: {}", e);
+            }
         }
         println!();
     }
@@ -162,6 +165,11 @@ fn demonstrate_error_handling_pattern(
             eprintln!("⚙️  Configuration error:");
             eprintln!("   Error: {}", e);
             eprintln!("   Hint: Check configuration settings and options");
+        }
+        Err(TranspileError::SystemError(e)) => {
+            eprintln!("🔧 System error:");
+            eprintln!("   Error: {}", e);
+            eprintln!("   Hint: Check system resources and permissions");
         }
     }
 
@@ -389,14 +397,7 @@ mod tests {
     #[test]
     fn test_complex_pipeline() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
-        let complex_query = r#"
-            select(id, name, category, price) %>%
-            filter(price > 10 & category == "electronics") %>%
-            mutate(discounted_price = price * 0.9) %>%
-            group_by(category) %>%
-            summarise(avg_price = mean(discounted_price)) %>%
-            arrange(desc(avg_price))
-        "#;
+        let complex_query = "select(id, name, category, price) %>% filter(price > 10 & category == \"electronics\") %>% mutate(discounted_price = price * 0.9) %>% group_by(category) %>% summarise(avg_price = mean(discounted_price)) %>% arrange(desc(avg_price))";
 
         let result = transpiler.transpile(complex_query);
         assert!(

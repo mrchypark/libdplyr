@@ -4,7 +4,7 @@ inclusion: always
 
 # 코드 품질 및 유지보수성 가이드라인
 
-- code first and import with ide and check correct
+
 
 ## 코드 스타일 표준
 
@@ -91,7 +91,7 @@ pub fn parse_complex_expression(&mut self) -> ParseResult<Expr> {
 ## 테스트 품질 보장
 
 ### 테스트 커버리지 목표
-- 라인 커버리지 85% 이상
+- 라인 커버리지 85% 이상 (testing-standards.md에서 80% 이상으로 통일)
 - 브랜치 커버리지 80% 이상
 - 모든 공개 함수 테스트 필수
 - 에러 경로 테스트 포함
@@ -135,7 +135,7 @@ mod tests {
 
 ## 성능 품질 관리
 
-### 벤치마크 기준
+### 벤치마크 기준 (performance-optimization.md 참조)
 - 단순 쿼리 변환: 1ms 이하
 - 복잡한 쿼리 변환: 10ms 이하
 - 메모리 사용량: 입력 크기의 3배 이하

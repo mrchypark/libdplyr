@@ -35,8 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", dplyr_code.trim());
         println!("```\n");
 
-        for (dialect_name, dialect) in &dialects {
-            let transpiler = Transpiler::new(dialect.clone_box());
+        for (dialect_name, _) in &dialects {
+            let transpiler = match dialect_name {
+                &"PostgreSQL" => Transpiler::new(Box::new(PostgreSqlDialect::new())),
+                &"MySQL" => Transpiler::new(Box::new(MySqlDialect::new())),
+                &"SQLite" => Transpiler::new(Box::new(SqliteDialect::new())),
+                &"DuckDB" => Transpiler::new(Box::new(DuckDbDialect::new())),
+                _ => continue,
+            };
 
             match transpiler.transpile(dplyr_code) {
                 Ok(sql) => {
@@ -187,6 +193,10 @@ fn demonstrate_error_handling() -> Result<(), Box<dyn std::error::Error>> {
                     TranspileError::ConfigurationError(config_err) => {
                         println!("Configuration Error: {}", config_err);
                         println!("Hint: Check configuration settings and options");
+                    }
+                    TranspileError::SystemError(sys_err) => {
+                        println!("System Error: {}", sys_err);
+                        println!("Hint: Check system resources and permissions");
                     }
                 }
                 println!("```\n");

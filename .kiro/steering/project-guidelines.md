@@ -18,12 +18,6 @@ inclusion: always
 - 결과 타입은 `Result<T, E>` 형태로 일관성 있게 사용
 - 테스트 코드는 각 모듈 하단에 `#[cfg(test)]` 블록으로 작성
 
-### 에러 처리 패턴
-- 각 단계별 전용 에러 타입 정의: `LexError`, `ParseError`, `GenerationError`
-- 통합 에러 타입 `TranspileError`로 상위 레벨에서 처리
-- 에러 메시지는 영어로 작성하되, 위치 정보 포함
-- CLI에서는 사용자 친화적인 한국어 에러 메시지 제공
-
 ### 모듈 구조 원칙
 - `src/lexer.rs`: 토큰화 담당
 - `src/parser.rs`: AST 생성 담당  
@@ -44,7 +38,6 @@ inclusion: always
 ### 테스트 전략
 - 단위 테스트: 각 모듈별 기본 기능 검증
 - 통합 테스트: 전체 변환 파이프라인 검증
-- 벤치마크: 성능 회귀 방지를 위한 측정
 - 방언별 테스트: PostgreSQL, MySQL, SQLite 각각 검증
 
 ## SQL 방언 지원
@@ -63,7 +56,6 @@ inclusion: always
 ## 성능 고려사항
 - AST 노드는 `Clone` 트레이트 구현으로 효율적 복사 지원
 - 문자열 처리 시 불필요한 할당 최소화
-- 벤치마크를 통한 성능 회귀 모니터링
 - 큰 입력에 대한 메모리 사용량 최적화
 
 ## 문서화 원칙
