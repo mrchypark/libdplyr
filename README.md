@@ -21,20 +21,46 @@ libdplyr enables R users to write database queries using familiar dplyr syntax a
 
 ## Installation
 
-### Install via Cargo
+### 🚀 Quick Install (Recommended)
+
+Install the latest version automatically:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
+```
+
+Install a specific version:
+
+```bash
+LIBDPLYR_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
+```
+
+### 📦 Supported Platforms
+
+- **Linux**: x86_64, ARM64 (aarch64)
+- **macOS**: Intel (x86_64), Apple Silicon (ARM64)  
+- **Windows**: x86_64
+
+### 🔧 Manual Installation
+
+1. Download the binary for your platform from [Releases](https://github.com/libdplyr/libdplyr/releases)
+2. Move the binary to a directory in your PATH
+3. Make it executable: `chmod +x libdplyr`
+
+### 📚 Install via Cargo
 
 ```bash
 # Use as library
 cargo add libdplyr
 
-# Install CLI tool
+# Install CLI tool from source
 cargo install libdplyr
 ```
 
-### Build from Source
+### 🛠 Build from Source
 
 ```bash
-git clone https://github.com/your-repo/libdplyr.git
+git clone https://github.com/libdplyr/libdplyr.git
 cd libdplyr
 cargo build --release
 ```
@@ -66,15 +92,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### As a CLI Tool
 
+#### 🔄 stdin/stdout Pipeline (Recommended)
+
+```bash
+# Basic usage - read from stdin, output to stdout
+echo "select(name, age) %>% filter(age > 18)" | libdplyr
+
+# Specify SQL dialect
+echo "select(name)" | libdplyr -d mysql
+
+# Pretty format output
+echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
+
+# JSON format output with metadata
+echo "select(name)" | libdplyr --json
+
+# Compact format (single line)
+echo "select(name, age)" | libdplyr --compact
+
+# Validate syntax only (no SQL generation)
+echo "select(name, age)" | libdplyr --validate-only
+
+# Verbose output with debug information
+echo "select(name)" | libdplyr --verbose --debug
+```
+
+#### 📁 File-based Operations
+
 ```bash
 # Read from file and convert
-libdplyr --input query.R --output query.sql --dialect postgresql
+libdplyr -i query.R -o query.sql -d postgresql
 
-# Read from stdin and output to stdout
-echo "select(name, age) %>% filter(age > 18)" | libdplyr --dialect mysql
+# Read from file, output to stdout
+libdplyr -i query.R --pretty
 
+# Direct text input
+libdplyr -t "select(name, age) %>% filter(age > 18)" -d mysql
+```
+
+#### 🔗 Pipeline Integration
+
+```bash
+# Chain with other tools
+cat analysis.R | libdplyr -d postgresql | psql -d mydb
+
+# Conditional processing
+if echo "select(invalid)" | libdplyr --validate-only; then
+    echo "Valid syntax"
+else
+    echo "Syntax error"
+fi
+
+# Batch processing
+find . -name "*.R" -exec sh -c 'libdplyr -i "$1" -o "${1%.R}.sql"' _ {} \;
+
+# Process multiple queries
+cat queries.txt | while read query; do
+    echo "$query" | libdplyr --json
+done
+```
+
+#### 🆘 Help and Options
+
+```bash
 # Show help
 libdplyr --help
+
+# Show version
+libdplyr --version
+
+# List supported dialects
+libdplyr --help | grep -A 10 "dialect"
 ```
 
 ## Supported dplyr Functions

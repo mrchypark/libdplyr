@@ -115,6 +115,34 @@ pub enum TranspileError {
 
     #[error("SQL generation error: {0}")]
     GenerationError(#[from] GenerationError),
+
+    #[error("I/O error: {0}")]
+    IoError(String),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigurationError(String),
+
+    #[error("System error: {0}")]
+    SystemError(String),
+}
+
+// Import ValidationError for From implementation
+use crate::cli::validator::ValidationError;
+use crate::cli::output_formatter::FormatError;
+
+impl From<ValidationError> for TranspileError {
+    fn from(error: ValidationError) -> Self {
+        TranspileError::ValidationError(error.to_string())
+    }
+}
+
+impl From<FormatError> for TranspileError {
+    fn from(error: FormatError) -> Self {
+        TranspileError::IoError(format!("Output formatting error: {}", error))
+    }
 }
 
 /// Result type aliases

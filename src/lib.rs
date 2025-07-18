@@ -168,6 +168,18 @@
 //!         eprintln!("SQL generation error: {}", e);
 //!         eprintln!("The operation may not be supported in the selected dialect");
 //!     }
+//!     Err(TranspileError::IoError(e)) => {
+//!         eprintln!("I/O error: {}", e);
+//!         eprintln!("Check file permissions and paths");
+//!     }
+//!     Err(TranspileError::ValidationError(e)) => {
+//!         eprintln!("Validation error: {}", e);
+//!         eprintln!("Check dplyr syntax and function usage");
+//!     }
+//!     Err(TranspileError::ConfigurationError(e)) => {
+//!         eprintln!("Configuration error: {}", e);
+//!         eprintln!("Check configuration settings and options");
+//!     }
 //! }
 //! ```
 //!
@@ -322,6 +334,9 @@ pub use crate::sql_generator::{
 ///     Err(TranspileError::LexError(e)) => eprintln!("Tokenization failed: {}", e),
 ///     Err(TranspileError::ParseError(e)) => eprintln!("Parsing failed: {}", e),
 ///     Err(TranspileError::GenerationError(e)) => eprintln!("SQL generation failed: {}", e),
+///     Err(TranspileError::IoError(e)) => eprintln!("I/O operation failed: {}", e),
+///     Err(TranspileError::ValidationError(e)) => eprintln!("Validation failed: {}", e),
+///     Err(TranspileError::ConfigurationError(e)) => eprintln!("Configuration error: {}", e),
 /// }
 /// ```
 pub struct Transpiler {

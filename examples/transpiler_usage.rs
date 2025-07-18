@@ -103,6 +103,15 @@ fn error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
             Err(TranspileError::GenerationError(e)) => {
                 println!("❌ Generation error: {}", e);
             }
+            Err(TranspileError::IoError(e)) => {
+                println!("❌ I/O error: {}", e);
+            }
+            Err(TranspileError::ValidationError(e)) => {
+                println!("❌ Validation error: {}", e);
+            }
+            Err(TranspileError::ConfigurationError(e)) => {
+                println!("❌ Configuration error: {}", e);
+            }
         }
         println!();
     }
@@ -138,6 +147,21 @@ fn demonstrate_error_handling_pattern(
             eprintln!("🏗️  SQL generation failed:");
             eprintln!("   Error: {}", e);
             eprintln!("   Hint: The operation might not be supported in the selected SQL dialect");
+        }
+        Err(TranspileError::IoError(e)) => {
+            eprintln!("💾 I/O operation failed:");
+            eprintln!("   Error: {}", e);
+            eprintln!("   Hint: Check file permissions and paths");
+        }
+        Err(TranspileError::ValidationError(e)) => {
+            eprintln!("✅ Validation failed:");
+            eprintln!("   Error: {}", e);
+            eprintln!("   Hint: Check dplyr syntax and function usage");
+        }
+        Err(TranspileError::ConfigurationError(e)) => {
+            eprintln!("⚙️  Configuration error:");
+            eprintln!("   Error: {}", e);
+            eprintln!("   Hint: Check configuration settings and options");
         }
     }
 

@@ -16,7 +16,33 @@ This guide explains how to effectively use libdplyr step by step.
 
 ## Installation and Setup
 
-### Add to Rust Project
+### 🚀 Quick Install CLI Tool (Recommended)
+
+Install the latest version automatically:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
+```
+
+Install a specific version:
+
+```bash
+LIBDPLYR_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
+```
+
+### 📦 Supported Platforms
+
+- **Linux**: x86_64, ARM64 (aarch64)
+- **macOS**: Intel (x86_64), Apple Silicon (ARM64)  
+- **Windows**: x86_64
+
+### 🔧 Manual Installation
+
+1. Download the binary for your platform from [Releases](https://github.com/libdplyr/libdplyr/releases)
+2. Move the binary to a directory in your PATH
+3. Make it executable: `chmod +x libdplyr`
+
+### 📚 Add to Rust Project
 
 Add the dependency to your `Cargo.toml`:
 
@@ -25,16 +51,16 @@ Add the dependency to your `Cargo.toml`:
 libdplyr = "0.1.0"
 ```
 
-### Install CLI Tool
+### 🛠 Install CLI Tool via Cargo
 
 ```bash
 cargo install libdplyr
 ```
 
-### Build from Development Environment
+### 🔨 Build from Development Environment
 
 ```bash
-git clone https://github.com/your-repo/libdplyr.git
+git clone https://github.com/libdplyr/libdplyr.git
 cd libdplyr
 cargo build --release
 ```
@@ -538,65 +564,259 @@ fn try_multiple_dialects(dplyr_code: &str) -> Result<String, String> {
 
 ## CLI Usage
 
-### 1. Basic Commands
+### 1. 🔄 stdin/stdout Pipeline (Recommended)
+
+The most powerful way to use libdplyr is through stdin/stdout pipelines:
 
 ```bash
-# Direct code input
-libdplyr -t "select(name, age) %>% filter(age > 18)"
+# Basic usage - read from stdin, output to stdout
+echo "select(name, age) %>% filter(age > 18)" | libdplyr
 
-# Read from file
-libdplyr -i input.R -o output.sql
+# Specify SQL dialect
+echo "select(name)" | libdplyr -d mysql
 
-# Specify dialect
-libdplyr -t "select(name)" -d mysql
+# Pretty format output with proper indentation
+echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
 
-# Pretty output
-libdplyr -t "select(name) %>% filter(age > 18)" -p
+# JSON format output with metadata
+echo "select(name)" | libdplyr --json
+
+# Compact format (single line, minimal whitespace)
+echo "select(name, age)" | libdplyr --compact
+
+# Validate syntax only (no SQL generation)
+echo "select(name, age)" | libdplyr --validate-only
+
+# Verbose output with processing information
+echo "select(name)" | libdplyr --verbose
+
+# Debug mode with detailed AST information
+echo "select(name)" | libdplyr --debug --verbose
 ```
 
-### 2. Using Pipes
+### 2. 📁 File-based Operations
+
+Traditional file input/output operations:
 
 ```bash
-# Read from standard input
-echo "select(name, age)" | libdplyr
+# Read from file and convert
+libdplyr -i input.R -o output.sql -d postgresql
 
-# Pipe file contents
-cat query.R | libdplyr -d postgresql -p
+# Read from file, output to stdout
+libdplyr -i query.R --pretty
 
-# Process multiple queries
-find . -name "*.R" -exec cat {} \; | libdplyr -d mysql
+# Direct text input
+libdplyr -t "select(name, age) %>% filter(age > 18)" -d mysql
+
+# Multiple output formats
+libdplyr -i query.R --json > metadata.json
+libdplyr -i query.R --compact > compact.sql
+libdplyr -i query.R --pretty > formatted.sql
 ```
 
-### 3. Batch Processing Script
+### 3. 🔗 Advanced Pipeline Integration
+
+Powerful combinations with other Unix tools:
 
 ```bash
-#!/bin/bash
+# Chain with database tools
+cat analysis.R | libdplyr -d postgresql | psql -d mydb
 
-# Convert multiple dplyr files to SQL
+# Conditional processing based on validation
+if echo "select(invalid)" | libdplyr --validate-only; then
+    echo "✓ Valid syntax"
+else
+    echo "✗ Syntax error"
+fi
+
+# Process and save with error handling
+echo "select(name, age)" | libdplyr --pretty > result.sql 2> error.log
+
+# Batch processing with find
+find . -name "*.R" -exec sh -c 'libdplyr -i "$1" -o "${1%.R}.sql"' _ {} \;
+
+# Process multiple queries from a file
+cat queries.txt | while read query; do
+    echo "Processing: $query"
+    echo "$query" | libdplyr --json
+done
+
+# Convert to multiple dialects simultaneously
+for dialect in postgresql mysql sqlite duckdb; do
+    echo "select(name, age)" | libdplyr -d "$dialect" > "query_${dialect}.sql"
+done
+```
+
+### 4. 🛠 Validation and Debugging
+
+Comprehensive syntax checking and debugging:
+
+```bash
+# Validate multiple files
 for file in *.R; do
-    echo "Processing $file..."
-    libdplyr -i "$file" -o "${file%.R}.sql" -d postgresql -p
-    
-    if [ $? -eq 0 ]; then
-        echo "✓ Successfully converted $file"
+    echo "Validating $file..."
+    if libdplyr -i "$file" --validate-only; then
+        echo "✓ $file is valid"
     else
-        echo "✗ Failed to convert $file"
+        echo "✗ $file has errors"
+    fi
+done
+
+# Debug complex queries step by step
+echo "select(name) %>% filter(age > 18) %>% arrange(desc(age))" | \
+    libdplyr --debug --verbose 2> debug.log
+
+# Check different dialects for compatibility
+query="group_by(dept) %>% summarise(avg_sal = mean(salary))"
+for dialect in postgresql mysql sqlite duckdb; do
+    echo "Testing $dialect:"
+    if echo "$query" | libdplyr -d "$dialect" --validate-only; then
+        echo "  ✓ Compatible"
+    else
+        echo "  ✗ Not compatible"
     fi
 done
 ```
 
-### 4. Advanced CLI Usage
+### 5. 📊 Output Format Examples
+
+Different output formats for various use cases:
 
 ```bash
-# Run with error logging
-libdplyr -i complex_query.R -d mysql 2> error.log
+# Default format
+echo "select(name, age)" | libdplyr
+# Output: SELECT "name", "age" FROM "data"
 
-# Save to file only on success
-libdplyr -t "select(name)" && echo "Success" || echo "Failed"
+# Pretty format
+echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
+# Output:
+# SELECT "name", "age"
+# FROM "data"
+# WHERE "age" > 18
 
-# Convert to multiple dialects simultaneously
-for dialect in postgresql mysql sqlite duckdb; do
-    libdplyr -i query.R -o "query_${dialect}.sql" -d "$dialect" -p
+# Compact format
+echo "select(name, age) %>% filter(age > 18)" | libdplyr --compact
+# Output: SELECT "name","age" FROM "data" WHERE "age">18
+
+# JSON format with metadata
+echo "select(name)" | libdplyr --json
+# Output:
+# {
+#   "sql": "SELECT \"name\" FROM \"data\"",
+#   "dialect": "postgresql",
+#   "timestamp": "2024-01-15T10:30:00Z",
+#   "metadata": {
+#     "operations_count": 1,
+#     "complexity_score": 0.1
+#   }
+# }
+```
+
+### 6. 🔧 Error Handling and Exit Codes
+
+Understanding and handling different error conditions:
+
+```bash
+# Check exit codes
+echo "select(name)" | libdplyr
+echo "Exit code: $?"  # 0 for success
+
+echo "invalid_syntax" | libdplyr
+echo "Exit code: $?"  # 3 for transpilation error
+
+# Handle errors in scripts
+if echo "select(name, age)" | libdplyr --validate-only; then
+    echo "Syntax is valid, proceeding with conversion..."
+    echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
+else
+    echo "Syntax error detected, aborting..."
+    exit 1
+fi
+
+# Capture and process error messages
+error_output=$(echo "invalid_function()" | libdplyr 2>&1)
+if [ $? -ne 0 ]; then
+    echo "Error occurred: $error_output"
+    # Send to monitoring system, log file, etc.
+fi
+```
+
+### 7. 🚀 Performance and Batch Processing
+
+Efficient processing of large datasets and multiple queries:
+
+```bash
+# Batch processing script with progress tracking
+#!/bin/bash
+total_files=$(find . -name "*.R" | wc -l)
+current=0
+
+find . -name "*.R" | while read file; do
+    current=$((current + 1))
+    echo "Processing $file ($current/$total_files)..."
+    
+    if libdplyr -i "$file" -o "${file%.R}.sql" -d postgresql --pretty; then
+        echo "✓ Successfully converted $file"
+    else
+        echo "✗ Failed to convert $file" >&2
+    fi
+done
+
+# Parallel processing for better performance
+find . -name "*.R" | xargs -P 4 -I {} sh -c '
+    echo "Processing {}"
+    libdplyr -i "{}" -o "{}.sql" --pretty
+'
+
+# Memory-efficient streaming processing
+large_query_file="huge_queries.txt"
+while IFS= read -r query; do
+    echo "$query" | libdplyr --compact >> results.sql
+done < "$large_query_file"
+```
+
+### 8. 🔍 Integration with Development Workflows
+
+Integrating libdplyr into development and CI/CD pipelines:
+
+```bash
+# Pre-commit hook to validate dplyr syntax
+#!/bin/bash
+# .git/hooks/pre-commit
+echo "Validating dplyr files..."
+find . -name "*.R" -type f | while read file; do
+    if ! libdplyr -i "$file" --validate-only; then
+        echo "❌ Validation failed for $file"
+        exit 1
+    fi
+done
+echo "✅ All dplyr files are valid"
+
+# CI/CD pipeline integration
+# Generate SQL files for different environments
+for env in dev staging prod; do
+    for dialect in postgresql mysql; do
+        echo "Generating SQL for $env environment ($dialect)..."
+        libdplyr -i "queries/${env}.R" -o "sql/${env}_${dialect}.sql" -d "$dialect" --pretty
+    done
+done
+
+# Documentation generation
+echo "# Generated SQL Queries" > README_SQL.md
+echo "" >> README_SQL.md
+find . -name "*.R" | while read file; do
+    echo "## $(basename "$file" .R)" >> README_SQL.md
+    echo "" >> README_SQL.md
+    echo "**dplyr code:**" >> README_SQL.md
+    echo '```r' >> README_SQL.md
+    cat "$file" >> README_SQL.md
+    echo '```' >> README_SQL.md
+    echo "" >> README_SQL.md
+    echo "**Generated SQL:**" >> README_SQL.md
+    echo '```sql' >> README_SQL.md
+    libdplyr -i "$file" --pretty >> README_SQL.md
+    echo '```' >> README_SQL.md
+    echo "" >> README_SQL.md
 done
 ```
 

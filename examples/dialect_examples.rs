@@ -176,6 +176,18 @@ fn demonstrate_error_handling() -> Result<(), Box<dyn std::error::Error>> {
                             "Hint: The operation may not be supported in the selected SQL dialect"
                         );
                     }
+                    TranspileError::IoError(io_err) => {
+                        println!("I/O Error: {}", io_err);
+                        println!("Hint: Check file permissions and paths");
+                    }
+                    TranspileError::ValidationError(val_err) => {
+                        println!("Validation Error: {}", val_err);
+                        println!("Hint: Check dplyr syntax and function usage");
+                    }
+                    TranspileError::ConfigurationError(config_err) => {
+                        println!("Configuration Error: {}", config_err);
+                        println!("Hint: Check configuration settings and options");
+                    }
                 }
                 println!("```\n");
             }

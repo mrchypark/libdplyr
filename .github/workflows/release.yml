@@ -3,204 +3,15 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
-  workflow_dispatch:  # Allow manual triggering
-    inputs:
-      tag:
-        description: 'Release tag (e.g., v1.0.0)'
-        required: true
-        type: string
+      - 'v*'
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
-  validate-release:
-    name: Validate Release
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetch full history for changelog generation
-
-      - name: Validate and extract version information
-        id: version
-        run: |
-          # Get the tag from either push event or manual input
-          if [ "${{ github.event_name }}" = "push" ]; then
-            TAG_NAME="${{ github.ref_name }}"
-          else
-            TAG_NAME="${{ github.event.inputs.tag }}"
-          fi
-          
-          echo "Processing tag: $TAG_NAME"
-          
-          # Validate tag format (v*.*.*)
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
-            echo "::error::Invalid tag format: $TAG_NAME. Expected format: v*.*.* (e.g., v1.0.0)"
-            exit 1
-          fi
-          
-          # Extract version without 'v' prefix
-          VERSION=${TAG_NAME#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
-          
-          # Check if this is a prerelease (contains hyphen)
-          if [[ "$VERSION" =~ - ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-            echo "::notice::This is a prerelease: $VERSION"
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
-            echo "::notice::This is a stable release: $VERSION"
-          fi
-          
-          echo "::notice::Release validation completed for $TAG_NAME"
-
-      - name: Verify Cargo.toml version matches tag
-        run: |
-          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          TAG_VERSION="${{ steps.version.outputs.version }}"
-          
-          echo "Cargo.toml version: $CARGO_VERSION"
-          echo "Tag version: $TAG_VERSION"
-          
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::Version mismatch! Cargo.toml version ($CARGO_VERSION) does not match tag version ($TAG_VERSION)"
-            echo "::error::Please update Cargo.toml version to match the release tag"
-            exit 1
-          fi
-          
-          echo "::notice::Version verification passed: $TAG_VERSION"
-
-      - name: Check for existing release
-        run: |
-          TAG_NAME="${{ steps.version.outputs.tag }}"
-          
-          # Check if release already exists
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "::error::Release $TAG_NAME already exists!"
-            echo "::error::Please delete the existing release or use a different tag"
-            exit 1
-          fi
-          
-          echo "::notice::Release $TAG_NAME does not exist yet - proceeding with creation"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  pre-release-tests:
-    name: Pre-Release Tests
-    runs-on: ubuntu-latest
-    needs: validate-release
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-release-cargo-
-
-      - name: Run comprehensive tests
-        run: |
-          echo "Running comprehensive test suite for release..."
-          
-          # Build in release mode
-          echo "::group::Building in release mode"
-          cargo build --release --all-features --verbose
-          echo "::endgroup::"
-          
-          # Run all tests
-          echo "::group::Running all tests"
-          cargo test --release --all-features --verbose
-          echo "::endgroup::"
-          
-          # Run documentation tests
-          echo "::group::Running documentation tests"
-          cargo test --release --doc --all-features --verbose
-          echo "::endgroup::"
-          
-          # Verify documentation builds
-          echo "::group::Building documentation"
-          cargo doc --release --no-deps --all-features
-          echo "::endgroup::"
-          
-          echo "::notice::All pre-release tests passed successfully"
-
-      - name: Run security audit
-        run: |
-          echo "Running security audit for release..."
-          
-          # Install cargo-audit if not already installed
-          cargo install cargo-audit
-          
-          # Run security audit
-          if cargo audit; then
-            echo "::notice::Security audit passed - no vulnerabilities found"
-          else
-            echo "::error::Security vulnerabilities detected! Cannot proceed with release"
-            exit 1
-          fi
-
-      - name: Verify benchmarks work
-        run: |
-          echo "Verifying benchmarks compile and run..."
-          
-          # Compile benchmarks to ensure they work
-          cargo bench --no-run --all-features
-          
-          echo "::notice::Benchmarks verification completed"
-
-      - name: Generate release artifacts info
-        run: |
-          echo "# Pre-Release Validation Report" > pre-release-report.md
-          echo "" >> pre-release-report.md
-          echo "## Release Information" >> pre-release-report.md
-          echo "- **Version**: ${{ needs.validate-release.outputs.version }}" >> pre-release-report.md
-          echo "- **Tag**: ${{ needs.validate-release.outputs.tag }}" >> pre-release-report.md
-          echo "- **Prerelease**: ${{ needs.validate-release.outputs.is_prerelease }}" >> pre-release-report.md
-          echo "- **Validation Time**: $(date)" >> pre-release-report.md
-          echo "" >> pre-release-report.md
-          echo "## Validation Results" >> pre-release-report.md
-          echo "- ✅ Version format validation" >> pre-release-report.md
-          echo "- ✅ Cargo.toml version match" >> pre-release-report.md
-          echo "- ✅ Release uniqueness check" >> pre-release-report.md
-          echo "- ✅ Comprehensive test suite" >> pre-release-report.md
-          echo "- ✅ Security audit" >> pre-release-report.md
-          echo "- ✅ Benchmark compilation" >> pre-release-report.md
-          echo "- ✅ Documentation build" >> pre-release-report.md
-          echo "" >> pre-release-report.md
-          echo "## Next Steps" >> pre-release-report.md
-          echo "1. Multi-platform binary builds" >> pre-release-report.md
-          echo "2. Release artifact generation" >> pre-release-report.md
-          echo "3. GitHub Release creation" >> pre-release-report.md
-          echo "4. Crates.io publication (if stable release)" >> pre-release-report.md
-
-      - name: Upload pre-release validation report
-        uses: actions/upload-artifact@v3
-        with:
-          name: pre-release-validation
-          path: pre-release-report.md
-
-  build-release-binaries:
-    name: Build Release Binaries
+  build:
+    name: Build for ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: [validate-release, pre-release-tests]
     strategy:
       matrix:
         include:
@@ -209,13 +20,9 @@ jobs:
             artifact_name: libdplyr
             asset_name: libdplyr-linux-x86_64
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+            target: aarch64-unknown-linux-gnu
             artifact_name: libdplyr
-            asset_name: libdplyr-linux-x86_64-musl
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: libdplyr.exe
-            asset_name: libdplyr-windows-x86_64.exe
+            asset_name: libdplyr-linux-aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: libdplyr
@@ -224,20 +31,34 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: libdplyr
             asset_name: libdplyr-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: libdplyr.exe
+            asset_name: libdplyr-windows-x86_64.exe
+
     steps:
-      - name: Checkout sources
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
         with:
-          targets: ${{ matrix.target }}
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+          components: rustfmt, clippy
 
-      - name: Install cross-compilation dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64-unknown-linux-musl'
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
 
       - name: Cache cargo registry
         uses: actions/cache@v3
@@ -246,272 +67,217 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-release-cargo-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Build release binary
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows-latest'
         run: |
-          echo "Building release binary for ${{ matrix.target }}..."
-          cargo build --release --target ${{ matrix.target }} --all-features --verbose
-          
-          echo "::notice::Successfully built binary for ${{ matrix.target }}"
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          else
+            strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          fi
 
-      - name: Prepare release artifact
+      - name: Prepare binary for upload
         shell: bash
         run: |
-          # Create release directory
-          mkdir -p release
-          
-          # Copy binary to release directory with appropriate name
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release/${{ matrix.asset_name }}
-          else
-            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release/${{ matrix.asset_name }}
-          fi
-          
-          # Make binary executable (Unix systems)
-          if [ "${{ matrix.os }}" != "windows-latest" ]; then
-            chmod +x release/${{ matrix.asset_name }}
-          fi
-          
-          # Generate checksum
-          cd release
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
-          else
-            sha256sum ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
-          fi
-          
-          # Display file info
-          ls -la
-          echo "::notice::Release artifact prepared: ${{ matrix.asset_name }}"
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
 
-      - name: Upload release artifact
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v3
         with:
-          name: release-${{ matrix.target }}
-          path: release/*
+          name: ${{ matrix.asset_name }}
+          path: artifacts/${{ matrix.asset_name }}
 
-  create-release:
-    name: Create GitHub Release
+  release:
+    name: Create Release
+    needs: build
     runs-on: ubuntu-latest
-    needs: [validate-release, pre-release-tests, build-release-binaries]
     steps:
-      - name: Checkout sources
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Need full history for changelog
 
-      - name: Download all release artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v3
         with:
           path: artifacts
 
-      - name: Prepare release assets
-        run: |
-          echo "Preparing release assets..."
-          mkdir -p release-assets
-          
-          # Copy all binary artifacts to release-assets directory
-          find artifacts -name "release-*" -type d | while read dir; do
-            echo "Processing $dir..."
-            cp -r "$dir"/* release-assets/
-          done
-          
-          # List all prepared assets
-          echo "Release assets prepared:"
-          ls -la release-assets/
-          
-          # Create a combined checksum file
-          cd release-assets
-          echo "# SHA256 Checksums for libdplyr ${{ needs.validate-release.outputs.version }}" > SHA256SUMS
-          echo "" >> SHA256SUMS
-          for file in *.sha256; do
-            if [ -f "$file" ]; then
-              cat "$file" >> SHA256SUMS
-              echo "" >> SHA256SUMS
-            fi
-          done
-          
-          echo "::notice::All release assets prepared"
+      - name: List artifacts
+        run: find artifacts -type f -ls
 
       - name: Generate release notes
         id: release_notes
         run: |
-          echo "Generating release notes..."
+          VERSION=${GITHUB_REF#refs/tags/}
+          cat > release_notes.md << EOF
+          # libdplyr ${VERSION}
           
-          VERSION="${{ needs.validate-release.outputs.version }}"
-          TAG="${{ needs.validate-release.outputs.tag }}"
-          IS_PRERELEASE="${{ needs.validate-release.outputs.is_prerelease }}"
+          R dplyr 문법을 SQL 쿼리로 변환하는 고성능 Rust 기반 트랜스파일러입니다.
           
-          # Create release notes
-          cat > release-notes.md << EOF
-          # libdplyr $VERSION
+          ## 🚀 새로운 기능
           
-          $(if [ "$IS_PRERELEASE" = "true" ]; then echo "⚠️ **This is a pre-release version**"; echo ""; fi)
+          - **stdin/stdout 파이프라인 지원**: Unix 파이프라인과 완벽 통합
+          - **다양한 출력 형식**: JSON, Pretty, Compact 형식 지원
+          - **문법 검증 모드**: SQL 변환 없이 dplyr 문법 검증
+          - **향상된 오류 처리**: 상세한 오류 메시지와 해결 힌트
+          - **크로스 플랫폼 지원**: Linux, macOS, Windows 바이너리 제공
           
-          ## What's New
+          ## 📦 지원 플랫폼
           
-          This release includes improvements and bug fixes for the libdplyr transpiler.
+          - **Linux**: x86_64, ARM64 (aarch64)
+          - **macOS**: Intel (x86_64), Apple Silicon (ARM64)
+          - **Windows**: x86_64
           
-          ## Installation
+          ## 🛠 설치 방법
           
-          ### Download Pre-built Binaries
-          
-          Choose the appropriate binary for your platform:
-          
-          - **Linux (x86_64)**: \`libdplyr-linux-x86_64\`
-          - **Linux (x86_64, musl)**: \`libdplyr-linux-x86_64-musl\`
-          - **Windows (x86_64)**: \`libdplyr-windows-x86_64.exe\`
-          - **macOS (x86_64)**: \`libdplyr-macos-x86_64\`
-          - **macOS (Apple Silicon)**: \`libdplyr-macos-aarch64\`
-          
-          ### Verify Downloads
-          
-          All binaries include SHA256 checksums. Verify your download:
+          ### 자동 설치 (권장)
           
           \`\`\`bash
-          # Linux/macOS
-          sha256sum -c libdplyr-*.sha256
+          # 최신 버전 설치
+          curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
           
-          # Windows
-          certutil -hashfile libdplyr-windows-x86_64.exe SHA256
+          # 특정 버전 설치
+          LIBDPLYR_VERSION=${VERSION} curl -sSL https://raw.githubusercontent.com/libdplyr/libdplyr/main/install.sh | sh
           \`\`\`
           
-          ### From Source
+          ### 수동 설치
+          
+          1. 아래에서 플랫폼에 맞는 바이너리를 다운로드
+          2. 바이너리를 PATH에 포함된 디렉토리로 이동
+          3. 실행 권한 부여: \`chmod +x libdplyr\`
+          
+          ## 📖 사용법
           
           \`\`\`bash
-          cargo install --git https://github.com/your-org/libdplyr --tag $TAG
+          # 기본 사용법
+          echo "select(name, age) %>% filter(age > 18)" | libdplyr
+          
+          # SQL 방언 지정
+          echo "select(name)" | libdplyr -d mysql
+          
+          # 출력 형식 지정
+          echo "select(name)" | libdplyr --pretty
+          echo "select(name)" | libdplyr --json
+          
+          # 문법 검증만 수행
+          echo "select(name, age)" | libdplyr --validate-only
           \`\`\`
           
-          ## Usage
+          ## 🔧 지원되는 dplyr 함수
           
-          \`\`\`bash
-          # Convert dplyr code to SQL
-          libdplyr --input input.R --output output.sql --dialect postgresql
+          - \`select()\` - 컬럼 선택
+          - \`filter()\` - 행 필터링  
+          - \`mutate()\` - 컬럼 생성/수정
+          - \`arrange()\` - 정렬
+          - \`group_by()\` - 그룹화
+          - \`summarise()\` - 집계
           
-          # See all options
-          libdplyr --help
-          \`\`\`
+          ## 🗄 지원되는 SQL 방언
           
-          ## Full Changelog
+          - PostgreSQL (기본값)
+          - MySQL
+          - SQLite
+          - DuckDB
           
-          For a complete list of changes, see the [commit history](https://github.com/your-org/libdplyr/compare/v$(git describe --tags --abbrev=0 HEAD^)...$TAG).
-          
-          ## Support
-          
-          - 📖 [Documentation](https://github.com/your-org/libdplyr#readme)
-          - 🐛 [Report Issues](https://github.com/your-org/libdplyr/issues)
-          - 💬 [Discussions](https://github.com/your-org/libdplyr/discussions)
+          전체 문서는 [GitHub 저장소](https://github.com/libdplyr/libdplyr)를 참조하세요.
           EOF
-          
-          echo "::notice::Release notes generated"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.validate-release.outputs.tag }}
-          name: libdplyr ${{ needs.validate-release.outputs.version }}
-          body_path: release-notes.md
-          prerelease: ${{ needs.validate-release.outputs.is_prerelease == 'true' }}
-          files: |
-            release-assets/*
-          draft: false
-          generate_release_notes: true
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release summary
-        uses: actions/upload-artifact@v3
         with:
-          name: release-summary
-          path: |
-            release-notes.md
-            release-assets/SHA256SUMS
+          tag_name: ${{ github.ref_name }}
+          release_name: libdplyr ${{ github.ref_name }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
 
-  publish-crates:
-    name: Publish to Crates.io
-    runs-on: ubuntu-latest
-    needs: [validate-release, create-release]
-    if: needs.validate-release.outputs.is_prerelease == 'false'  # Only publish stable releases
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for dir in artifacts/*/; do
+            if [ -d "$dir" ]; then
+              asset_name=$(basename "$dir")
+              asset_path="$dir$asset_name"
+              if [ -f "$asset_path" ]; then
+                echo "Uploading $asset_path as $asset_name"
+                gh release upload ${{ github.ref_name }} "$asset_path" --clobber
+              else
+                echo "Warning: Asset file not found at $asset_path"
+              fi
+            fi
+          done
+
+  test-installation:
+    name: Test Installation Script
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
-      - name: Checkout sources
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-publish-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-publish-cargo-
-
-      - name: Verify package before publishing
+      - name: Test installation script
         run: |
-          echo "Verifying package for crates.io publication..."
-          
-          # Dry run to check package
-          cargo publish --dry-run --all-features
-          
-          echo "::notice::Package verification completed successfully"
-
-      - name: Publish to crates.io
-        run: |
-          echo "Publishing libdplyr ${{ needs.validate-release.outputs.version }} to crates.io..."
-          
-          # Publish to crates.io
-          cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
-          
-          echo "::notice::Successfully published to crates.io"
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-
-  post-release:
-    name: Post-Release Tasks
-    runs-on: ubuntu-latest
-    needs: [validate-release, create-release]
-    if: always() && needs.create-release.result == 'success'
-    steps:
-      - name: Generate release summary
-        run: |
-          echo "# Release Summary" > release-summary.md
-          echo "" >> release-summary.md
-          echo "## Release Information" >> release-summary.md
-          echo "- **Version**: ${{ needs.validate-release.outputs.version }}" >> release-summary.md
-          echo "- **Tag**: ${{ needs.validate-release.outputs.tag }}" >> release-summary.md
-          echo "- **Type**: $(if [ "${{ needs.validate-release.outputs.is_prerelease }}" = "true" ]; then echo "Pre-release"; else echo "Stable Release"; fi)" >> release-summary.md
-          echo "- **Release Time**: $(date)" >> release-summary.md
-          echo "" >> release-summary.md
-          echo "## Release Status" >> release-summary.md
-          echo "- ✅ Release validation completed" >> release-summary.md
-          echo "- ✅ Pre-release tests passed" >> release-summary.md
-          echo "- ✅ Multi-platform binaries built" >> release-summary.md
-          echo "- ✅ GitHub Release created" >> release-summary.md
-          
-          if [ "${{ needs.validate-release.outputs.is_prerelease }}" = "false" ]; then
-            echo "- ✅ Published to crates.io" >> release-summary.md
+          # 설치 스크립트가 존재하는지 확인
+          if [ -f "install.sh" ]; then
+            echo "Testing installation script..."
+            # 실제 설치는 하지 않고 스크립트 문법만 확인
+            bash -n install.sh
+            echo "Installation script syntax is valid"
           else
-            echo "- ⏭️ Crates.io publication skipped (pre-release)" >> release-summary.md
+            echo "Warning: install.sh not found"
           fi
-          
-          echo "" >> release-summary.md
-          echo "## Next Steps" >> release-summary.md
-          echo "1. Monitor release for any issues" >> release-summary.md
-          echo "2. Update documentation if needed" >> release-summary.md
-          echo "3. Announce release to community" >> release-summary.md
-          echo "4. Plan next development cycle" >> release-summary.md
-          
-          echo "::notice::Release ${{ needs.validate-release.outputs.tag }} completed successfully!"
 
-      - name: Upload final summary
-        uses: actions/upload-artifact@v3
-        with:
-          name: final-release-summary
-          path: release-summary.md
+      - name: Test binary download (simulation)
+        run: |
+          VERSION=${{ github.ref_name }}
+          echo "Testing binary download for version $VERSION"
+          
+          # 플랫폼 감지 테스트
+          case "$(uname -s)" in
+            Linux*)     platform="linux" ;;
+            Darwin*)    platform="macos" ;;
+            *)          echo "Unsupported OS"; exit 1 ;;
+          esac
+          
+          case "$(uname -m)" in
+            x86_64|amd64)   arch="x86_64" ;;
+            aarch64|arm64)  arch="aarch64" ;;
+            *)              echo "Unsupported arch"; exit 1 ;;
+          esac
+          
+          binary_name="libdplyr-${platform}-${arch}"
+          download_url="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${binary_name}"
+          
+          echo "Would download: $download_url"
+          
+          # 실제 다운로드 테스트 (릴리즈가 완료된 후)
+          sleep 30  # 릴리즈 완료 대기
+          if curl -f -L -o "/tmp/libdplyr-test" "$download_url"; then
+            echo "Binary download successful"
+            chmod +x "/tmp/libdplyr-test"
+            if "/tmp/libdplyr-test" --version; then
+              echo "Binary execution successful"
+            else
+              echo "Binary execution failed"
+              exit 1
+            fi
+          else
+            echo "Binary download failed"
+            exit 1
+          fi

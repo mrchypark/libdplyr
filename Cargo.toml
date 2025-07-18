@@ -19,9 +19,17 @@ thiserror = "1.0"
 # Dependencies for static initialization
 lazy_static = "1.4"
 
+# Dependencies for terminal detection
+is-terminal = "0.4"
+
+# Dependencies for signal handling
+signal-hook = "0.3"
+libc = "0.2"
+
 # Optional serialization support
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+colored = "3.0.0"
 
 [dev-dependencies]
 # Dependencies for benchmarking
@@ -29,9 +37,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 # Additional dependencies for testing
 pretty_assertions = "1.4"
+tempfile = "3.20.0"
 
 [features]
-default = []
+default = ["serde"]
 serde = ["dep:serde", "dep:serde_json"]
 
 [[bin]]

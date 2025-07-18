@@ -1,4 +1,4 @@
 SELECT "name", "age", "salary"
 FROM "data"
-WHERE ("age" > 25)
-ORDER BY "salary" ASC
+WHERE ("age" > 18)
+ORDER BY "salary" DESC
