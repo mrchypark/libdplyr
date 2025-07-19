@@ -269,111 +269,6 @@ jobs:
           name: documentation
           path: target/doc/
 
-
-          
-
-          
-          if [ -f cobertura.xml ]; then
-            echo "✅ **Coverage Generation**: Successful" >> coverage-report.md
-            
-            # Extract coverage percentage from XML
-            if command -v python3 >/dev/null 2>&1; then
-              COVERAGE_PERCENT=$(python3 -c "
-          import xml.etree.ElementTree as ET
-          try:
-              tree = ET.parse('cobertura.xml')
-              root = tree.getroot()
-              line_rate = float(root.get('line-rate', 0))
-              print(f'{line_rate * 100:.2f}')
-          except:
-              print('0')
-          ")
-            else
-              # Fallback method using grep and basic parsing
-              COVERAGE_PERCENT=$(grep -o 'line-rate="[0-9.]*"' cobertura.xml | head -1 | grep -o '[0-9.]*' | awk '{print $1 * 100}' || echo "0")
-            fi
-            
-            echo "- **Line Coverage**: ${COVERAGE_PERCENT}%" >> coverage-report.md
-            
-            # Check coverage threshold
-            COVERAGE_INT=$(echo "$COVERAGE_PERCENT" | cut -d. -f1)
-            if [ "$COVERAGE_INT" -ge "$MIN_COVERAGE" ]; then
-              echo "- **Coverage Status**: ✅ **PASSED** (≥${MIN_COVERAGE}%)" >> coverage-report.md
-              COVERAGE_STATUS="PASSED"
-            else
-              echo "- **Coverage Status**: ❌ **FAILED** (<${MIN_COVERAGE}%)" >> coverage-report.md
-              COVERAGE_STATUS="FAILED"
-            fi
-            
-            echo "" >> coverage-report.md
-            echo "## Coverage Breakdown by File" >> coverage-report.md
-            
-            # Extract per-file coverage if possible
-            if command -v python3 >/dev/null 2>&1; then
-              python3 -c "
-          import xml.etree.ElementTree as ET
-          try:
-              tree = ET.parse('cobertura.xml')
-              root = tree.getroot()
-              for pkg in root.findall('.//package'):
-                  for cls in pkg.findall('classes/class'):
-                      filename = cls.get('filename', 'unknown')
-                      line_rate = float(cls.get('line-rate', 0))
-                      print(f'- {filename}: {line_rate * 100:.1f}%')
-          except Exception as e:
-              print(f'- Error parsing detailed coverage: {e}')
-          " >> coverage-report.md
-            fi
-            
-            echo "" >> coverage-report.md
-            echo "## Coverage Files Generated" >> coverage-report.md
-            echo "- XML Report: cobertura.xml" >> coverage-report.md
-            echo "- HTML Report: tarpaulin-report.html" >> coverage-report.md
-            echo "- JSON Report: tarpaulin-report.json" >> coverage-report.md
-            
-            # Fail the job if coverage is below threshold
-            if [ "$COVERAGE_STATUS" = "FAILED" ]; then
-              echo "" >> coverage-report.md
-              echo "## ❌ Coverage Threshold Not Met" >> coverage-report.md
-              echo "Current coverage (${COVERAGE_PERCENT}%) is below the minimum threshold (${MIN_COVERAGE}%)." >> coverage-report.md
-              echo "Please add more tests to improve code coverage." >> coverage-report.md
-              echo "::error::Code coverage ${COVERAGE_PERCENT}% is below minimum threshold ${MIN_COVERAGE}%"
-              # Don't exit 1 here, let it continue to upload artifacts
-            fi
-          else
-            echo "❌ **Coverage Generation**: Failed" >> coverage-report.md
-            echo "" >> coverage-report.md
-            echo "## Error Details" >> coverage-report.md
-            echo "Coverage report files were not generated successfully." >> coverage-report.md
-            echo "::error::Coverage generation failed"
-          fi
-          
-          echo "" >> coverage-report.md
-          echo "## Summary" >> coverage-report.md
-          echo "- Timestamp: $(date)" >> coverage-report.md
-          echo "- Tool: cargo-tarpaulin" >> coverage-report.md
-          echo "- Minimum Threshold: ${MIN_COVERAGE}%" >> coverage-report.md
-
-      - name: Upload to Codecov
-        if: always()
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./cobertura.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: Upload coverage reports
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: coverage-reports
-          path: |
-            coverage-report.md
-            cobertura.xml
-            tarpaulin-report.html
-            tarpaulin-report.json
-
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
@@ -390,27 +285,12 @@ jobs:
       - name: Run benchmarks
         run: |
           echo "Running performance benchmarks..."
-          cargo bench --message-format=json > benchmark-results.json 2>&1 || true
-          
-          # Also run benchmarks with human-readable output
+          cargo bench --all-features -- --output-format bencher > benchmark-output.txt
           echo "## Benchmark Results" > benchmark-report.md
           echo "" >> benchmark-report.md
-          echo "### Transpile Benchmark" >> benchmark-report.md
-          echo "\`\`\`" >> benchmark-report.md
-          cargo bench --bench transpile_benchmark 2>&1 | tee -a benchmark-report.md || true
-          echo "\`\`\`" >> benchmark-report.md
-          echo "" >> benchmark-report.md
-          
-          echo "### Performance Analysis" >> benchmark-report.md
-          echo "\`\`\`" >> benchmark-report.md
-          cargo bench --bench performance_analysis 2>&1 | tee -a benchmark-report.md || true
-          echo "\`\`\`" >> benchmark-report.md
-          echo "" >> benchmark-report.md
-          
-          echo "### Summary" >> benchmark-report.md
-          echo "- Timestamp: $(date)" >> benchmark-report.md
-          echo "- Platform: ubuntu-latest" >> benchmark-report.md
-          echo "- Rust Version: stable" >> benchmark-report.md
+          echo '```' >> benchmark-report.md
+          cat benchmark-output.txt >> benchmark-report.md
+          echo '```' >> benchmark-report.md
 
       - name: Download previous benchmark results
         if: always()
