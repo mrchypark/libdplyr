@@ -215,13 +215,13 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("토큰화 오류: {}", e),
+                        format!("Tokenization error: {}", e),
                     )
-                    .with_description("입력 코드의 문법에 오류가 있습니다.".to_string())
+                    .with_description("There is an error in the syntax of the input code.".to_string())
                     .with_suggestions(vec![
-                        "문자열 따옴표가 올바르게 닫혔는지 확인하세요".to_string(),
-                        "특수 문자나 이스케이프 문자를 확인하세요".to_string(),
-                        "지원되지 않는 문자가 포함되어 있지 않은지 확인하세요".to_string(),
+                        "Check if string quotes are closed correctly".to_string(),
+                        "Check for special characters or escape sequences".to_string(),
+                        "Check if any unsupported characters are included".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -242,14 +242,14 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("구문 분석 오류: {}", e),
+                        format!("Parsing error: {}", e),
                     )
-                    .with_description("dplyr 함수의 사용법이 올바르지 않습니다.".to_string())
+                    .with_description("The usage of the dplyr function is incorrect.".to_string())
                     .with_suggestions(vec![
-                        "dplyr 함수 이름이 올바른지 확인하세요".to_string(),
-                        "함수의 인수가 올바르게 제공되었는지 확인하세요".to_string(),
-                        "파이프 연산자 (%>%)가 올바르게 사용되었는지 확인하세요".to_string(),
-                        "괄호와 쉼표 위치를 확인하세요".to_string(),
+                        "Check if the dplyr function name is correct".to_string(),
+                        "Check if the function arguments are provided correctly".to_string(),
+                        "Check if the pipe operator (%>%) is used correctly".to_string(),
+                        "Check the position of parentheses and commas".to_string(),
                     ])
                     .with_help(true)
                 } else {
@@ -273,13 +273,13 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Application,
                         ExitCode::TRANSPILATION_ERROR,
-                        format!("SQL 생성 오류: {}", e),
+                        format!("SQL generation error: {}", e),
                     )
-                    .with_description("선택한 SQL 방언에서 지원되지 않는 기능이거나 복잡한 표현식입니다.".to_string())
+                    .with_description("Unsupported feature or complex expression in the selected SQL dialect.".to_string())
                     .with_suggestions(vec![
-                        "다른 SQL 방언을 시도해보세요 (-d 옵션 사용)".to_string(),
-                        "더 간단한 표현식으로 나누어 작성해보세요".to_string(),
-                        "지원되는 함수와 연산자만 사용하세요".to_string(),
+                        "Try a different SQL dialect (use the -d option)".to_string(),
+                        "Try breaking it down into simpler expressions".to_string(),
+                        "Use only supported functions and operators".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -300,12 +300,12 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::IO_ERROR,
-                        format!("입출력 오류: {}", e),
+                        format!("I/O error: {}", e),
                     )
-                    .with_description("파일이나 입출력 작업에서 오류가 발생했습니다.".to_string())
+                    .with_description("An error occurred during file or I/O operations.".to_string())
                     .with_suggestions(vec![
-                        "파일 경로와 권한을 확인하세요".to_string(),
-                        "디스크 공간을 확인하세요".to_string(),
+                        "Check the file path and permissions".to_string(),
+                        "Check the disk space".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -325,12 +325,12 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("검증 오류: {}", e),
+                        format!("Validation error: {}", e),
                     )
-                    .with_description("dplyr 코드 검증에 실패했습니다.".to_string())
+                    .with_description("dplyr code validation failed.".to_string())
                     .with_suggestions(vec![
-                        "dplyr 문법을 확인하세요".to_string(),
-                        "함수 사용법을 확인하세요".to_string(),
+                        "Check the dplyr syntax".to_string(),
+                        "Check the function usage".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -350,12 +350,12 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Configuration,
                         ExitCode::CONFIG_ERROR,
-                        format!("설정 오류: {}", e),
+                        format!("Configuration error: {}", e),
                     )
-                    .with_description("설정이나 구성에 문제가 있습니다.".to_string())
+                    .with_description("There is a problem with the settings or configuration.".to_string())
                     .with_suggestions(vec![
-                        "설정 옵션을 확인하세요".to_string(),
-                        "필수 매개변수가 제공되었는지 확인하세요".to_string(),
+                        "Check the configuration options".to_string(),
+                        "Check if all required parameters are provided".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -375,12 +375,12 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::SYSTEM_ERROR,
-                        format!("시스템 오류: {}", e),
+                        format!("System error: {}", e),
                     )
-                    .with_description("시스템 레벨에서 오류가 발생했습니다.".to_string())
+                    .with_description("A system-level error occurred.".to_string())
                     .with_suggestions(vec![
-                        "시스템 권한을 확인하세요".to_string(),
-                        "시그널 처리나 파이프라인 설정을 확인하세요".to_string(),
+                        "Check the system permissions".to_string(),
+                        "Check the signal handling or pipeline settings".to_string(),
                     ])
                 } else {
                     ErrorInfo::new(
@@ -403,46 +403,46 @@ impl ErrorHandler {
         let (message, description, suggestions) = if self.use_korean {
             match error.error_type.as_str() {
                 "input" => (
-                    format!("입력 오류: {}", error.message),
-                    Some("유효한 dplyr 코드를 제공해주세요.".to_string()),
-                    vec!["예시: data %>% select(name, age)".to_string()],
+                    format!("Input error: {}", error.message),
+                    Some("Please provide valid dplyr code.".to_string()),
+                    vec!["Example: data %>% select(name, age)".to_string()],
                 ),
                 "lex" => (
-                    format!("토큰화 오류: {}", error.message),
-                    Some("입력 코드의 문법을 확인해주세요.".to_string()),
+                    format!("Tokenization error: {}", error.message),
+                    Some("Please check the syntax of the input code.".to_string()),
                     vec![
-                        "문자열 따옴표를 확인하세요".to_string(),
-                        "특수 문자를 확인하세요".to_string(),
+                        "Check the string quotes".to_string(),
+                        "Check for special characters".to_string(),
                     ],
                 ),
                 "parse" => (
-                    format!("구문 분석 오류: {}", error.message),
-                    Some("dplyr 함수 사용법을 확인해주세요.".to_string()),
+                    format!("Parsing error: {}", error.message),
+                    Some("Please check the dplyr function usage.".to_string()),
                     vec![
-                        "함수 이름을 확인하세요".to_string(),
-                        "파이프 연산자 사용법을 확인하세요".to_string(),
+                        "Check the function names".to_string(),
+                        "Check the pipe operator usage".to_string(),
                     ],
                 ),
                 "complexity" => (
-                    format!("복잡도 오류: {}", error.message),
-                    Some("쿼리가 너무 복잡합니다.".to_string()),
+                    format!("Complexity error: {}", error.message),
+                    Some("The query is too complex.".to_string()),
                     vec![
-                        "쿼리를 더 간단한 부분으로 나누세요".to_string(),
-                        "불필요한 연산을 제거하세요".to_string(),
+                        "Break the query into simpler parts".to_string(),
+                        "Remove unnecessary operations".to_string(),
                     ],
                 ),
                 "semantic" => (
-                    format!("의미적 오류: {}", error.message),
-                    Some("쿼리의 논리적 구조를 확인해주세요.".to_string()),
+                    format!("Semantic error: {}", error.message),
+                    Some("Please check the logical structure of the query.".to_string()),
                     vec![
-                        "집계 함수 사용 시 group_by()를 고려하세요".to_string(),
-                        "연산의 순서를 확인하세요".to_string(),
+                        "Consider using group_by() with aggregate functions".to_string(),
+                        "Check the order of operations".to_string(),
                     ],
                 ),
                 _ => (
-                    format!("검증 오류: {}", error.message),
+                    format!("Validation error: {}", error.message),
                     None,
-                    vec!["문법을 다시 확인해주세요".to_string()],
+                    vec!["Please check the syntax again".to_string()],
                 ),
             }
         } else {
@@ -508,33 +508,33 @@ impl ErrorHandler {
         let (message, description, suggestions) = if self.use_korean {
             match error.kind() {
                 io::ErrorKind::NotFound => (
-                    "파일을 찾을 수 없습니다".to_string(),
-                    Some("지정된 파일이 존재하지 않습니다.".to_string()),
+                    "File not found".to_string(),
+                    Some("The specified file does not exist.".to_string()),
                     vec![
-                        "파일 경로가 올바른지 확인하세요".to_string(),
-                        "파일이 존재하는지 확인하세요".to_string(),
+                        "Check if the file path is correct".to_string(),
+                        "Check if the file exists".to_string(),
                     ],
                 ),
                 io::ErrorKind::PermissionDenied => (
-                    "권한이 거부되었습니다".to_string(),
-                    Some("파일에 대한 읽기/쓰기 권한이 없습니다.".to_string()),
+                    "Permission denied".to_string(),
+                    Some("You do not have read/write permissions for the file.".to_string()),
                     vec![
-                        "파일 권한을 확인하세요".to_string(),
-                        "관리자 권한으로 실행해보세요".to_string(),
+                        "Check the file permissions".to_string(),
+                        "Try running with administrator privileges".to_string(),
                     ],
                 ),
                 io::ErrorKind::InvalidInput => (
-                    "잘못된 입력입니다".to_string(),
-                    Some("입력 데이터가 올바르지 않습니다.".to_string()),
+                    "Invalid input".to_string(),
+                    Some("The input data is incorrect.".to_string()),
                     vec![
-                        "입력 형식을 확인하세요".to_string(),
-                        "UTF-8 인코딩을 확인하세요".to_string(),
+                        "Check the input format".to_string(),
+                        "Check the UTF-8 encoding".to_string(),
                     ],
                 ),
                 _ => (
-                    format!("입출력 오류: {}", error),
+                    format!("I/O error: {}", error),
                     None,
-                    vec!["시스템 상태를 확인하세요".to_string()],
+                    vec!["Check the system status".to_string()],
                 ),
             }
         } else {
@@ -601,7 +601,7 @@ impl ErrorHandler {
         
         // Print main error message
         if self.use_korean {
-            let _ = writeln!(stderr, "오류: {}", error_info.message);
+            let _ = writeln!(stderr, "Error: {}", error_info.message);
         } else {
             let _ = writeln!(stderr, "Error: {}", error_info.message);
         }
@@ -614,7 +614,7 @@ impl ErrorHandler {
         // Print context if available
         if let Some(context) = &error_info.context {
             if self.use_korean {
-                let _ = writeln!(stderr, "컨텍스트: {}", context);
+                let _ = writeln!(stderr, "Context: {}", context);
             } else {
                 let _ = writeln!(stderr, "Context: {}", context);
             }
@@ -624,7 +624,7 @@ impl ErrorHandler {
         if !error_info.suggestions.is_empty() {
             let _ = writeln!(stderr);
             if self.use_korean {
-                let _ = writeln!(stderr, "해결 방법:");
+                let _ = writeln!(stderr, "Solution:");
             } else {
                 let _ = writeln!(stderr, "Suggestions:");
             }
@@ -638,7 +638,7 @@ impl ErrorHandler {
         if error_info.show_help {
             let _ = writeln!(stderr);
             if self.use_korean {
-                let _ = writeln!(stderr, "도움말을 보려면 다음 명령을 실행하세요:");
+                let _ = writeln!(stderr, "To see help, run the following command:");
                 let _ = writeln!(stderr, "  libdplyr --help");
             } else {
                 let _ = writeln!(stderr, "For help, run:");
@@ -652,7 +652,7 @@ impl ErrorHandler {
     /// Prints a success message
     pub fn print_success(&self, message: &str) {
         if self.use_korean {
-            println!("성공: {}", message);
+            println!("Success: {}", message);
         } else {
             println!("Success: {}", message);
         }
@@ -662,7 +662,7 @@ impl ErrorHandler {
     pub fn print_warning(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "경고: {}", message);
+            let _ = writeln!(stderr, "Warning: {}", message);
         } else {
             let _ = writeln!(stderr, "Warning: {}", message);
         }
@@ -673,7 +673,7 @@ impl ErrorHandler {
     pub fn print_info(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "정보: {}", message);
+            let _ = writeln!(stderr, "Info: {}", message);
         } else {
             let _ = writeln!(stderr, "Info: {}", message);
         }
@@ -805,7 +805,7 @@ mod tests {
         
         assert_eq!(error_info.category, ErrorCategory::System);
         assert_eq!(error_info.exit_code, ExitCode::IO_ERROR);
-        assert!(error_info.message.contains("파일을 찾을 수 없습니다"));
+        assert!(error_info.message.contains("File not found"));
     }
     
     #[test]
@@ -821,7 +821,7 @@ mod tests {
         let error_info = handler.convert_validation_error(&validation_error);
         assert_eq!(error_info.category, ErrorCategory::UserInput);
         assert_eq!(error_info.exit_code, ExitCode::VALIDATION_ERROR);
-        assert!(error_info.message.contains("구문 분석 오류"));
+        assert!(error_info.message.contains("Parsing error"));
     }
     
     #[test]

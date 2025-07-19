@@ -509,7 +509,7 @@ mod tests {
         let dplyr_code = "select(name, age)";
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -583,7 +583,7 @@ mod tests {
         let dplyr_code = "select(name, age)";
 
         let result = transpiler.parse_dplyr(dplyr_code);
-        assert!(result.is_ok(), "파싱이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "Parsing should succeed: {:?}", result);
 
         let ast = result.unwrap();
         assert!(ast.is_pipeline());
@@ -599,7 +599,7 @@ mod tests {
 
         // Then generate SQL from AST
         let result = transpiler.generate_sql(&ast);
-        assert!(result.is_ok(), "SQL 생성이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "SQL generation should succeed: {:?}", result);
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -613,11 +613,11 @@ mod tests {
 
         // Test invalid syntax
         let result = transpiler.transpile("invalid_function(test)");
-        assert!(result.is_err(), "잘못된 문법은 오류를 반환해야 합니다");
+        assert!(result.is_err(), "Invalid syntax should return an error");
 
         match result.unwrap_err() {
-            TranspileError::ParseError(_) => {} // 예상된 에러 타입
-            other => panic!("예상치 못한 에러 타입: {:?}", other),
+            TranspileError::ParseError(_) => {} // Expected error type
+            other => panic!("Unexpected error type: {:?}", other),
         }
     }
 
@@ -650,7 +650,7 @@ mod tests {
 
             assert!(
                 result.is_ok(),
-                "{} 방언에서 변환이 성공해야 합니다: {:?}",
+                "Conversion should succeed in {} dialect: {:?}",
                 dialect_name,
                 result
             );
@@ -658,12 +658,12 @@ mod tests {
             let sql = result.unwrap();
             assert!(
                 sql.contains("SELECT"),
-                "{} 방언 결과에 SELECT가 포함되어야 합니다",
+                "The result for {} dialect should include SELECT",
                 dialect_name
             );
             assert!(
                 sql.contains("WHERE"),
-                "{} 방언 결과에 WHERE가 포함되어야 합니다",
+                "The result for {} dialect should include WHERE",
                 dialect_name
             );
         }
@@ -674,7 +674,7 @@ mod tests {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
         let result = transpiler.transpile("");
-        assert!(result.is_err(), "빈 입력은 오류를 반환해야 합니다");
+        assert!(result.is_err(), "Empty input should return an error");
     }
 
     #[test]
@@ -682,7 +682,7 @@ mod tests {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
         let result = transpiler.transpile("   \t  \n  ");
-        assert!(result.is_err(), "공백만 있는 입력은 오류를 반환해야 합니다");
+        assert!(result.is_err(), "Input with only whitespace should return an error");
     }
 
     #[test]
