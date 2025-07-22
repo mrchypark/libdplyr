@@ -80,8 +80,9 @@ jobs:
           cargo test --doc --all-features --verbose 2>&1 | tee doc-test-output.log
         continue-on-error: true
 
-      - name: Generate detailed test report
-        if: always()
+      - name: Generate detailed test report (Unix)
+        if: always() && runner.os != 'Windows'
+        shell: bash
         run: |
           echo "# Test Results for ${{ matrix.os }} - ${{ matrix.rust }}" > test-results.md
           echo "" >> test-results.md
@@ -97,57 +98,89 @@ jobs:
             echo "```" >> test-results.md
           fi
           echo "" >> test-results.md
+
+      - name: Generate detailed test report (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $content = @"
+          # Test Results for ${{ matrix.os }} - ${{ matrix.rust }}
+          
+          ## Build Status
+          "@
+          
+          # Check build status
+          $buildResult = & cargo build --all-features --verbose 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            $content += "`n✅ **Build**: Passed`n"
+          } else {
+            $content += "`n❌ **Build**: Failed`n"
+            $content += "``````"
+            $content += ($buildResult | Select-Object -Last 20 | Out-String)
+            $content += "``````"
+          }
           
           # Unit tests status
-          echo "## Unit Tests" >> test-results.md
-          if grep -q "test result: ok" unit-test-output.log 2>/dev/null; then
-            echo "✅ **Unit Tests**: Passed" >> test-results.md
-            grep "test result:" unit-test-output.log >> test-results.md 2>/dev/null || true
-          else
-            echo "❌ **Unit Tests**: Failed" >> test-results.md
-            if [ -f unit-test-output.log ]; then
-              echo "```" >> test-results.md
-              tail -20 unit-test-output.log >> test-results.md
-              echo "```" >> test-results.md
-            fi
-          fi
-          echo "" >> test-results.md
+          $content += "`n## Unit Tests`n"
+          if (Test-Path "unit-test-output.log") {
+            $unitTestContent = Get-Content "unit-test-output.log" -Raw
+            if ($unitTestContent -match "test result: ok") {
+              $content += "✅ **Unit Tests**: Passed`n"
+              $testResult = ($unitTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
+              $content += $testResult + "`n"
+            } else {
+              $content += "❌ **Unit Tests**: Failed`n"
+              $content += "``````"
+              $content += ($unitTestContent -split "`n" | Select-Object -Last 20) -join "`n"
+              $content += "``````"
+            }
+          } else {
+            $content += "❌ **Unit Tests**: No log file found`n"
+          }
           
           # Integration tests status
-          echo "## Integration Tests" >> test-results.md
-          if grep -q "test result: ok" integration-test-output.log 2>/dev/null; then
-            echo "✅ **Integration Tests**: Passed" >> test-results.md
-            grep "test result:" integration-test-output.log >> test-results.md 2>/dev/null || true
-          else
-            echo "❌ **Integration Tests**: Failed" >> test-results.md
-            if [ -f integration-test-output.log ]; then
-              echo "```" >> test-results.md
-              tail -20 integration-test-output.log >> test-results.md
-              echo "```" >> test-results.md
-            fi
-          fi
-          echo "" >> test-results.md
+          $content += "`n## Integration Tests`n"
+          if (Test-Path "integration-test-output.log") {
+            $integrationTestContent = Get-Content "integration-test-output.log" -Raw
+            if ($integrationTestContent -match "test result: ok") {
+              $content += "✅ **Integration Tests**: Passed`n"
+              $testResult = ($integrationTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
+              $content += $testResult + "`n"
+            } else {
+              $content += "❌ **Integration Tests**: Failed`n"
+              $content += "``````"
+              $content += ($integrationTestContent -split "`n" | Select-Object -Last 20) -join "`n"
+              $content += "``````"
+            }
+          } else {
+            $content += "❌ **Integration Tests**: No log file found`n"
+          }
           
           # Doc tests status
-          echo "## Documentation Tests" >> test-results.md
-          if grep -q "test result: ok" doc-test-output.log 2>/dev/null; then
-            echo "✅ **Doc Tests**: Passed" >> test-results.md
-            grep "test result:" doc-test-output.log >> test-results.md 2>/dev/null || true
-          else
-            echo "❌ **Doc Tests**: Failed" >> test-results.md
-            if [ -f doc-test-output.log ]; then
-              echo "```" >> test-results.md
-              tail -20 doc-test-output.log >> test-results.md
-              echo "```" >> test-results.md
-            fi
-          fi
-          echo "" >> test-results.md
+          $content += "`n## Documentation Tests`n"
+          if (Test-Path "doc-test-output.log") {
+            $docTestContent = Get-Content "doc-test-output.log" -Raw
+            if ($docTestContent -match "test result: ok") {
+              $content += "✅ **Doc Tests**: Passed`n"
+              $testResult = ($docTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
+              $content += $testResult + "`n"
+            } else {
+              $content += "❌ **Doc Tests**: Failed`n"
+              $content += "``````"
+              $content += ($docTestContent -split "`n" | Select-Object -Last 20) -join "`n"
+              $content += "``````"
+            }
+          } else {
+            $content += "❌ **Doc Tests**: No log file found`n"
+          }
           
           # Summary
-          echo "## Summary" >> test-results.md
-          echo "- Platform: ${{ matrix.os }}" >> test-results.md
-          echo "- Rust Version: ${{ matrix.rust }}" >> test-results.md
-          echo "- Timestamp: $(date)" >> test-results.md
+          $content += "`n## Summary`n"
+          $content += "- Platform: ${{ matrix.os }}`n"
+          $content += "- Rust Version: ${{ matrix.rust }}`n"
+          $content += "- Timestamp: $(Get-Date)`n"
+          
+          $content | Out-File -FilePath test-results.md -Encoding UTF8
 
       - name: Upload test results
         if: always()
