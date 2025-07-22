@@ -19,7 +19,7 @@ jobs:
           cache-key-suffix: bench
 
       - name: Run benchmarks
-        run: cargo bench --all-features -- --output-format bencher | tee benchmark-output.txt
+        run: cargo bench --all-features | tee benchmark-output.txt
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

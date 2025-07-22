@@ -285,7 +285,7 @@ jobs:
       - name: Run benchmarks
         run: |
           echo "Running performance benchmarks..."
-          cargo bench --all-features -- --output-format bencher > benchmark-output.txt
+          cargo bench --all-features > benchmark-output.txt
           echo "## Benchmark Results" > benchmark-report.md
           echo "" >> benchmark-report.md
           echo '```' >> benchmark-report.md

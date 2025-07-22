@@ -153,7 +153,7 @@ jobs:
 ```yaml
 - name: Run Benchmarks
   run: |
-    cargo bench --bench transpile_benchmark -- --output-format json | tee benchmark_results.json
+    cargo bench --bench transpile_benchmark | tee benchmark_results.txt
     
 - name: Performance Regression Check
   run: |
