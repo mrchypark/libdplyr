@@ -1,29 +1,29 @@
-name: 'Setup Rust with Optimized Caching'
-description: 'Sets up Rust toolchain with optimized caching strategy'
+name: "Setup Rust with Optimized Caching"
+description: "Sets up Rust toolchain with optimized caching strategy"
 inputs:
   toolchain:
-    description: 'Rust toolchain to install'
+    description: "Rust toolchain to install"
     required: false
-    default: 'stable'
+    default: "stable"
   components:
-    description: 'Additional components to install (comma-separated)'
+    description: "Additional components to install (comma-separated)"
     required: false
-    default: ''
+    default: ""
   targets:
-    description: 'Additional targets to install (comma-separated)'
+    description: "Additional targets to install (comma-separated)"
     required: false
-    default: ''
+    default: ""
   cache-key-suffix:
-    description: 'Additional suffix for cache key'
+    description: "Additional suffix for cache key"
     required: false
-    default: ''
+    default: ""
   save-cache:
-    description: 'Whether to save cache (set to false for PR builds from forks)'
+    description: "Whether to save cache (set to false for PR builds from forks)"
     required: false
-    default: 'true'
+    default: "true"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -38,13 +38,23 @@ runs:
       run: |
         # Create a comprehensive cache key based on multiple factors
         RUST_VERSION=$(rustc --version | cut -d' ' -f2)
-        CARGO_LOCK_HASH=$(sha256sum Cargo.lock | cut -d' ' -f1 | head -c 8)
+
+        # Use cross-platform hash command
+        if command -v sha256sum >/dev/null 2>&1; then
+          CARGO_LOCK_HASH=$(sha256sum Cargo.lock | cut -d' ' -f1 | head -c 8)
+        elif command -v shasum >/dev/null 2>&1; then
+          CARGO_LOCK_HASH=$(shasum -a 256 Cargo.lock | cut -d' ' -f1 | head -c 8)
+        else
+          # Fallback to file modification time if no hash command available
+          CARGO_LOCK_HASH=$(stat -c %Y Cargo.lock 2>/dev/null || stat -f %m Cargo.lock 2>/dev/null || echo "fallback")
+        fi
+
         OS_ARCH="${{ runner.os }}-${{ runner.arch }}"
         TOOLCHAIN="${{ inputs.toolchain }}"
         COMPONENTS="${{ inputs.components }}"
         TARGETS="${{ inputs.targets }}"
         SUFFIX="${{ inputs.cache-key-suffix }}"
-        
+
         # Create hierarchical cache keys for better hit rates
         PRIMARY_KEY="${OS_ARCH}-rust-${TOOLCHAIN}-${RUST_VERSION}-${CARGO_LOCK_HASH}"
         if [ -n "$COMPONENTS" ]; then
@@ -56,27 +66,43 @@ runs:
         if [ -n "$SUFFIX" ]; then
           PRIMARY_KEY="${PRIMARY_KEY}-${SUFFIX}"
         fi
-        
+
         # Fallback keys for partial cache hits
         FALLBACK_KEY1="${OS_ARCH}-rust-${TOOLCHAIN}-${RUST_VERSION}"
         FALLBACK_KEY2="${OS_ARCH}-rust-${TOOLCHAIN}"
         FALLBACK_KEY3="${OS_ARCH}-rust"
-        
+
         echo "primary-key=${PRIMARY_KEY}" >> $GITHUB_OUTPUT
         echo "fallback-key1=${FALLBACK_KEY1}" >> $GITHUB_OUTPUT
         echo "fallback-key2=${FALLBACK_KEY2}" >> $GITHUB_OUTPUT
         echo "fallback-key3=${FALLBACK_KEY3}" >> $GITHUB_OUTPUT
-        
+
         echo "Cache key: ${PRIMARY_KEY}"
         echo "Fallback keys: ${FALLBACK_KEY1}, ${FALLBACK_KEY2}, ${FALLBACK_KEY3}"
 
-    - name: Cache Cargo registry and git dependencies
+    - name: Cache Cargo registry and git dependencies (Unix)
+      if: runner.os != 'Windows'
       uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
+        key: cargo-deps-${{ steps.cache-key.outputs.primary-key }}
+        restore-keys: |
+          cargo-deps-${{ steps.cache-key.outputs.fallback-key1 }}
+          cargo-deps-${{ steps.cache-key.outputs.fallback-key2 }}
+          cargo-deps-${{ steps.cache-key.outputs.fallback-key3 }}
+        save-always: ${{ inputs.save-cache == 'true' }}
+
+    - name: Cache Cargo registry and git dependencies (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~\.cargo\registry\index\
+          ~\.cargo\registry\cache\
+          ~\.cargo\git\db\
         key: cargo-deps-${{ steps.cache-key.outputs.primary-key }}
         restore-keys: |
           cargo-deps-${{ steps.cache-key.outputs.fallback-key1 }}
@@ -96,7 +122,8 @@ runs:
           cargo-build-${{ steps.cache-key.outputs.fallback-key3 }}
         save-always: ${{ inputs.save-cache == 'true' }}
 
-    - name: Cache Rust toolchain
+    - name: Cache Rust toolchain (Unix)
+      if: runner.os != 'Windows'
       uses: actions/cache@v4
       with:
         path: |
@@ -108,35 +135,63 @@ runs:
           rustup-${{ runner.os }}-${{ inputs.toolchain }}
           rustup-${{ runner.os }}
 
+    - name: Cache Rust toolchain (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~\.rustup\toolchains\
+          ~\.rustup\update-hashes\
+          ~\.rustup\settings.toml
+        key: rustup-${{ runner.os }}-${{ inputs.toolchain }}-${{ hashFiles('rust-toolchain.toml', 'rust-toolchain') }}
+        restore-keys: |
+          rustup-${{ runner.os }}-${{ inputs.toolchain }}
+          rustup-${{ runner.os }}
+
     - name: Configure Cargo for optimal caching
       shell: bash
       run: |
         # Configure Cargo for better caching
-        mkdir -p ~/.cargo
-        
-        cat >> ~/.cargo/config.toml << 'EOF'
-        [build]
-        # Use incremental compilation for faster rebuilds
-        incremental = true
-        
-        [cargo-new]
-        # Default to 2021 edition
-        edition = "2021"
-        
-        [profile.dev]
-        # Optimize debug builds for faster CI
-        debug = 1
-        incremental = true
-        
-        [profile.test]
-        # Optimize test builds
-        debug = 1
-        incremental = true
-        
-        [registries.crates-io]
-        protocol = "sparse"
-        EOF
-        
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          mkdir -p "$USERPROFILE/.cargo"
+          CARGO_CONFIG_PATH="$USERPROFILE/.cargo/config.toml"
+        else
+          mkdir -p ~/.cargo
+          CARGO_CONFIG_PATH="~/.cargo/config.toml"
+        fi
+
+        # Create Cargo config with cross-platform compatibility
+        cat > cargo_config_temp.toml << 'EOF'
+[build]
+# Use incremental compilation for faster rebuilds
+incremental = true
+
+[cargo-new]
+# Default to 2021 edition
+edition = "2021"
+
+[profile.dev]
+# Optimize debug builds for faster CI
+debug = 1
+incremental = true
+
+[profile.test]
+# Optimize test builds
+debug = 1
+incremental = true
+
+[registries.crates-io]
+protocol = "sparse"
+EOF
+
+        # Copy to the appropriate location
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          cp cargo_config_temp.toml "$USERPROFILE/.cargo/config.toml"
+        else
+          cp cargo_config_temp.toml ~/.cargo/config.toml
+        fi
+
+        rm cargo_config_temp.toml
         echo "Cargo configuration updated for optimal caching"
 
     - name: Warm up cargo cache
@@ -144,40 +199,40 @@ runs:
       run: |
         # Pre-fetch dependencies to warm up the cache
         echo "Warming up Cargo cache..."
-        
+
         # Fetch dependencies without building
         cargo fetch --verbose
-        
+
         # Generate Cargo.lock if it doesn't exist
         if [ ! -f Cargo.lock ]; then
           cargo generate-lockfile
         fi
-        
+
         echo "Cache warm-up completed"
 
     - name: Display cache statistics
       shell: bash
       run: |
         echo "=== Cache Statistics ==="
-        
+
         # Display cache sizes
         if [ -d ~/.cargo ]; then
           echo "Cargo cache size:"
           du -sh ~/.cargo 2>/dev/null || echo "Unable to calculate Cargo cache size"
         fi
-        
+
         if [ -d target ]; then
           echo "Target directory size:"
           du -sh target 2>/dev/null || echo "Unable to calculate target directory size"
         fi
-        
+
         # Display cache hit information
         echo "Cache key used: ${{ steps.cache-key.outputs.primary-key }}"
-        
+
         # Show number of cached crates
         if [ -d ~/.cargo/registry/cache ]; then
           CACHED_CRATES=$(find ~/.cargo/registry/cache -name "*.crate" | wc -l)
           echo "Cached crates: $CACHED_CRATES"
         fi
-        
+
         echo "======================="

@@ -3,18 +3,19 @@
 //! Tests for the new CLI pipeline functionality including stdin/stdout,
 //! validation mode, JSON output, and various CLI option combinations.
 
-use std::process::{Command, Stdio};
-use std::io::Write;
 use std::fs;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use tempfile::NamedTempFile;
 
 /// Helper function to write to stdin and close it properly
 fn write_to_stdin(child: &mut std::process::Child, input: &[u8]) {
-    let stdin = child.stdin.take().expect("Failed to open stdin");
-    let mut stdin = stdin;
-    stdin.write_all(input).expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    // stdin is dropped here to signal EOF
+    if let Some(mut stdin) = child.stdin.take() {
+        // Ignore broken pipe errors as the process might have already finished
+        let _ = stdin.write_all(input);
+        let _ = stdin.flush();
+        // stdin is dropped here to signal EOF
+    }
 }
 
 /// Helper function to build the libdplyr binary path
@@ -34,13 +35,16 @@ fn test_stdin_stdout_basic_functionality() {
     write_to_stdin(&mut child, b"data %>% select(name, age)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Process should succeed");
     assert_eq!(output.status.code(), Some(0), "Exit code should be 0");
-    
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Output should contain SELECT");
-    assert!(stdout.contains("name"), "Output should contain 'name' column");
+    assert!(
+        stdout.contains("name"),
+        "Output should contain 'name' column"
+    );
     assert!(stdout.contains("age"), "Output should contain 'age' column");
 }
 
@@ -53,15 +57,21 @@ fn test_stdin_stdout_complex_query() {
         .spawn()
         .expect("Failed to start libdplyr process");
 
-    write_to_stdin(&mut child, b"data %>% select(name, age) %>% filter(age > 18) %>% arrange(desc(age))");
+    write_to_stdin(
+        &mut child,
+        b"data %>% select(name, age) %>% filter(age > 18) %>% arrange(desc(age))",
+    );
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Complex query should succeed");
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
     assert!(stdout.contains("WHERE"), "Should contain WHERE for filter");
-    assert!(stdout.contains("ORDER BY"), "Should contain ORDER BY for arrange");
+    assert!(
+        stdout.contains("ORDER BY"),
+        "Should contain ORDER BY for arrange"
+    );
 }
 
 #[test]
@@ -76,11 +86,21 @@ fn test_stdin_stdout_empty_input() {
     write_to_stdin(&mut child, b"");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     // Empty input should be handled gracefully
-    assert_eq!(output.status.code(), Some(3), "Empty input should return exit code 3 (IO_ERROR)");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "Empty input should return exit code 3 (IO_ERROR)"
+    );
     let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
-    assert!(stderr.contains("입력") || stderr.contains("input") || stderr.contains("stdin") || stderr.contains("empty"), "Should mention input error");
+    assert!(
+        stderr.contains("입력")
+            || stderr.contains("input")
+            || stderr.contains("stdin")
+            || stderr.contains("empty"),
+        "Should mention input error"
+    );
 }
 
 #[test]
@@ -93,15 +113,28 @@ fn test_validation_only_mode_success() {
         .spawn()
         .expect("Failed to start libdplyr process");
 
-    write_to_stdin(&mut child, b"data %>% select(name, age) %>% filter(age > 18)");
+    write_to_stdin(
+        &mut child,
+        b"data %>% select(name, age) %>% filter(age > 18)",
+    );
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
-    assert!(output.status.success(), "Valid syntax should pass validation");
-    assert_eq!(output.status.code(), Some(0), "Validation success should return exit code 0");
-    
+
+    assert!(
+        output.status.success(),
+        "Valid syntax should pass validation"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Validation success should return exit code 0"
+    );
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    assert!(stdout.contains("Valid") || stdout.contains("유효"), "Should indicate valid syntax");
+    assert!(
+        stdout.contains("Valid") || stdout.contains("유효"),
+        "Should indicate valid syntax"
+    );
 }
 
 #[test]
@@ -117,12 +150,22 @@ fn test_validation_only_mode_failure() {
     write_to_stdin(&mut child, b"invalid_function(test, broken_syntax");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
-    assert!(!output.status.success(), "Invalid syntax should fail validation");
-    assert_eq!(output.status.code(), Some(4), "Validation error should return exit code 4");
-    
+
+    assert!(
+        !output.status.success(),
+        "Invalid syntax should fail validation"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "Validation error should return exit code 4"
+    );
+
     let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
-    assert!(stderr.contains("오류") || stderr.contains("error"), "Should contain error message");
+    assert!(
+        stderr.contains("오류") || stderr.contains("error"),
+        "Should contain error message"
+    );
 }
 
 #[test]
@@ -138,19 +181,31 @@ fn test_json_output_format() {
     write_to_stdin(&mut child, b"data %>% select(name, age)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "JSON output should succeed");
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    
+
     // Verify JSON structure
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
-    
-    assert!(json["success"].as_bool().unwrap_or(false), "Should indicate success");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    assert!(
+        json["success"].as_bool().unwrap_or(false),
+        "Should indicate success"
+    );
     assert!(json["sql"].is_string(), "Should contain SQL string");
-    assert!(json["metadata"].is_object(), "Should contain metadata object");
-    assert!(json["metadata"]["dialect"].is_string(), "Should contain dialect info");
-    assert!(json["metadata"]["timestamp"].is_number(), "Should contain timestamp as number");
+    assert!(
+        json["metadata"].is_object(),
+        "Should contain metadata object"
+    );
+    assert!(
+        json["metadata"]["dialect"].is_string(),
+        "Should contain dialect info"
+    );
+    assert!(
+        json["metadata"]["timestamp"].is_number(),
+        "Should contain timestamp as number"
+    );
 }
 
 #[test]
@@ -166,15 +221,18 @@ fn test_json_output_with_validation_error() {
     write_to_stdin(&mut child, b"invalid_syntax(");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(!output.status.success(), "Invalid syntax should fail");
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    
+
     // Even with errors, JSON output should be valid
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Error output should also be valid JSON");
-    
-    assert!(!json["success"].as_bool().unwrap_or(true), "Should indicate failure");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Error output should also be valid JSON");
+
+    assert!(
+        !json["success"].as_bool().unwrap_or(true),
+        "Should indicate failure"
+    );
     assert!(json["error"].is_object(), "Should contain error object");
 }
 
@@ -188,13 +246,16 @@ fn test_pretty_formatting() {
         .spawn()
         .expect("Failed to start libdplyr process");
 
-    write_to_stdin(&mut child, b"data %>% select(name, age) %>% filter(age > 18)");
+    write_to_stdin(
+        &mut child,
+        b"data %>% select(name, age) %>% filter(age > 18)",
+    );
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Pretty formatting should succeed");
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    
+
     // Pretty format should have multiple lines with proper indentation
     let lines: Vec<&str> = stdout.lines().collect();
     assert!(lines.len() > 1, "Pretty format should have multiple lines");
@@ -213,16 +274,22 @@ fn test_compact_formatting() {
         .spawn()
         .expect("Failed to start libdplyr process");
 
-    write_to_stdin(&mut child, b"data %>% select(name, age) %>% filter(age > 18)");
+    write_to_stdin(
+        &mut child,
+        b"data %>% select(name, age) %>% filter(age > 18)",
+    );
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Compact formatting should succeed");
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    
+
     // Compact format should be a single line (plus final newline)
     let trimmed = stdout.trim();
-    assert!(!trimmed.contains('\n'), "Compact format should not contain internal newlines");
+    assert!(
+        !trimmed.contains('\n'),
+        "Compact format should not contain internal newlines"
+    );
     assert!(trimmed.contains("SELECT"), "Should contain SELECT");
     assert!(trimmed.contains("WHERE"), "Should contain WHERE");
 }
@@ -240,10 +307,10 @@ fn test_verbose_mode() {
     write_to_stdin(&mut child, b"data %>% select(name)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Verbose mode should succeed");
     let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
-    
+
     // Verbose mode should output processing information to stderr
     assert!(
         stderr.contains("Reading") || stderr.contains("Processing") || stderr.contains("처리"),
@@ -264,10 +331,10 @@ fn test_debug_mode() {
     write_to_stdin(&mut child, b"data %>% select(name)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Debug mode should succeed");
     let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
-    
+
     // Debug mode should show detailed information including AST
     assert!(
         stderr.contains("AST") || stderr.contains("Debug") || stderr.contains("디버그"),
@@ -283,7 +350,7 @@ fn test_different_sql_dialects() {
         ("sqlite", "SQLite"),
         ("duckdb", "DuckDB"),
     ];
-    
+
     for (dialect_arg, dialect_name) in &dialects {
         let mut child = Command::new(get_libdplyr_path())
             .args(&["--dialect", dialect_arg])
@@ -296,16 +363,18 @@ fn test_different_sql_dialects() {
         write_to_stdin(&mut child, b"data %>% select(name, age)");
 
         let output = child.wait_with_output().expect("Failed to read stdout");
-        
+
         assert!(
             output.status.success(),
-            "Dialect {} should work correctly", dialect_name
+            "Dialect {} should work correctly",
+            dialect_name
         );
-        
+
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
         assert!(
             stdout.contains("SELECT"),
-            "Dialect {} should produce SELECT statement", dialect_name
+            "Dialect {} should produce SELECT statement",
+            dialect_name
         );
     }
 }
@@ -324,14 +393,14 @@ fn test_combined_options() {
     write_to_stdin(&mut child, b"data %>% select(name)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     assert!(output.status.success(), "Combined options should work");
-    
+
     // Should have JSON output
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    let _json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Should produce valid JSON");
-    
+    let _json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Should produce valid JSON");
+
     // Should have verbose stderr
     let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
     assert!(
@@ -353,15 +422,23 @@ fn test_validation_with_json_output() {
     write_to_stdin(&mut child, b"data %>% select(name, age)");
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
-    assert!(output.status.success(), "Validation with JSON should succeed");
-    
+
+    assert!(
+        output.status.success(),
+        "Validation with JSON should succeed"
+    );
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Should produce valid JSON");
-    
-    assert!(json["success"].as_bool().unwrap_or(false), "Should indicate validation success");
-    assert!(json["validation"].is_object(), "Should contain validation info");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Should produce valid JSON");
+
+    assert!(
+        json["success"].as_bool().unwrap_or(false),
+        "Should indicate validation success"
+    );
+    assert!(
+        json["validation"].is_object(),
+        "Should contain validation info"
+    );
 }
 
 #[test]
@@ -376,7 +453,11 @@ fn test_exit_codes() {
 
     write_to_stdin(&mut child, b"data %>% select(name)");
     let output = child.wait_with_output().expect("Failed to read stdout");
-    assert_eq!(output.status.code(), Some(0), "Success should return exit code 0");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Success should return exit code 0"
+    );
 
     // Test syntax error (exit code 4)
     let mut child = Command::new(get_libdplyr_path())
@@ -388,14 +469,22 @@ fn test_exit_codes() {
 
     write_to_stdin(&mut child, b"invalid_syntax(");
     let output = child.wait_with_output().expect("Failed to read stdout");
-    assert_eq!(output.status.code(), Some(4), "Syntax error should return exit code 4");
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "Syntax error should return exit code 4"
+    );
 
     // Test invalid arguments (exit code 2)
     let output = Command::new(get_libdplyr_path())
         .args(&["--invalid-option"])
         .output()
         .expect("Failed to execute libdplyr");
-    assert_eq!(output.status.code(), Some(2), "Invalid arguments should return exit code 2");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Invalid arguments should return exit code 2"
+    );
 
     // Test unsupported dialect (exit code 2)
     let mut child = Command::new(get_libdplyr_path())
@@ -408,15 +497,22 @@ fn test_exit_codes() {
 
     write_to_stdin(&mut child, b"data %>% select(name)");
     let output = child.wait_with_output().expect("Failed to read stdout");
-    assert_eq!(output.status.code(), Some(2), "Unsupported dialect should return exit code 2");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Unsupported dialect should return exit code 2"
+    );
 }
 
 #[test]
 fn test_file_input_with_stdin_output() {
     // Create temporary input file
     let mut input_file = NamedTempFile::new().expect("Failed to create temp file");
-    writeln!(input_file, "data %>% select(name, age) %>% filter(age > 18)")
-        .expect("Failed to write to temp file");
+    writeln!(
+        input_file,
+        "data %>% select(name, age) %>% filter(age > 18)"
+    )
+    .expect("Failed to write to temp file");
     let input_path = input_file.path().to_str().unwrap();
 
     let output = Command::new(get_libdplyr_path())
@@ -425,7 +521,7 @@ fn test_file_input_with_stdin_output() {
         .expect("Failed to execute libdplyr");
 
     assert!(output.status.success(), "File input should work");
-    
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
     assert!(stdout.contains("FROM"), "Should contain FROM");
@@ -436,8 +532,11 @@ fn test_file_input_with_stdin_output() {
 fn test_file_input_output() {
     // Create temporary input file
     let mut input_file = NamedTempFile::new().expect("Failed to create temp file");
-    writeln!(input_file, "data %>% select(name, age) %>% filter(age > 18)")
-        .expect("Failed to write to temp file");
+    writeln!(
+        input_file,
+        "data %>% select(name, age) %>% filter(age > 18)"
+    )
+    .expect("Failed to write to temp file");
     let input_path = input_file.path().to_str().unwrap();
 
     // Create temporary output file
@@ -453,9 +552,18 @@ fn test_file_input_output() {
 
     // Check output file content
     let sql_content = fs::read_to_string(output_path).expect("Failed to read output file");
-    assert!(sql_content.contains("SELECT"), "Output file should contain SELECT");
-    assert!(sql_content.contains("FROM"), "Output file should contain FROM");
-    assert!(sql_content.contains("WHERE"), "Output file should contain WHERE");
+    assert!(
+        sql_content.contains("SELECT"),
+        "Output file should contain SELECT"
+    );
+    assert!(
+        sql_content.contains("FROM"),
+        "Output file should contain FROM"
+    );
+    assert!(
+        sql_content.contains("WHERE"),
+        "Output file should contain WHERE"
+    );
 }
 
 #[test]
@@ -466,7 +574,7 @@ fn test_text_input_mode() {
         .expect("Failed to execute libdplyr");
 
     assert!(output.status.success(), "Text input mode should work");
-    
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
     assert!(stdout.contains("name"), "Should contain name column");
@@ -481,11 +589,17 @@ fn test_help_option() {
         .expect("Failed to execute libdplyr");
 
     assert!(output.status.success(), "Help should work");
-    
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    assert!(stdout.contains("Usage") || stdout.contains("사용법"), "Should show usage information");
+    assert!(
+        stdout.contains("Usage") || stdout.contains("사용법"),
+        "Should show usage information"
+    );
     assert!(stdout.contains("--json"), "Should mention JSON option");
-    assert!(stdout.contains("--validate-only"), "Should mention validation option");
+    assert!(
+        stdout.contains("--validate-only"),
+        "Should mention validation option"
+    );
 }
 
 #[test]
@@ -496,23 +610,26 @@ fn test_version_option() {
         .expect("Failed to execute libdplyr");
 
     assert!(output.status.success(), "Version should work");
-    
+
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
-    assert!(stdout.contains("libdplyr") || stdout.contains("version"), "Should show version information");
+    assert!(
+        stdout.contains("libdplyr") || stdout.contains("version"),
+        "Should show version information"
+    );
 }
 
 #[test]
 fn test_signal_handling() {
-    use std::time::Duration;
     use std::thread;
-    
+    use std::time::Duration;
+
     let mut child = Command::new(get_libdplyr_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start libdplyr process");
-    
+
     // Send SIGTERM after a short delay
     let child_id = child.id();
     thread::spawn(move || {
@@ -521,14 +638,17 @@ fn test_signal_handling() {
             libc::kill(child_id as i32, libc::SIGTERM);
         }
     });
-    
+
     write_to_stdin(&mut child, b"data %>% select(name)");
-    
+
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     // Process should handle signal gracefully
     // Exit code may vary depending on timing, but should not crash
-    assert!(output.status.code().is_some(), "Should have a valid exit code");
+    assert!(
+        output.status.code().is_some(),
+        "Should have a valid exit code"
+    );
 }
 
 #[test]
@@ -542,12 +662,15 @@ fn test_large_input_processing() {
 
     // Create a large input with multiple operations (using supported syntax)
     let large_input = "data %>% select(name, age, city, country, email, phone) %>% filter(age > 18) %>% arrange(desc(age)) %>% group_by(country)";
-    
+
     write_to_stdin(&mut child, large_input.as_bytes());
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
-    assert!(output.status.success(), "Large input should be processed successfully");
+
+    assert!(
+        output.status.success(),
+        "Large input should be processed successfully"
+    );
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
     assert!(stdout.contains("GROUP BY"), "Should contain GROUP BY");
@@ -567,11 +690,14 @@ fn test_unicode_input_handling() {
     write_to_stdin(&mut child, "data %>% select(이름, 나이, 주소)".as_bytes());
 
     let output = child.wait_with_output().expect("Failed to read stdout");
-    
+
     // Unicode column names may not be fully supported yet, so we check for graceful handling
     let exit_code = output.status.code().unwrap_or(-1);
-    assert!(exit_code >= 0 && exit_code <= 10, "Should handle Unicode input gracefully");
-    
+    assert!(
+        exit_code >= 0 && exit_code <= 10,
+        "Should handle Unicode input gracefully"
+    );
+
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
         assert!(stdout.contains("SELECT"), "Should contain SELECT");
@@ -582,10 +708,10 @@ fn test_unicode_input_handling() {
 fn test_concurrent_processing() {
     use std::sync::{Arc, Mutex};
     use std::thread;
-    
+
     let results = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
-    
+
     // Run multiple instances concurrently
     for i in 0..5 {
         let results_clone = Arc::clone(&results);
@@ -601,21 +727,21 @@ fn test_concurrent_processing() {
             write_to_stdin(&mut child, input.as_bytes());
 
             let output = child.wait_with_output().expect("Failed to read stdout");
-            
+
             let mut results = results_clone.lock().unwrap();
             results.push((i, output.status.success()));
         });
         handles.push(handle);
     }
-    
+
     // Wait for all threads to complete
     for handle in handles {
         handle.join().expect("Thread panicked");
     }
-    
+
     let results = results.lock().unwrap();
     assert_eq!(results.len(), 5, "All concurrent processes should complete");
-    
+
     for (i, success) in results.iter() {
         assert!(*success, "Process {} should succeed", i);
     }
@@ -632,14 +758,18 @@ fn test_memory_usage_with_repeated_processing() {
             .spawn()
             .expect("Failed to start libdplyr process");
 
-        let input = format!("data{} %>% select(name, age) %>% filter(age > {})", i, i * 10);
+        let input = format!(
+            "data{} %>% select(name, age) %>% filter(age > {})",
+            i,
+            i * 10
+        );
         write_to_stdin(&mut child, input.as_bytes());
 
         let output = child.wait_with_output().expect("Failed to read stdout");
-        
+
         assert!(output.status.success(), "Iteration {} should succeed", i);
     }
-    
+
     // If we reach here without running out of memory, the test passes
     assert!(true, "Memory usage test completed successfully");
 }
@@ -647,7 +777,7 @@ fn test_memory_usage_with_repeated_processing() {
 #[test]
 fn test_error_recovery_and_multiple_attempts() {
     // Test error handling followed by successful processing
-    
+
     // First, send invalid input
     let mut child = Command::new(get_libdplyr_path())
         .stdin(Stdio::piped())
@@ -659,7 +789,7 @@ fn test_error_recovery_and_multiple_attempts() {
     write_to_stdin(&mut child, b"invalid_syntax(");
     let output = child.wait_with_output().expect("Failed to read stdout");
     assert!(!output.status.success(), "Invalid input should fail");
-    
+
     // Then, send valid input
     let mut child = Command::new(get_libdplyr_path())
         .stdin(Stdio::piped())
@@ -670,7 +800,10 @@ fn test_error_recovery_and_multiple_attempts() {
 
     write_to_stdin(&mut child, b"data %>% select(name)");
     let output = child.wait_with_output().expect("Failed to read stdout");
-    assert!(output.status.success(), "Valid input should succeed after previous error");
+    assert!(
+        output.status.success(),
+        "Valid input should succeed after previous error"
+    );
 }
 
 #[test]
@@ -680,13 +813,25 @@ fn test_comprehensive_cli_option_combinations() {
         (vec!["--json", "--debug"], "JSON with debug"),
         (vec!["--pretty", "--verbose"], "Pretty with verbose"),
         (vec!["--compact", "--debug"], "Compact with debug"),
-        (vec!["--validate-only", "--verbose"], "Validation with verbose"),
+        (
+            vec!["--validate-only", "--verbose"],
+            "Validation with verbose",
+        ),
         (vec!["--validate-only", "--debug"], "Validation with debug"),
-        (vec!["--dialect", "mysql", "--json"], "MySQL dialect with JSON"),
-        (vec!["--dialect", "sqlite", "--pretty"], "SQLite dialect with pretty"),
-        (vec!["--dialect", "duckdb", "--compact"], "DuckDB dialect with compact"),
+        (
+            vec!["--dialect", "mysql", "--json"],
+            "MySQL dialect with JSON",
+        ),
+        (
+            vec!["--dialect", "sqlite", "--pretty"],
+            "SQLite dialect with pretty",
+        ),
+        (
+            vec!["--dialect", "duckdb", "--compact"],
+            "DuckDB dialect with compact",
+        ),
     ];
-    
+
     for (args, description) in test_cases {
         let mut child = Command::new(get_libdplyr_path())
             .args(&args)
@@ -699,9 +844,9 @@ fn test_comprehensive_cli_option_combinations() {
         write_to_stdin(&mut child, b"data %>% select(name, age)");
 
         let output = child.wait_with_output().expect("Failed to read stdout");
-        
+
         assert!(output.status.success(), "{} should work", description);
-        
+
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
         assert!(!stdout.is_empty(), "{} should produce output", description);
     }
@@ -718,7 +863,7 @@ fn test_edge_case_inputs() {
         ("select()", "Empty function call"),
         ("data %>% select(name) %>%", "Trailing pipe"),
     ];
-    
+
     for (input, description) in edge_cases {
         let mut child = Command::new(get_libdplyr_path())
             .stdin(Stdio::piped())
@@ -730,7 +875,7 @@ fn test_edge_case_inputs() {
         write_to_stdin(&mut child, input.as_bytes());
 
         let output = child.wait_with_output().expect("Failed to read stdout");
-        
+
         // Edge cases should either succeed or fail gracefully with appropriate exit codes
         let exit_code = output.status.code().unwrap_or(-1);
         assert!(
@@ -745,17 +890,17 @@ fn test_edge_case_inputs() {
 #[test]
 fn test_performance_benchmarking() {
     use std::time::Instant;
-    
+
     let test_inputs = vec![
         "data %>% select(name)",
         "data %>% select(name, age) %>% filter(age > 18)",
         "data %>% select(name, age, city) %>% filter(age > 18) %>% arrange(name)",
         "data %>% select(name, age, city, country) %>% filter(age > 18) %>% group_by(country) %>% summarise(count = n())",
     ];
-    
+
     for (i, input) in test_inputs.iter().enumerate() {
         let start = Instant::now();
-        
+
         let mut child = Command::new(get_libdplyr_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -765,12 +910,20 @@ fn test_performance_benchmarking() {
 
         write_to_stdin(&mut child, input.as_bytes());
         let output = child.wait_with_output().expect("Failed to read stdout");
-        
+
         let duration = start.elapsed();
-        
-        assert!(output.status.success(), "Performance test {} should succeed", i);
-        assert!(duration.as_secs() < 5, "Processing should complete within 5 seconds, took {:?}", duration);
-        
+
+        assert!(
+            output.status.success(),
+            "Performance test {} should succeed",
+            i
+        );
+        assert!(
+            duration.as_secs() < 5,
+            "Processing should complete within 5 seconds, took {:?}",
+            duration
+        );
+
         println!("Performance test {}: {:?}", i, duration);
     }
 }
