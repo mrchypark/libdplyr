@@ -162,27 +162,23 @@ runs:
 
         # Create Cargo config with cross-platform compatibility
         cat > cargo_config_temp.toml << 'EOF'
-[build]
-# Use incremental compilation for faster rebuilds
-incremental = true
+        [build]
+        incremental = true
 
-[cargo-new]
-# Default to 2021 edition
-edition = "2021"
+        [cargo-new]
+        edition = "2021"
 
-[profile.dev]
-# Optimize debug builds for faster CI
-debug = 1
-incremental = true
+        [profile.dev]
+        debug = 1
+        incremental = true
 
-[profile.test]
-# Optimize test builds
-debug = 1
-incremental = true
+        [profile.test]
+        debug = 1
+        incremental = true
 
-[registries.crates-io]
-protocol = "sparse"
-EOF
+        [registries.crates-io]
+        protocol = "sparse"
+        EOF
 
         # Copy to the appropriate location
         if [[ "${{ runner.os }}" == "Windows" ]]; then
