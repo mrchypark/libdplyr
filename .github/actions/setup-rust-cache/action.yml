@@ -32,7 +32,8 @@ runs:
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
 
-    - name: Generate cache key
+    - name: Generate cache key (Unix)
+      if: runner.os != 'Windows'
       id: cache-key
       shell: bash
       run: |
@@ -79,6 +80,52 @@ runs:
 
         echo "Cache key: ${PRIMARY_KEY}"
         echo "Fallback keys: ${FALLBACK_KEY1}, ${FALLBACK_KEY2}, ${FALLBACK_KEY3}"
+
+    - name: Generate cache key (Windows)
+      if: runner.os == 'Windows'
+      id: cache-key
+      shell: powershell
+      run: |
+        # Create a comprehensive cache key based on multiple factors
+        $rustVersion = (rustc --version).Split(' ')[1]
+
+        # Generate hash for Cargo.lock
+        if (Test-Path "Cargo.lock") {
+          $cargoLockHash = (Get-FileHash "Cargo.lock" -Algorithm SHA256).Hash.Substring(0, 8)
+        } else {
+          $cargoLockHash = "fallback"
+        }
+
+        $osArch = "${{ runner.os }}-${{ runner.arch }}"
+        $toolchain = "${{ inputs.toolchain }}"
+        $components = "${{ inputs.components }}"
+        $targets = "${{ inputs.targets }}"
+        $suffix = "${{ inputs.cache-key-suffix }}"
+
+        # Create hierarchical cache keys for better hit rates
+        $primaryKey = "${osArch}-rust-${toolchain}-${rustVersion}-${cargoLockHash}"
+        if ($components) {
+          $primaryKey += "-comp-$($components -replace ',', '-')"
+        }
+        if ($targets) {
+          $primaryKey += "-tgt-$($targets -replace ',', '-')"
+        }
+        if ($suffix) {
+          $primaryKey += "-${suffix}"
+        }
+
+        # Fallback keys for partial cache hits
+        $fallbackKey1 = "${osArch}-rust-${toolchain}-${rustVersion}"
+        $fallbackKey2 = "${osArch}-rust-${toolchain}"
+        $fallbackKey3 = "${osArch}-rust"
+
+        "primary-key=${primaryKey}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "fallback-key1=${fallbackKey1}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "fallback-key2=${fallbackKey2}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "fallback-key3=${fallbackKey3}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+        Write-Host "Cache key: ${primaryKey}"
+        Write-Host "Fallback keys: ${fallbackKey1}, ${fallbackKey2}, ${fallbackKey3}"
 
     - name: Cache Cargo registry and git dependencies (Unix)
       if: runner.os != 'Windows'
@@ -148,49 +195,68 @@ runs:
           rustup-${{ runner.os }}-${{ inputs.toolchain }}
           rustup-${{ runner.os }}
 
-    - name: Configure Cargo for optimal caching
+    - name: Configure Cargo for optimal caching (Unix)
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         # Configure Cargo for better caching
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          mkdir -p "$USERPROFILE/.cargo"
-          CARGO_CONFIG_PATH="$USERPROFILE/.cargo/config.toml"
-        else
-          mkdir -p ~/.cargo
-          CARGO_CONFIG_PATH="~/.cargo/config.toml"
-        fi
+        mkdir -p ~/.cargo
 
-        # Create Cargo config with cross-platform compatibility
-        cat > cargo_config_temp.toml << 'EOF'
-        [build]
-        incremental = true
+        # Create Cargo config
+        cat > ~/.cargo/config.toml << 'EOF'
+[build]
+incremental = true
 
-        [cargo-new]
-        edition = "2021"
+[cargo-new]
+edition = "2021"
 
-        [profile.dev]
-        debug = 1
-        incremental = true
+[profile.dev]
+debug = 1
+incremental = true
 
-        [profile.test]
-        debug = 1
-        incremental = true
+[profile.test]
+debug = 1
+incremental = true
 
-        [registries.crates-io]
-        protocol = "sparse"
-        EOF
+[registries.crates-io]
+protocol = "sparse"
+EOF
 
-        # Copy to the appropriate location
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          cp cargo_config_temp.toml "$USERPROFILE/.cargo/config.toml"
-        else
-          cp cargo_config_temp.toml ~/.cargo/config.toml
-        fi
-
-        rm cargo_config_temp.toml
         echo "Cargo configuration updated for optimal caching"
 
-    - name: Warm up cargo cache
+    - name: Configure Cargo for optimal caching (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Configure Cargo for better caching
+        $cargoDir = "$env:USERPROFILE\.cargo"
+        New-Item -ItemType Directory -Force -Path $cargoDir | Out-Null
+
+        # Create Cargo config
+        $configContent = @"
+[build]
+incremental = true
+
+[cargo-new]
+edition = "2021"
+
+[profile.dev]
+debug = 1
+incremental = true
+
+[profile.test]
+debug = 1
+incremental = true
+
+[registries.crates-io]
+protocol = "sparse"
+"@
+
+        $configContent | Out-File -FilePath "$cargoDir\config.toml" -Encoding UTF8
+        Write-Host "Cargo configuration updated for optimal caching"
+
+    - name: Warm up cargo cache (Unix)
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         # Pre-fetch dependencies to warm up the cache
@@ -206,7 +272,25 @@ runs:
 
         echo "Cache warm-up completed"
 
-    - name: Display cache statistics
+    - name: Warm up cargo cache (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Pre-fetch dependencies to warm up the cache
+        Write-Host "Warming up Cargo cache..."
+
+        # Fetch dependencies without building
+        cargo fetch --verbose
+
+        # Generate Cargo.lock if it doesn't exist
+        if (-not (Test-Path "Cargo.lock")) {
+          cargo generate-lockfile
+        }
+
+        Write-Host "Cache warm-up completed"
+
+    - name: Display cache statistics (Unix)
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         echo "=== Cache Statistics ==="
@@ -232,3 +316,49 @@ runs:
         fi
 
         echo "======================="
+
+    - name: Display cache statistics (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Write-Host "=== Cache Statistics ==="
+
+        # Display cache sizes
+        $cargoPath = "$env:USERPROFILE\.cargo"
+        if (Test-Path $cargoPath) {
+          Write-Host "Cargo cache size:"
+          try {
+            $size = (Get-ChildItem $cargoPath -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            $sizeInMB = [math]::Round($size / 1MB, 2)
+            Write-Host "${sizeInMB} MB"
+          } catch {
+            Write-Host "Unable to calculate Cargo cache size"
+          }
+        }
+
+        if (Test-Path "target") {
+          Write-Host "Target directory size:"
+          try {
+            $size = (Get-ChildItem "target" -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            $sizeInMB = [math]::Round($size / 1MB, 2)
+            Write-Host "${sizeInMB} MB"
+          } catch {
+            Write-Host "Unable to calculate target directory size"
+          }
+        }
+
+        # Display cache hit information
+        Write-Host "Cache key used: ${{ steps.cache-key.outputs.primary-key }}"
+
+        # Show number of cached crates
+        $crateCachePath = "$env:USERPROFILE\.cargo\registry\cache"
+        if (Test-Path $crateCachePath) {
+          try {
+            $crateCount = (Get-ChildItem $crateCachePath -Filter "*.crate" -Recurse -ErrorAction SilentlyContinue).Count
+            Write-Host "Cached crates: $crateCount"
+          } catch {
+            Write-Host "Unable to count cached crates"
+          }
+        }
+
+        Write-Host "======================="
