@@ -180,6 +180,10 @@
 //!         eprintln!("Configuration error: {}", e);
 //!         eprintln!("Check configuration settings and options");
 //!     }
+//!     Err(TranspileError::SystemError(e)) => {
+//!         eprintln!("System error: {}", e);
+//!         eprintln!("Check system resources and permissions");
+//!     }
 //! }
 //! ```
 //!
@@ -337,6 +341,7 @@ pub use crate::sql_generator::{
 ///     Err(TranspileError::IoError(e)) => eprintln!("I/O operation failed: {}", e),
 ///     Err(TranspileError::ValidationError(e)) => eprintln!("Validation failed: {}", e),
 ///     Err(TranspileError::ConfigurationError(e)) => eprintln!("Configuration error: {}", e),
+///     Err(TranspileError::SystemError(e)) => eprintln!("System error: {}", e),
 /// }
 /// ```
 pub struct Transpiler {
@@ -599,7 +604,11 @@ mod tests {
 
         // Then generate SQL from AST
         let result = transpiler.generate_sql(&ast);
-        assert!(result.is_ok(), "SQL generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "SQL generation should succeed: {:?}",
+            result
+        );
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -682,7 +691,10 @@ mod tests {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 
         let result = transpiler.transpile("   \t  \n  ");
-        assert!(result.is_err(), "Input with only whitespace should return an error");
+        assert!(
+            result.is_err(),
+            "Input with only whitespace should return an error"
+        );
     }
 
     #[test]
