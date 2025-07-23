@@ -204,23 +204,23 @@ runs:
 
         # Create Cargo config
         cat > ~/.cargo/config.toml << 'EOF'
-[build]
-incremental = true
+        [build]
+        incremental = true
 
-[cargo-new]
-edition = "2021"
+        [cargo-new]
+        edition = "2021"
 
-[profile.dev]
-debug = 1
-incremental = true
+        [profile.dev]
+        debug = 1
+        incremental = true
 
-[profile.test]
-debug = 1
-incremental = true
+        [profile.test]
+        debug = 1
+        incremental = true
 
-[registries.crates-io]
-protocol = "sparse"
-EOF
+        [registries.crates-io]
+        protocol = "sparse"
+        EOF
 
         echo "Cargo configuration updated for optimal caching"
 

@@ -1,0 +1,108 @@
+# cargo-deny configuration for libdplyr project
+# This file defines security, license, and dependency policies
+
+[graph]
+# Target triples to include in the dependency graph
+targets = []
+# Include all features in the graph analysis
+all-features = true
+# Include dev dependencies in the graph
+no-dev-dependencies = false
+
+[output]
+# Feature depth for inclusion graphs
+feature-depth = 1
+
+[advisories]
+# Advisory database configuration
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Security vulnerability handling
+vulnerability = "deny"
+# Unmaintained crates handling
+unmaintained = "warn"
+# Yanked crates handling
+yanked = "warn"
+# Security notices handling
+notice = "warn"
+
+# Advisory IDs to ignore (add specific IDs if needed)
+ignore = [
+  # Example: "RUSTSEC-2020-0001",
+]
+
+[licenses]
+# License detection confidence threshold
+confidence-threshold = 0.8
+
+# Explicitly allowed licenses
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "Unlicense",
+  "0BSD",
+]
+
+# Explicitly disallowed licenses
+deny = [
+  "GPL-2.0",
+  "GPL-3.0",
+  "AGPL-1.0",
+  "AGPL-3.0",
+  "LGPL-2.0",
+  "LGPL-2.1",
+  "LGPL-3.0",
+]
+
+# Copyleft license handling
+copyleft = "warn"
+# Unlicensed crates handling
+unlicensed = "deny"
+# Allow OSI/FSF free licenses
+allow-osi-fsf-free = "neither"
+
+# Exceptions for specific crates (if needed)
+exceptions = [
+  # Example: { allow = ["GPL-3.0"], name = "some-gpl-crate" },
+]
+
+[bans]
+# Multiple versions of the same crate
+multiple-versions = "warn"
+# Wildcard version requirements
+wildcards = "allow"
+# Graph highlighting for dotgraphs
+highlight = "all"
+
+# Explicitly allowed crates (use sparingly)
+allow = []
+
+# Explicitly denied crates
+deny = [
+  # Example security-problematic crates
+  # { name = "openssl", version = "< 0.10.55" },
+]
+
+# Skip certain crates from duplicate detection
+skip = []
+# Skip entire dependency trees
+skip-tree = []
+
+[sources]
+# Unknown registry handling
+unknown-registry = "warn"
+# Unknown git repository handling
+unknown-git = "warn"
+
+# Allowed registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Allowed git repositories (add if using git dependencies)
+allow-git = []

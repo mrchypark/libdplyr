@@ -66,19 +66,16 @@ jobs:
         run: |
           echo "Running unit tests..."
           cargo test --lib --all-features --verbose 2>&1 | tee unit-test-output.log
-        continue-on-error: true
 
       - name: Run integration tests
         run: |
           echo "Running integration tests..."
           cargo test --test '*' --all-features --verbose 2>&1 | tee integration-test-output.log
-        continue-on-error: true
 
       - name: Run doc tests
         run: |
           echo "Running documentation tests..."
           cargo test --doc --all-features --verbose 2>&1 | tee doc-test-output.log
-        continue-on-error: true
 
       - name: Generate detailed test report (Unix)
         if: always() && runner.os != 'Windows'
@@ -529,105 +526,14 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny
 
-      - name: Create cargo-deny configuration
+      - name: Verify cargo-deny configuration
         run: |
-          cat > deny.toml << 'EOF'
-          # cargo-deny configuration for security and license checks
-          
-          [graph]
-          # If 1 or more target triples are specified, only the dependencies for those
-          # target triples will be included in the graph
-          targets = []
-          # If true, all dev, build, and normal dependencies will be included in the graph
-          all-features = true
-          # If true, all dev dependencies will be included in the graph
-          no-dev-dependencies = false
-          
-          [output]
-          # When outputting inclusion graphs in diagnostics that include features, this
-          # option can be used to specify the depth at which feature edges will be added.
-          feature-depth = 1
-          
-          [advisories]
-          # The path where the advisory database is cloned/fetched into
-          db-path = "~/.cargo/advisory-db"
-          # The url(s) of the advisory databases to use
-          db-urls = ["https://github.com/rustsec/advisory-db"]
-          # The lint level for security vulnerabilities
-          vulnerability = "deny"
-          # The lint level for unmaintained crates
-          unmaintained = "warn"
-          # The lint level for crates that have been yanked from their source registry
-          yanked = "warn"
-          # The lint level for crates with security notices
-          notice = "warn"
-          # A list of advisory IDs to ignore. Note that ignored advisories will still
-          # output a note when they are encountered.
-          ignore = [
-              #"RUSTSEC-0000-0000",
-          ]
-          
-          [licenses]
-          # The confidence threshold for detecting a license from a license text.
-          confidence-threshold = 0.8
-          # List of explicitly allowed licenses
-          allow = [
-              "MIT",
-              "Apache-2.0",
-              "Apache-2.0 WITH LLVM-exception",
-              "BSD-2-Clause",
-              "BSD-3-Clause",
-              "ISC",
-              "Unicode-DFS-2016",
-              "CC0-1.0",
-          ]
-          # List of explicitly disallowed licenses
-          deny = [
-              "GPL-2.0",
-              "GPL-3.0",
-              "AGPL-1.0",
-              "AGPL-3.0",
-          ]
-          # Lint level for when multiple versions of the same license are detected
-          copyleft = "warn"
-          # The lint level for crates which do not have a detectable license
-          unlicensed = "deny"
-          # List of crates to allow despite having an unclear license
-          allow-osi-fsf-free = "neither"
-          # List of crates to explicitly allow despite license issues
-          exceptions = []
-          
-          [bans]
-          # Lint level for when multiple versions of the same crate are detected
-          multiple-versions = "warn"
-          # Lint level for when a crate version requirement is `*`
-          wildcards = "allow"
-          # The graph highlighting used when creating dotgraphs for crates
-          highlight = "all"
-          # List of crates that are allowed. Use with care!
-          allow = []
-          # List of crates to deny
-          deny = [
-              # Each entry can be either a crate name or a crate name with version requirement
-              # { name = "openssl", version = "*" },
-          ]
-          # Certain crates/versions that will be skipped when doing duplicate detection.
-          skip = []
-          # Similarly to `skip` allows you to skip certain crates from being checked for duplication.
-          skip-tree = []
-          
-          [sources]
-          # Lint level for what to happen when a crate from a crate registry that is
-          # not in the allow list is encountered
-          unknown-registry = "warn"
-          # Lint level for what to happen when a crate from a git repository that is not
-          # in the allow list is encountered
-          unknown-git = "warn"
-          # List of allowed crate registries
-          allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-          # List of allowed Git repositories
-          allow-git = []
-          EOF
+          if [ ! -f deny.toml ]; then
+            echo "::error::deny.toml configuration file not found"
+            echo "Please ensure deny.toml exists in the project root"
+            exit 1
+          fi
+          echo "✅ cargo-deny configuration found"
 
       - name: Run cargo-deny checks
         id: deny

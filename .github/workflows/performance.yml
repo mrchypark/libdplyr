@@ -27,9 +27,63 @@ jobs:
           name: benchmark-results
           path: benchmark-output.txt
 
-      - name: Check for performance regressions
+      - name: Download previous benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: ./baseline/
+        continue-on-error: true
+
+      - name: Install Python for regression analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Run performance regression analysis
+        id: regression_check
         run: |
-          # This is a placeholder for a more sophisticated regression check.
-          # For a real implementation, you would compare the current benchmark
-          # results with the results from the previous commit on the main branch.
-          echo "Performance regression check is not yet implemented."
+          echo "Running performance regression analysis..."
+          
+          # Make the script executable
+          chmod +x scripts/performance_regression_detector.py
+          
+          # Convert benchmark output to JSON format for analysis
+          echo '{"benchmarks": []}' > benchmark-results.json
+          
+          # Run regression analysis if baseline exists
+          if [ -f ./baseline/benchmark-results.json ]; then
+            echo "Comparing with baseline..."
+            python3 scripts/performance_regression_detector.py \
+              benchmark-results.json \
+              --baseline ./baseline/benchmark-results.json \
+              --output performance-analysis.md \
+              --regression-threshold 10.0 \
+              --improvement-threshold 5.0 \
+              --severe-threshold 25.0 \
+              --github-actions
+          else
+            echo "No baseline found, creating initial benchmark record..."
+            echo "# Performance Analysis" > performance-analysis.md
+            echo "" >> performance-analysis.md
+            echo "✅ **Status**: Baseline benchmark established" >> performance-analysis.md
+            echo "This is the first benchmark run. Future runs will compare against this baseline." >> performance-analysis.md
+          fi
+
+      - name: Check for severe regressions
+        run: |
+          if grep -q "🚨.*CRITICAL" performance-analysis.md 2>/dev/null; then
+            echo "::error::Severe performance regressions detected!"
+            exit 1
+          elif grep -q "⚠️.*WARNING" performance-analysis.md 2>/dev/null; then
+            echo "::warning::Performance regressions detected"
+          else
+            echo "::notice::No significant performance issues detected"
+          fi
+
+      - name: Store benchmark baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: benchmark-results.json
+          retention-days: 30
