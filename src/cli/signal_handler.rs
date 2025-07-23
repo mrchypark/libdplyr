@@ -4,8 +4,6 @@
 //! with Unix pipelines, including SIGINT, SIGTERM, and SIGPIPE handling.
 //! On Windows, it provides basic interrupt handling.
 
-#[cfg(windows)]
-use signal_hook::consts::*;
 #[cfg(unix)]
 use signal_hook::{consts::*, iterator::Signals};
 
