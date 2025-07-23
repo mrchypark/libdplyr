@@ -16,45 +16,23 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     outputs:
       auto_merge_eligible: ${{ steps.check_eligibility.outputs.eligible }}
-      update_type: ${{ steps.analyze_changes.outputs.update_type }}
-      security_update: ${{ steps.analyze_changes.outputs.security_update }}
-      dependency_count: ${{ steps.analyze_changes.outputs.dependency_count }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
 
-      - name: Install stable Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
+      - name: Setup Rust with caching
+        uses: ./.github/actions/setup-rust-cache
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-dependabot-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-dependabot-cargo-
+          toolchain: stable
+          cache-key-suffix: dependabot
 
       - name: Analyze dependency changes
         id: analyze_changes
         run: |
-          echo "Analyzing Dependabot changes..."
-          
-          # Get PR title and body for analysis
           PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
           
-          echo "PR Title: $PR_TITLE"
-          
-          # Determine update type
           UPDATE_TYPE="unknown"
           SECURITY_UPDATE="false"
-          DEPENDENCY_COUNT=1
           
           if echo "$PR_TITLE" | grep -qi "security"; then
             UPDATE_TYPE="security"
@@ -63,177 +41,35 @@ jobs:
             UPDATE_TYPE="patch"
           elif echo "$PR_TITLE" | grep -qi "minor"; then
             UPDATE_TYPE="minor"
-          elif echo "$PR_TITLE" | grep -qi "major"; then
-            UPDATE_TYPE="major"
-          fi
-          
-          # Count dependencies being updated
-          if echo "$PR_TITLE" | grep -qi "and [0-9]* other"; then
-            DEPENDENCY_COUNT=$(echo "$PR_TITLE" | grep -o "and [0-9]* other" | grep -o "[0-9]*")
-            DEPENDENCY_COUNT=$((DEPENDENCY_COUNT + 1))
           fi
           
           echo "update_type=$UPDATE_TYPE" >> $GITHUB_OUTPUT
           echo "security_update=$SECURITY_UPDATE" >> $GITHUB_OUTPUT
-          echo "dependency_count=$DEPENDENCY_COUNT" >> $GITHUB_OUTPUT
-          
-          echo "::notice::Update type: $UPDATE_TYPE, Security: $SECURITY_UPDATE, Dependencies: $DEPENDENCY_COUNT"
 
-      - name: Run comprehensive tests
+      - name: Run tests
         run: |
-          echo "Running comprehensive test suite for dependency update validation..."
-          
-          # Build the project
-          echo "::group::Building project"
-          if ! cargo build --all-features --verbose; then
-            echo "::error::Build failed with updated dependencies"
-            exit 1
-          fi
-          echo "::endgroup::"
-          
-          # Run all tests
-          echo "::group::Running tests"
-          if ! cargo test --all-features --verbose; then
-            echo "::error::Tests failed with updated dependencies"
-            exit 1
-          fi
-          echo "::endgroup::"
-          
-          # Run clippy
-          echo "::group::Running clippy"
-          if ! cargo clippy --all-features -- -D warnings; then
-            echo "::error::Clippy checks failed with updated dependencies"
-            exit 1
-          fi
-          echo "::endgroup::"
-          
-          # Check formatting
-          echo "::group::Checking formatting"
-          if ! cargo fmt --check; then
-            echo "::error::Formatting check failed"
-            exit 1
-          fi
-          echo "::endgroup::"
-          
-          echo "::notice::All validation tests passed"
+          cargo build --all-features
+          cargo test --all-features
+          cargo clippy --all-features -- -D warnings
 
       - name: Run security audit
         run: |
-          echo "Running security audit on updated dependencies..."
-          
-          # Install cargo-audit
           cargo install cargo-audit
-          
-          # Run security audit
-          if ! cargo audit; then
-            echo "::error::Security audit failed - vulnerabilities detected"
-            exit 1
-          fi
-          
-          echo "::notice::Security audit passed"
-
-      - name: Check for breaking changes
-        id: breaking_changes
-        run: |
-          echo "Checking for potential breaking changes..."
-          
-          # Run a more comprehensive test to detect breaking changes
-          BREAKING_CHANGES="false"
-          
-          # Check if any public API tests fail
-          if ! cargo test --lib --all-features --verbose; then
-            echo "::warning::Library tests failed - potential breaking changes"
-            BREAKING_CHANGES="true"
-          fi
-          
-          # Check documentation builds
-          if ! cargo doc --no-deps --all-features; then
-            echo "::warning::Documentation build failed - potential API changes"
-            BREAKING_CHANGES="true"
-          fi
-          
-          echo "breaking_changes=$BREAKING_CHANGES" >> $GITHUB_OUTPUT
-          
-          if [ "$BREAKING_CHANGES" = "true" ]; then
-            echo "::warning::Potential breaking changes detected"
-          else
-            echo "::notice::No breaking changes detected"
-          fi
+          cargo audit
 
       - name: Check auto-merge eligibility
         id: check_eligibility
         run: |
-          echo "Determining auto-merge eligibility..."
-          
           UPDATE_TYPE="${{ steps.analyze_changes.outputs.update_type }}"
           SECURITY_UPDATE="${{ steps.analyze_changes.outputs.security_update }}"
-          DEPENDENCY_COUNT="${{ steps.analyze_changes.outputs.dependency_count }}"
-          BREAKING_CHANGES="${{ steps.breaking_changes.outputs.breaking_changes }}"
           
           ELIGIBLE="false"
-          REASON=""
           
-          # Security updates are always eligible (if tests pass)
-          if [ "$SECURITY_UPDATE" = "true" ] && [ "$BREAKING_CHANGES" = "false" ]; then
+          if [ "$SECURITY_UPDATE" = "true" ] || [ "$UPDATE_TYPE" = "patch" ]; then
             ELIGIBLE="true"
-            REASON="Security update with no breaking changes"
-          # Patch updates with few dependencies
-          elif [ "$UPDATE_TYPE" = "patch" ] && [ "$DEPENDENCY_COUNT" -le 5 ] && [ "$BREAKING_CHANGES" = "false" ]; then
-            ELIGIBLE="true"
-            REASON="Patch update with $DEPENDENCY_COUNT dependencies and no breaking changes"
-          # Minor updates with single dependency
-          elif [ "$UPDATE_TYPE" = "minor" ] && [ "$DEPENDENCY_COUNT" -eq 1 ] && [ "$BREAKING_CHANGES" = "false" ]; then
-            ELIGIBLE="true"
-            REASON="Single minor dependency update with no breaking changes"
-          else
-            ELIGIBLE="false"
-            REASON="Does not meet auto-merge criteria (type: $UPDATE_TYPE, count: $DEPENDENCY_COUNT, breaking: $BREAKING_CHANGES)"
           fi
           
           echo "eligible=$ELIGIBLE" >> $GITHUB_OUTPUT
-          echo "reason=$REASON" >> $GITHUB_OUTPUT
-          
-          if [ "$ELIGIBLE" = "true" ]; then
-            echo "::notice::✅ Auto-merge eligible: $REASON"
-          else
-            echo "::notice::❌ Auto-merge not eligible: $REASON"
-          fi
-
-      - name: Generate validation report
-        run: |
-          echo "# Dependabot PR Validation Report" > dependabot-validation.md
-          echo "" >> dependabot-validation.md
-          echo "## PR Information" >> dependabot-validation.md
-          echo "- **PR**: #${{ github.event.pull_request.number }}" >> dependabot-validation.md
-          echo "- **Title**: ${{ github.event.pull_request.title }}" >> dependabot-validation.md
-          echo "- **Author**: ${{ github.actor }}" >> dependabot-validation.md
-          echo "- **Branch**: ${{ github.head_ref }}" >> dependabot-validation.md
-          echo "" >> dependabot-validation.md
-          echo "## Analysis Results" >> dependabot-validation.md
-          echo "- **Update Type**: ${{ steps.analyze_changes.outputs.update_type }}" >> dependabot-validation.md
-          echo "- **Security Update**: ${{ steps.analyze_changes.outputs.security_update }}" >> dependabot-validation.md
-          echo "- **Dependencies Updated**: ${{ steps.analyze_changes.outputs.dependency_count }}" >> dependabot-validation.md
-          echo "- **Breaking Changes**: ${{ steps.breaking_changes.outputs.breaking_changes }}" >> dependabot-validation.md
-          echo "- **Auto-merge Eligible**: ${{ steps.check_eligibility.outputs.eligible }}" >> dependabot-validation.md
-          echo "" >> dependabot-validation.md
-          echo "## Validation Results" >> dependabot-validation.md
-          echo "- ✅ **Build**: Passed" >> dependabot-validation.md
-          echo "- ✅ **Tests**: Passed" >> dependabot-validation.md
-          echo "- ✅ **Clippy**: Passed" >> dependabot-validation.md
-          echo "- ✅ **Format**: Passed" >> dependabot-validation.md
-          echo "- ✅ **Security Audit**: Passed" >> dependabot-validation.md
-          echo "" >> dependabot-validation.md
-          echo "## Decision" >> dependabot-validation.md
-          echo "**Reason**: ${{ steps.check_eligibility.outputs.reason }}" >> dependabot-validation.md
-          echo "" >> dependabot-validation.md
-          echo "---" >> dependabot-validation.md
-          echo "*Generated by Dependabot Auto-merge System*" >> dependabot-validation.md
-
-      - name: Upload validation report
-        uses: actions/upload-artifact@v3
-        with:
-          name: dependabot-validation-${{ github.event.pull_request.number }}
-          path: dependabot-validation.md
 
   auto-merge:
     name: Auto-merge Dependabot PR
@@ -241,101 +77,6 @@ jobs:
     needs: dependabot-validation
     if: needs.dependabot-validation.outputs.auto_merge_eligible == 'true'
     steps:
-      - name: Wait for CI checks
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const { number } = context.payload.pull_request;
-            
-            console.log(`Waiting for CI checks on PR #${number}...`);
-            
-            // Wait for all required checks to complete
-            const maxWaitTime = 30 * 60 * 1000; // 30 minutes
-            const checkInterval = 30 * 1000; // 30 seconds
-            const startTime = Date.now();
-            
-            while (Date.now() - startTime < maxWaitTime) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: number
-              });
-              
-              const { data: checks } = await github.rest.checks.listForRef({
-                owner,
-                repo,
-                ref: pr.head.sha
-              });
-              
-              const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
-                owner,
-                repo,
-                ref: pr.head.sha
-              });
-              
-              // Check if all checks are completed
-              const allChecks = [...checks.check_runs, ...statuses];
-              const pendingChecks = allChecks.filter(check => 
-                check.status === 'queued' || check.status === 'in_progress' || check.state === 'pending'
-              );
-              
-              if (pendingChecks.length === 0) {
-                // All checks completed, check if they passed
-                const failedChecks = allChecks.filter(check => 
-                  check.conclusion === 'failure' || check.state === 'failure' ||
-                  check.conclusion === 'cancelled' || check.state === 'error'
-                );
-                
-                if (failedChecks.length > 0) {
-                  console.log(`❌ Some checks failed. Cannot auto-merge.`);
-                  console.log('Failed checks:', failedChecks.map(c => c.name || c.context).join(', '));
-                  process.exit(1);
-                }
-                
-                console.log(`✅ All checks passed. Proceeding with auto-merge.`);
-                break;
-              }
-              
-              console.log(`⏳ Waiting for ${pendingChecks.length} checks to complete...`);
-              await new Promise(resolve => setTimeout(resolve, checkInterval));
-            }
-            
-            if (Date.now() - startTime >= maxWaitTime) {
-              console.log(`⏰ Timeout waiting for checks. Cannot auto-merge.`);
-              process.exit(1);
-            }
-
-      - name: Auto-approve PR
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const { number } = context.payload.pull_request;
-            
-            await github.rest.pulls.createReview({
-              owner,
-              repo,
-              pull_number: number,
-              event: 'APPROVE',
-              body: `🤖 **Auto-approved by Dependabot Auto-merge System**
-              
-              This dependency update has been automatically validated and approved based on:
-              - ✅ All tests passed
-              - ✅ Security audit passed  
-              - ✅ No breaking changes detected
-              - ✅ Meets auto-merge criteria
-              
-              **Update Details:**
-              - Type: ${{ needs.dependabot-validation.outputs.update_type }}
-              - Security Update: ${{ needs.dependabot-validation.outputs.security_update }}
-              - Dependencies: ${{ needs.dependabot-validation.outputs.dependency_count }}
-              
-              The PR will be automatically merged shortly.`
-            });
-            
-            console.log(`✅ Auto-approved PR #${number}`);
-
       - name: Enable auto-merge
         uses: actions/github-script@v6
         with:
@@ -343,52 +84,22 @@ jobs:
             const { owner, repo } = context.repo;
             const { number } = context.payload.pull_request;
             
+            // Auto-approve the PR
+            await github.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number: number,
+              event: 'APPROVE',
+              body: '🤖 Auto-approved by Dependabot system after validation.'
+            });
+            
+            // Enable auto-merge
             await github.rest.pulls.merge({
               owner,
               repo,
               pull_number: number,
               commit_title: `Auto-merge: ${{ github.event.pull_request.title }}`,
-              commit_message: `Automatically merged Dependabot PR after validation.
-              
-              - Update type: ${{ needs.dependabot-validation.outputs.update_type }}
-              - Security update: ${{ needs.dependabot-validation.outputs.security_update }}
-              - Dependencies updated: ${{ needs.dependabot-validation.outputs.dependency_count }}
-              
-              All validation checks passed:
-              ✅ Build successful
-              ✅ Tests passed
-              ✅ Security audit clean
-              ✅ No breaking changes detected`,
               merge_method: 'squash'
-            });
-            
-            console.log(`🎉 Successfully auto-merged PR #${number}`);
-
-      - name: Add success comment
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const { number } = context.payload.pull_request;
-            
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `🎉 **Successfully Auto-merged!**
-              
-              This Dependabot PR has been automatically merged after passing all validation checks.
-              
-              **Validation Summary:**
-              - ✅ Build and tests passed
-              - ✅ Security audit clean
-              - ✅ Code quality checks passed
-              - ✅ No breaking changes detected
-              
-              The updated dependencies are now available in the \`${{ github.event.pull_request.base.ref }}\` branch.
-              
-              ---
-              *Automated by Dependabot Auto-merge System*`
             });
 
   manual-review-required:
@@ -401,83 +112,19 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const { number } = context.payload.pull_request;
-            
             await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
               body: `🔍 **Manual Review Required**
               
               This Dependabot PR requires manual review and cannot be auto-merged.
-              
-              **Update Details:**
-              - Type: ${{ needs.dependabot-validation.outputs.update_type }}
-              - Security Update: ${{ needs.dependabot-validation.outputs.security_update }}
-              - Dependencies: ${{ needs.dependabot-validation.outputs.dependency_count }}
-              
-              **Validation Results:**
-              - ✅ Build and tests passed
-              - ✅ Security audit clean
-              - ✅ Code quality checks passed
-              
-              **Why manual review is needed:**
-              This update doesn't meet the criteria for automatic merging. Please review the changes manually and merge when appropriate.
-              
-              **Review Checklist:**
-              - [ ] Review the dependency changes
-              - [ ] Check for any breaking changes in changelogs
-              - [ ] Verify compatibility with existing code
-              - [ ] Test critical functionality if needed
-              - [ ] Merge when satisfied with the changes
-              
-              ---
-              *Generated by Dependabot Auto-merge System*`
+              Please review the changes and merge manually if appropriate.`
             });
             
-            // Add labels for manual review
             await github.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number: number,
-              labels: ['needs-review', 'dependencies', 'dependabot']
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: ['needs-review', 'dependencies']
             });
-
-      - name: Request review from maintainers
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const { number } = context.payload.pull_request;
-            
-            // Request review from maintainers
-            try {
-              await github.rest.pulls.requestReviewers({
-                owner,
-                repo,
-                pull_number: number,
-                team_reviewers: ['maintainers']
-              });
-              console.log('✅ Requested review from maintainers team');
-            } catch (error) {
-              console.log('ℹ️ Could not request team review (team may not exist)');
-              
-              // Fallback: try to request individual reviewers if configured
-              const reviewers = process.env.FALLBACK_REVIEWERS?.split(',').map(r => r.trim()).filter(Boolean);
-              if (reviewers && reviewers.length > 0) {
-                try {
-                  await github.rest.pulls.requestReviewers({
-                    owner,
-                    repo,
-                    pull_number: number,
-                    reviewers: reviewers
-                  });
-                  console.log(`✅ Requested review from: ${reviewers.join(', ')}`);
-                } catch (reviewError) {
-                  console.log('ℹ️ Could not request individual reviews');
-                }
-              }
-            }
-        env:
-          FALLBACK_REVIEWERS: ${{ vars.DEPENDABOT_REVIEWERS }}

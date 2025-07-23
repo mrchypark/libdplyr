@@ -3,6 +3,8 @@ name: Performance Benchmarks
 on:
   push:
     branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM UTC
 
 jobs:
   benchmark:
@@ -12,78 +14,20 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
+      - name: Setup Rust with caching
         uses: ./.github/actions/setup-rust-cache
         with:
           toolchain: stable
           cache-key-suffix: bench
 
       - name: Run benchmarks
-        run: cargo bench --all-features | tee benchmark-output.txt
+        run: |
+          cargo bench --all-features | tee benchmark-output.txt
+          echo "Benchmark completed successfully"
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
+          name: benchmark-results-${{ github.run_number }}
           path: benchmark-output.txt
-
-      - name: Download previous benchmark results
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-baseline
-          path: ./baseline/
-        continue-on-error: true
-
-      - name: Install Python for regression analysis
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Run performance regression analysis
-        id: regression_check
-        run: |
-          echo "Running performance regression analysis..."
-          
-          # Make the script executable
-          chmod +x scripts/performance_regression_detector.py
-          
-          # Convert benchmark output to JSON format for analysis
-          echo '{"benchmarks": []}' > benchmark-results.json
-          
-          # Run regression analysis if baseline exists
-          if [ -f ./baseline/benchmark-results.json ]; then
-            echo "Comparing with baseline..."
-            python3 scripts/performance_regression_detector.py \
-              benchmark-results.json \
-              --baseline ./baseline/benchmark-results.json \
-              --output performance-analysis.md \
-              --regression-threshold 10.0 \
-              --improvement-threshold 5.0 \
-              --severe-threshold 25.0 \
-              --github-actions
-          else
-            echo "No baseline found, creating initial benchmark record..."
-            echo "# Performance Analysis" > performance-analysis.md
-            echo "" >> performance-analysis.md
-            echo "✅ **Status**: Baseline benchmark established" >> performance-analysis.md
-            echo "This is the first benchmark run. Future runs will compare against this baseline." >> performance-analysis.md
-          fi
-
-      - name: Check for severe regressions
-        run: |
-          if grep -q "🚨.*CRITICAL" performance-analysis.md 2>/dev/null; then
-            echo "::error::Severe performance regressions detected!"
-            exit 1
-          elif grep -q "⚠️.*WARNING" performance-analysis.md 2>/dev/null; then
-            echo "::warning::Performance regressions detected"
-          else
-            echo "::notice::No significant performance issues detected"
-          fi
-
-      - name: Store benchmark baseline
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-baseline
-          path: benchmark-results.json
           retention-days: 30

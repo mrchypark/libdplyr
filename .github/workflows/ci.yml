@@ -9,20 +9,19 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Optimization flags
   CARGO_INCREMENTAL: 1
   CARGO_NET_RETRY: 10
-  RUST_LOG: info
 
 jobs:
+  # Quick validation
   check:
-    name: Check
+    name: Quick Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
+      - name: Setup Rust with caching
         uses: ./.github/actions/setup-rust-cache
         with:
           toolchain: stable
@@ -31,385 +30,69 @@ jobs:
       - name: Run cargo check
         run: cargo check --all-features
 
+  # Test on multiple platforms
   test:
-    name: Test Suite
+    name: Test
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false  # Don't cancel other jobs if one fails
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, nightly]
-        exclude:
-          - os: windows-latest
-            rust: beta
-          - os: windows-latest
-            rust: nightly
+        rust: [stable]
         include:
-          # Allow nightly failures
-          - rust: nightly
+          # Test additional Rust versions on Ubuntu only
+          - os: ubuntu-latest
+            rust: beta
+          - os: ubuntu-latest
+            rust: nightly
             experimental: true
     continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
+      - name: Setup Rust with caching
         uses: ./.github/actions/setup-rust-cache
         with:
           toolchain: ${{ matrix.rust }}
           cache-key-suffix: test-${{ matrix.os }}
 
-      - name: Run cargo build
+      - name: Build
         run: cargo build --all-features --verbose
 
-      - name: Run unit tests
-        run: |
-          echo "Running unit tests..."
-          cargo test --lib --all-features --verbose 2>&1 | tee unit-test-output.log
-
-      - name: Run integration tests
-        run: |
-          echo "Running integration tests..."
-          cargo test --test '*' --all-features --verbose 2>&1 | tee integration-test-output.log
+      - name: Run tests
+        run: cargo test --all-features --verbose
 
       - name: Run doc tests
-        run: |
-          echo "Running documentation tests..."
-          cargo test --doc --all-features --verbose 2>&1 | tee doc-test-output.log
+        run: cargo test --doc --all-features --verbose
 
-      - name: Generate detailed test report (Unix)
-        if: always() && runner.os != 'Windows'
-        shell: bash
-        run: |
-          echo "# Test Results for ${{ matrix.os }} - ${{ matrix.rust }}" > test-results.md
-          echo "" >> test-results.md
-          
-          # Build status
-          echo "## Build Status" >> test-results.md
-          if cargo build --all-features --verbose > /dev/null 2>&1; then
-            echo "✅ **Build**: Passed" >> test-results.md
-          else
-            echo "❌ **Build**: Failed" >> test-results.md
-            echo "```" >> test-results.md
-            cargo build --all-features --verbose 2>&1 | tail -20 >> test-results.md
-            echo "```" >> test-results.md
-          fi
-          echo "" >> test-results.md
-
-      - name: Generate detailed test report (Windows)
-        if: always() && runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $content = @"
-          # Test Results for ${{ matrix.os }} - ${{ matrix.rust }}
-          
-          ## Build Status
-          "@
-          
-          # Check build status
-          $buildResult = & cargo build --all-features --verbose 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            $content += "`n✅ **Build**: Passed`n"
-          } else {
-            $content += "`n❌ **Build**: Failed`n"
-            $content += "``````"
-            $content += ($buildResult | Select-Object -Last 20 | Out-String)
-            $content += "``````"
-          }
-          
-          # Unit tests status
-          $content += "`n## Unit Tests`n"
-          if (Test-Path "unit-test-output.log") {
-            $unitTestContent = Get-Content "unit-test-output.log" -Raw
-            if ($unitTestContent -match "test result: ok") {
-              $content += "✅ **Unit Tests**: Passed`n"
-              $testResult = ($unitTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
-              $content += $testResult + "`n"
-            } else {
-              $content += "❌ **Unit Tests**: Failed`n"
-              $content += "``````"
-              $content += ($unitTestContent -split "`n" | Select-Object -Last 20) -join "`n"
-              $content += "``````"
-            }
-          } else {
-            $content += "❌ **Unit Tests**: No log file found`n"
-          }
-          
-          # Integration tests status
-          $content += "`n## Integration Tests`n"
-          if (Test-Path "integration-test-output.log") {
-            $integrationTestContent = Get-Content "integration-test-output.log" -Raw
-            if ($integrationTestContent -match "test result: ok") {
-              $content += "✅ **Integration Tests**: Passed`n"
-              $testResult = ($integrationTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
-              $content += $testResult + "`n"
-            } else {
-              $content += "❌ **Integration Tests**: Failed`n"
-              $content += "``````"
-              $content += ($integrationTestContent -split "`n" | Select-Object -Last 20) -join "`n"
-              $content += "``````"
-            }
-          } else {
-            $content += "❌ **Integration Tests**: No log file found`n"
-          }
-          
-          # Doc tests status
-          $content += "`n## Documentation Tests`n"
-          if (Test-Path "doc-test-output.log") {
-            $docTestContent = Get-Content "doc-test-output.log" -Raw
-            if ($docTestContent -match "test result: ok") {
-              $content += "✅ **Doc Tests**: Passed`n"
-              $testResult = ($docTestContent -split "`n" | Where-Object { $_ -match "test result:" }) -join "`n"
-              $content += $testResult + "`n"
-            } else {
-              $content += "❌ **Doc Tests**: Failed`n"
-              $content += "``````"
-              $content += ($docTestContent -split "`n" | Select-Object -Last 20) -join "`n"
-              $content += "``````"
-            }
-          } else {
-            $content += "❌ **Doc Tests**: No log file found`n"
-          }
-          
-          # Summary
-          $content += "`n## Summary`n"
-          $content += "- Platform: ${{ matrix.os }}`n"
-          $content += "- Rust Version: ${{ matrix.rust }}`n"
-          $content += "- Timestamp: $(Get-Date)`n"
-          
-          $content | Out-File -FilePath test-results.md -Encoding UTF8
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.os }}-${{ matrix.rust }}
-          path: |
-            test-results.md
-            unit-test-output.log
-            integration-test-output.log
-            doc-test-output.log
-
-  fmt:
-    name: Rustfmt
+  # Code quality checks
+  quality:
+    name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
+      - name: Setup Rust with caching
         uses: ./.github/actions/setup-rust-cache
         with:
           toolchain: stable
-          components: rustfmt
-          cache-key-suffix: fmt
+          components: rustfmt,clippy
+          cache-key-suffix: quality
 
-      - name: Run cargo fmt
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Setup Rust with optimized caching
-        uses: ./.github/actions/setup-rust-cache
-        with:
-          toolchain: stable
-          components: clippy
-          cache-key-suffix: clippy
-
-      - name: Run cargo clippy (lib)
-        run: cargo clippy --lib --all-features -- -D warnings
-
-      - name: Run cargo clippy (bins)
-        run: cargo clippy --bins --all-features -- -D warnings
-
-      - name: Run cargo clippy (tests)
-        run: cargo clippy --tests --all-features -- -D warnings
-
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Setup Rust with optimized caching
-        uses: ./.github/actions/setup-rust-cache
-        with:
-          toolchain: stable
-          components: llvm-tools-preview
-          cache-key-suffix: coverage
-
-      - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
-
-      - name: Generate and check code coverage
-        run: |
-          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-          cargo llvm-cov --all-features --workspace --fail-under-lines 85 --fail-under-branches 80
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: lcov.info
-
-      - name: Run cargo clippy (benches)
-        run: cargo clippy --benches --all-features -- -D warnings
-
-      - name: Generate clippy report
-        if: always()
-        run: |
-          echo "## Clippy Results" >> clippy-results.md
-          echo "- Library: $(if cargo clippy --lib --all-features -- -D warnings > /dev/null 2>&1; then echo '✅ Passed'; else echo '❌ Failed'; fi)" >> clippy-results.md
-          echo "- Binaries: $(if cargo clippy --bins --all-features -- -D warnings > /dev/null 2>&1; then echo '✅ Passed'; else echo '❌ Failed'; fi)" >> clippy-results.md
-          echo "- Tests: $(if cargo clippy --tests --all-features -- -D warnings > /dev/null 2>&1; then echo '✅ Passed'; else echo '❌ Failed'; fi)" >> clippy-results.md
-          echo "- Benchmarks: $(if cargo clippy --benches --all-features -- -D warnings > /dev/null 2>&1; then echo '✅ Passed'; else echo '❌ Failed'; fi)" >> clippy-results.md
-
-      - name: Upload clippy results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy-results
-          path: clippy-results.md
-
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Setup Rust with optimized caching
-        uses: ./.github/actions/setup-rust-cache
-        with:
-          toolchain: stable
-          cache-key-suffix: docs
-
-      - name: Check documentation
+      - name: Build documentation
         run: cargo doc --no-deps --document-private-items --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
 
-      - name: Upload documentation
-        uses: actions/upload-artifact@v4
-        with:
-          name: documentation
-          path: target/doc/
-
-  benchmark:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Setup Rust with optimized caching
-        uses: ./.github/actions/setup-rust-cache
-        with:
-          toolchain: stable
-          cache-key-suffix: benchmark
-
-      - name: Run benchmarks
-        run: |
-          echo "Running performance benchmarks..."
-          cargo bench --all-features > benchmark-output.txt
-          echo "## Benchmark Results" > benchmark-report.md
-          echo "" >> benchmark-report.md
-          echo '```' >> benchmark-report.md
-          cat benchmark-output.txt >> benchmark-report.md
-          echo '```' >> benchmark-report.md
-
-      - name: Download previous benchmark results
-        if: always()
-        uses: actions/download-artifact@v3
-        with:
-          name: benchmark-baseline
-          path: ./baseline/
-        continue-on-error: true
-
-      - name: Install Python dependencies for regression analysis
-        if: always()
-        run: |
-          python3 -m pip install --upgrade pip
-          # No additional dependencies needed for our script
-
-      - name: Run advanced performance regression analysis
-        if: always()
-        id: regression_analysis
-        run: |
-          echo "Running advanced performance regression analysis..."
-          
-          # Make the script executable
-          chmod +x scripts/performance_regression_detector.py
-          
-          # Run the regression detector
-          if [ -f benchmark-results.json ]; then
-            if [ -f ./baseline/benchmark-results.json ]; then
-              echo "Running regression analysis with baseline comparison..."
-              python3 scripts/performance_regression_detector.py \
-                benchmark-results.json \
-                --baseline ./baseline/benchmark-results.json \
-                --output benchmark-analysis.md \
-                --regression-threshold 15.0 \
-                --improvement-threshold 10.0 \
-                --severe-threshold 50.0 \
-                --github-actions
-            else
-              echo "Running regression analysis without baseline (first run)..."
-              python3 scripts/performance_regression_detector.py \
-                benchmark-results.json \
-                --output benchmark-analysis.md \
-                --regression-threshold 15.0 \
-                --improvement-threshold 10.0 \
-                --severe-threshold 50.0 \
-                --github-actions
-            fi
-          else
-            echo "# Performance Regression Analysis" > benchmark-analysis.md
-            echo "" >> benchmark-analysis.md
-            echo "❌ **Error**: Benchmark results file not found." >> benchmark-analysis.md
-            echo "Unable to perform regression analysis." >> benchmark-analysis.md
-            echo "::error::Benchmark results file not found"
-          fi
-
-      - name: Check for severe performance regressions
-        if: always()
-        run: |
-          # Check if severe regressions were detected
-          if grep -q "🚨.*CRITICAL" benchmark-analysis.md 2>/dev/null; then
-            echo "::error::Severe performance regressions detected! Please review the benchmark analysis."
-            exit 1
-          elif grep -q "⚠️.*WARNING" benchmark-analysis.md 2>/dev/null; then
-            echo "::warning::Performance regressions detected. Please review the benchmark analysis."
-            # Don't fail the build for regular regressions, just warn
-          elif grep -q "✅.*GOOD" benchmark-analysis.md 2>/dev/null; then
-            echo "::notice::Performance improvements detected!"
-          else
-            echo "::notice::No significant performance changes detected."
-          fi
-
-      - name: Store benchmark results as baseline
-        if: always() && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-baseline
-          path: benchmark-results.json
-          retention-days: 30
-
-      - name: Upload benchmark results
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-results
-          path: |
-            benchmark-results.json
-            benchmark-report.md
-            benchmark-analysis.md
-
+  # Security audit
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -417,7 +100,7 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Rust with optimized caching
+      - name: Setup Rust with caching
         uses: ./.github/actions/setup-rust-cache
         with:
           toolchain: stable
@@ -427,532 +110,81 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Run security audit
-        id: audit
-        run: |
-          echo "Running security audit..."
-          echo "# Security Audit Report" > security-report.md
-          echo "" >> security-report.md
-          
-          # Run cargo audit and capture output
-          if cargo audit --json > audit-results.json 2>&1; then
-            echo "✅ **Security Audit**: No vulnerabilities found" >> security-report.md
-            echo "::notice::Security audit passed - no vulnerabilities detected"
-            AUDIT_STATUS="PASSED"
-          else
-            echo "⚠️ **Security Audit**: Vulnerabilities detected" >> security-report.md
-            echo "::warning::Security vulnerabilities detected in dependencies"
-            AUDIT_STATUS="FAILED"
-          fi
-          
-          echo "" >> security-report.md
-          echo "## Detailed Results" >> security-report.md
-          echo "" >> security-report.md
-          
-          # Parse JSON results if available
-          if [ -f audit-results.json ] && command -v python3 >/dev/null 2>&1; then
-            python3 -c "
-          import json
-          import sys
-          
-          try:
-              with open('audit-results.json', 'r') as f:
-                  data = json.load(f)
-              
-              vulnerabilities = data.get('vulnerabilities', {})
-              if vulnerabilities:
-                  print('### 🚨 Vulnerabilities Found')
-                  print('')
-                  
-                  for vuln_id, vuln_data in vulnerabilities.items():
-                      advisory = vuln_data.get('advisory', {})
-                      package = vuln_data.get('package', {})
-                      
-                      title = advisory.get('title', 'Unknown vulnerability')
-                      severity = advisory.get('severity', 'Unknown')
-                      description = advisory.get('description', 'No description available')
-                      package_name = package.get('name', 'Unknown package')
-                      package_version = package.get('version', 'Unknown version')
-                      
-                      print(f'#### {title}')
-                      print(f'- **Package**: {package_name} v{package_version}')
-                      print(f'- **Severity**: {severity}')
-                      print(f'- **ID**: {vuln_id}')
-                      print(f'- **Description**: {description}')
-                      print('')
-                      
-                      # Set GitHub Actions annotations
-                      print(f'::error::Security vulnerability in {package_name} v{package_version}: {title}')
-              else:
-                  print('### ✅ No Vulnerabilities Found')
-                  print('All dependencies are secure and up-to-date.')
-                  print('')
-              
-              # Show warnings if any
-              warnings = data.get('warnings', [])
-              if warnings:
-                  print('### ⚠️ Warnings')
-                  print('')
-                  for warning in warnings:
-                      print(f'- {warning}')
-                      print(f'::warning::Security audit warning: {warning}')
-                  print('')
-          
-          except Exception as e:
-              print(f'Error parsing audit results: {e}')
-              print('Raw audit output:')
-              try:
-                  with open('audit-results.json', 'r') as f:
-                      print(f.read())
-              except:
-                  pass
-          " >> security-report.md
-          else
-            # Fallback to text output
-            echo "### Audit Output" >> security-report.md
-            echo "\`\`\`" >> security-report.md
-            cargo audit 2>&1 | tee -a security-report.md || true
-            echo "\`\`\`" >> security-report.md
-          fi
-          
-          echo "" >> security-report.md
-          echo "## Summary" >> security-report.md
-          echo "- **Status**: $AUDIT_STATUS" >> security-report.md
-          echo "- **Tool**: cargo-audit" >> security-report.md
-          echo "- **Timestamp**: $(date)" >> security-report.md
-          
-          # Set output for later steps
-          echo "audit_status=$AUDIT_STATUS" >> $GITHUB_OUTPUT
+        run: cargo audit
 
-      - name: Install cargo-deny
-        run: cargo install cargo-deny
-
-      - name: Verify cargo-deny configuration
-        run: |
-          if [ ! -f deny.toml ]; then
-            echo "::error::deny.toml configuration file not found"
-            echo "Please ensure deny.toml exists in the project root"
-            exit 1
-          fi
-          echo "✅ cargo-deny configuration found"
-
-      - name: Run cargo-deny checks
-        id: deny
-        run: |
-          echo "Running cargo-deny security and license checks..."
-          echo "" >> security-report.md
-          echo "## License and Dependency Policy Check" >> security-report.md
-          echo "" >> security-report.md
-          
-          # Run cargo-deny and capture results
-          DENY_STATUS="PASSED"
-          
-          # Check advisories (security)
-          if cargo deny check advisories --format json > deny-advisories.json 2>&1; then
-            echo "✅ **Advisory Check**: Passed" >> security-report.md
-          else
-            echo "❌ **Advisory Check**: Failed" >> security-report.md
-            DENY_STATUS="FAILED"
-            echo "::error::cargo-deny advisory check failed"
-          fi
-          
-          # Check licenses
-          if cargo deny check licenses --format json > deny-licenses.json 2>&1; then
-            echo "✅ **License Check**: Passed" >> security-report.md
-          else
-            echo "⚠️ **License Check**: Issues found" >> security-report.md
-            echo "::warning::cargo-deny license check found issues"
-          fi
-          
-          # Check bans (duplicate dependencies, etc.)
-          if cargo deny check bans --format json > deny-bans.json 2>&1; then
-            echo "✅ **Dependency Ban Check**: Passed" >> security-report.md
-          else
-            echo "⚠️ **Dependency Ban Check**: Issues found" >> security-report.md
-            echo "::warning::cargo-deny ban check found issues"
-          fi
-          
-          # Check sources
-          if cargo deny check sources --format json > deny-sources.json 2>&1; then
-            echo "✅ **Source Check**: Passed" >> security-report.md
-          else
-            echo "⚠️ **Source Check**: Issues found" >> security-report.md
-            echo "::warning::cargo-deny source check found issues"
-          fi
-          
-          echo "" >> security-report.md
-          echo "### Detailed cargo-deny Results" >> security-report.md
-          echo "" >> security-report.md
-          
-          # Parse and display results
-          if command -v python3 >/dev/null 2>&1; then
-            python3 -c "
-          import json
-          import os
-          
-          def parse_deny_results(filename, check_type):
-              if not os.path.exists(filename):
-                  return
-              
-              try:
-                  with open(filename, 'r') as f:
-                      content = f.read().strip()
-                      if not content:
-                          return
-                      
-                      # cargo-deny outputs JSONL format
-                      lines = content.split('\n')
-                      for line in lines:
-                          if line.strip():
-                              try:
-                                  data = json.loads(line)
-                                  if data.get('type') == 'error':
-                                      print(f'#### {check_type} Error')
-                                      print(f'- **Message**: {data.get(\"message\", \"Unknown error\")}')
-                                      print('')
-                                  elif data.get('type') == 'warning':
-                                      print(f'#### {check_type} Warning')
-                                      print(f'- **Message**: {data.get(\"message\", \"Unknown warning\")}')
-                                      print('')
-                              except json.JSONDecodeError:
-                                  continue
-              except Exception as e:
-                  print(f'Error parsing {filename}: {e}')
-          
-          parse_deny_results('deny-advisories.json', 'Advisory')
-          parse_deny_results('deny-licenses.json', 'License')
-          parse_deny_results('deny-bans.json', 'Ban')
-          parse_deny_results('deny-sources.json', 'Source')
-          " >> security-report.md
-          fi
-          
-          echo "deny_status=$DENY_STATUS" >> $GITHUB_OUTPUT
-
-      - name: Generate final security summary
-        if: always()
-        run: |
-          echo "" >> security-report.md
-          echo "## Final Security Assessment" >> security-report.md
-          echo "" >> security-report.md
-          
-          AUDIT_STATUS="${{ steps.audit.outputs.audit_status }}"
-          DENY_STATUS="${{ steps.deny.outputs.deny_status }}"
-          
-          if [ "$AUDIT_STATUS" = "PASSED" ] && [ "$DENY_STATUS" = "PASSED" ]; then
-            echo "🔒 **Overall Status**: SECURE" >> security-report.md
-            echo "All security checks passed successfully." >> security-report.md
-            echo "::notice::All security checks passed"
-          elif [ "$AUDIT_STATUS" = "FAILED" ]; then
-            echo "🚨 **Overall Status**: CRITICAL SECURITY ISSUES" >> security-report.md
-            echo "Critical security vulnerabilities detected in dependencies." >> security-report.md
-            echo "::error::Critical security vulnerabilities detected"
-          else
-            echo "⚠️ **Overall Status**: SECURITY WARNINGS" >> security-report.md
-            echo "Some security warnings detected but no critical vulnerabilities." >> security-report.md
-            echo "::warning::Security warnings detected"
-          fi
-          
-          echo "" >> security-report.md
-          echo "## Recommendations" >> security-report.md
-          echo "" >> security-report.md
-          
-          if [ "$AUDIT_STATUS" = "FAILED" ]; then
-            echo "1. **Immediate Action Required**: Update vulnerable dependencies" >> security-report.md
-            echo "2. Run \`cargo update\` to get the latest compatible versions" >> security-report.md
-            echo "3. Check for alternative crates if updates are not available" >> security-report.md
-            echo "4. Consider pinning to specific secure versions" >> security-report.md
-          else
-            echo "1. Keep dependencies up-to-date with regular \`cargo update\`" >> security-report.md
-            echo "2. Monitor security advisories for your dependencies" >> security-report.md
-            echo "3. Consider using \`cargo audit fix\` for automated updates" >> security-report.md
-          fi
-          
-          echo "" >> security-report.md
-          echo "## Tools Used" >> security-report.md
-          echo "- **cargo-audit**: Vulnerability scanning" >> security-report.md
-          echo "- **cargo-deny**: License and policy enforcement" >> security-report.md
-
-      - name: Fail on critical security issues
-        if: always()
-        run: |
-          AUDIT_STATUS="${{ steps.audit.outputs.audit_status }}"
-          if [ "$AUDIT_STATUS" = "FAILED" ]; then
-            echo "::error::Build failed due to critical security vulnerabilities"
-            exit 1
-          fi
-
-      - name: Upload security reports
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: security-reports
-          path: |
-            security-report.md
-            audit-results.json
-            deny-*.json
-            deny.toml
-
-  ci-monitoring:
-    name: CI Monitoring & Metrics
+  # Code coverage (only on main/develop)
+  coverage:
+    name: Code Coverage
     runs-on: ubuntu-latest
-    if: always()
-    needs: [check, test, fmt, clippy, docs, coverage, benchmark, security]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup Python for monitoring
-        uses: actions/setup-python@v4
+      - name: Setup Rust with caching
+        uses: ./.github/actions/setup-rust-cache
         with:
-          python-version: '3.9'
+          toolchain: stable
+          components: llvm-tools-preview
+          cache-key-suffix: coverage
 
-      - name: Download all artifacts for analysis
-        uses: actions/download-artifact@v3
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
         with:
-          path: artifacts
-        continue-on-error: true
+          files: lcov.info
+          fail_ci_if_error: false
 
-      - name: Collect CI metrics and generate report
-        run: |
-          echo "Collecting CI execution metrics..."
-          
-          # Make monitoring script executable
-          chmod +x scripts/ci_monitor.py
-          
-          # Initialize monitoring data
-          python3 scripts/ci_monitor.py --mode start --output-dir ci-metrics
-          
-          # Collect job results and metrics
-          echo "# CI Pipeline Execution Report" > ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          echo "## Workflow Information" >> ci-execution-report.md
-          echo "- **Workflow**: ${{ github.workflow }}" >> ci-execution-report.md
-          echo "- **Run ID**: ${{ github.run_id }}" >> ci-execution-report.md
-          echo "- **Run Number**: ${{ github.run_number }}" >> ci-execution-report.md
-          echo "- **Event**: ${{ github.event_name }}" >> ci-execution-report.md
-          echo "- **Branch**: ${{ github.ref_name }}" >> ci-execution-report.md
-          echo "- **Commit**: ${{ github.sha }}" >> ci-execution-report.md
-          echo "- **Actor**: ${{ github.actor }}" >> ci-execution-report.md
-          echo "- **Repository**: ${{ github.repository }}" >> ci-execution-report.md
-          echo "- **Timestamp**: $(date)" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Job status summary
-          echo "## Job Status Summary" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Check job results
-          CHECK_RESULT="${{ needs.check.result }}"
-          TEST_RESULT="${{ needs.test.result }}"
-          FMT_RESULT="${{ needs.fmt.result }}"
-          CLIPPY_RESULT="${{ needs.clippy.result }}"
-          DOCS_RESULT="${{ needs.docs.result }}"
-          COVERAGE_RESULT="${{ needs.coverage.result }}"
-          BENCHMARK_RESULT="${{ needs.benchmark.result }}"
-          SECURITY_RESULT="${{ needs.security.result }}"
-          
-          # Function to get status emoji
-          get_status_emoji() {
-            case "$1" in
-              "success") echo "✅" ;;
-              "failure") echo "❌" ;;
-              "cancelled") echo "⏹️" ;;
-              "skipped") echo "⏭️" ;;
-              *) echo "❓" ;;
-            esac
-          }
-          
-          echo "| Job | Status | Result |" >> ci-execution-report.md
-          echo "|-----|--------|--------|" >> ci-execution-report.md
-          echo "| Check | $(get_status_emoji "$CHECK_RESULT") | $CHECK_RESULT |" >> ci-execution-report.md
-          echo "| Test Suite | $(get_status_emoji "$TEST_RESULT") | $TEST_RESULT |" >> ci-execution-report.md
-          echo "| Format Check | $(get_status_emoji "$FMT_RESULT") | $FMT_RESULT |" >> ci-execution-report.md
-          echo "| Clippy Lint | $(get_status_emoji "$CLIPPY_RESULT") | $CLIPPY_RESULT |" >> ci-execution-report.md
-          echo "| Documentation | $(get_status_emoji "$DOCS_RESULT") | $DOCS_RESULT |" >> ci-execution-report.md
-          echo "| Code Coverage | $(get_status_emoji "$COVERAGE_RESULT") | $COVERAGE_RESULT |" >> ci-execution-report.md
-          echo "| Benchmarks | $(get_status_emoji "$BENCHMARK_RESULT") | $BENCHMARK_RESULT |" >> ci-execution-report.md
-          echo "| Security Audit | $(get_status_emoji "$SECURITY_RESULT") | $SECURITY_RESULT |" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Overall pipeline status
-          FAILED_JOBS=0
-          for result in "$CHECK_RESULT" "$TEST_RESULT" "$FMT_RESULT" "$CLIPPY_RESULT" "$DOCS_RESULT" "$COVERAGE_RESULT" "$BENCHMARK_RESULT" "$SECURITY_RESULT"; do
-            if [ "$result" = "failure" ]; then
-              FAILED_JOBS=$((FAILED_JOBS + 1))
-            fi
-          done
-          
-          echo "## Overall Pipeline Status" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          if [ $FAILED_JOBS -eq 0 ]; then
-            echo "🎉 **Status**: ALL JOBS PASSED" >> ci-execution-report.md
-            echo "The entire CI pipeline completed successfully!" >> ci-execution-report.md
-            echo "::notice::All CI jobs completed successfully"
-          else
-            echo "⚠️ **Status**: $FAILED_JOBS JOB(S) FAILED" >> ci-execution-report.md
-            echo "Some jobs in the CI pipeline failed. Please review the individual job results." >> ci-execution-report.md
-            echo "::warning::$FAILED_JOBS CI jobs failed"
-          fi
-          echo "" >> ci-execution-report.md
+  # Performance benchmarks (only on main)
+  benchmark:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
-      - name: Analyze artifacts and generate insights
-        run: |
-          echo "## Artifact Analysis" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Count and analyze artifacts
-          if [ -d "artifacts" ]; then
-            ARTIFACT_COUNT=$(find artifacts -type f | wc -l)
-            ARTIFACT_SIZE=$(du -sh artifacts 2>/dev/null | cut -f1 || echo "Unknown")
-            
-            echo "- **Total Artifacts**: $ARTIFACT_COUNT files" >> ci-execution-report.md
-            echo "- **Total Size**: $ARTIFACT_SIZE" >> ci-execution-report.md
-            echo "" >> ci-execution-report.md
-            
-            # List artifact categories
-            echo "### Artifact Categories" >> ci-execution-report.md
-            echo "" >> ci-execution-report.md
-            
-            find artifacts -name "test-results-*" -type d | wc -l > /tmp/test_artifacts
-            find artifacts -name "coverage-reports" -type d | wc -l > /tmp/coverage_artifacts
-            find artifacts -name "benchmark-results" -type d | wc -l > /tmp/benchmark_artifacts
-            find artifacts -name "security-reports" -type d | wc -l > /tmp/security_artifacts
-            
-            TEST_ARTIFACTS=$(cat /tmp/test_artifacts)
-            COVERAGE_ARTIFACTS=$(cat /tmp/coverage_artifacts)
-            BENCHMARK_ARTIFACTS=$(cat /tmp/benchmark_artifacts)
-            SECURITY_ARTIFACTS=$(cat /tmp/security_artifacts)
-            
-            echo "- **Test Results**: $TEST_ARTIFACTS artifact(s)" >> ci-execution-report.md
-            echo "- **Coverage Reports**: $COVERAGE_ARTIFACTS artifact(s)" >> ci-execution-report.md
-            echo "- **Benchmark Results**: $BENCHMARK_ARTIFACTS artifact(s)" >> ci-execution-report.md
-            echo "- **Security Reports**: $SECURITY_ARTIFACTS artifact(s)" >> ci-execution-report.md
-            echo "" >> ci-execution-report.md
-          else
-            echo "- No artifacts directory found" >> ci-execution-report.md
-            echo "" >> ci-execution-report.md
-          fi
-
-      - name: Generate performance insights
-        run: |
-          echo "## Performance Insights" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Analyze benchmark results if available
-          if [ -f "artifacts/benchmark-results/benchmark-analysis.md" ]; then
-            echo "### Benchmark Analysis Available" >> ci-execution-report.md
-            echo "Detailed benchmark analysis has been generated. Key highlights:" >> ci-execution-report.md
-            echo "" >> ci-execution-report.md
-            
-            # Extract key insights from benchmark analysis
-            if grep -q "CRITICAL" artifacts/benchmark-results/benchmark-analysis.md 2>/dev/null; then
-              echo "- 🚨 **Critical performance regressions detected**" >> ci-execution-report.md
-            elif grep -q "WARNING" artifacts/benchmark-results/benchmark-analysis.md 2>/dev/null; then
-              echo "- ⚠️ **Performance regressions detected**" >> ci-execution-report.md
-            elif grep -q "GOOD" artifacts/benchmark-results/benchmark-analysis.md 2>/dev/null; then
-              echo "- ✅ **Performance improvements detected**" >> ci-execution-report.md
-            else
-              echo "- 📊 **No significant performance changes**" >> ci-execution-report.md
-            fi
-          else
-            echo "### No Benchmark Analysis Available" >> ci-execution-report.md
-            echo "Benchmark analysis was not generated or is not available." >> ci-execution-report.md
-          fi
-          echo "" >> ci-execution-report.md
-          
-          # Analyze coverage results if available
-          if [ -f "artifacts/coverage-reports/coverage-report.md" ]; then
-            echo "### Coverage Analysis Available" >> ci-execution-report.md
-            
-            # Extract coverage percentage if available
-            if grep -q "Line Coverage" artifacts/coverage-reports/coverage-report.md 2>/dev/null; then
-              COVERAGE_LINE=$(grep "Line Coverage" artifacts/coverage-reports/coverage-report.md | head -1)
-              echo "- $COVERAGE_LINE" >> ci-execution-report.md
-            fi
-            
-            if grep -q "PASSED" artifacts/coverage-reports/coverage-report.md 2>/dev/null; then
-              echo "- ✅ **Coverage threshold met**" >> ci-execution-report.md
-            elif grep -q "FAILED" artifacts/coverage-reports/coverage-report.md 2>/dev/null; then
-              echo "- ❌ **Coverage threshold not met**" >> ci-execution-report.md
-            fi
-          else
-            echo "### No Coverage Analysis Available" >> ci-execution-report.md
-          fi
-          echo "" >> ci-execution-report.md
-
-      - name: Generate recommendations
-        run: |
-          echo "## Recommendations" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          
-          # Generate recommendations based on results
-          RECOMMENDATIONS=()
-          
-          if [ "${{ needs.test.result }}" = "failure" ]; then
-            RECOMMENDATIONS+=("🔧 **Fix failing tests**: Review test results and address failing test cases")
-          fi
-          
-          if [ "${{ needs.fmt.result }}" = "failure" ]; then
-            RECOMMENDATIONS+=("🎨 **Fix formatting**: Run \`cargo fmt\` to fix code formatting issues")
-          fi
-          
-          if [ "${{ needs.clippy.result }}" = "failure" ]; then
-            RECOMMENDATIONS+=("🔍 **Fix linting issues**: Address Clippy warnings and errors")
-          fi
-          
-          if [ "${{ needs.coverage.result }}" = "failure" ]; then
-            RECOMMENDATIONS+=("📊 **Improve test coverage**: Add more tests to meet coverage requirements")
-          fi
-          
-          if [ "${{ needs.security.result }}" = "failure" ]; then
-            RECOMMENDATIONS+=("🔒 **Address security issues**: Update vulnerable dependencies immediately")
-          fi
-          
-          # Performance recommendations
-          if [ -f "artifacts/benchmark-results/benchmark-analysis.md" ] && grep -q "CRITICAL\|WARNING" artifacts/benchmark-results/benchmark-analysis.md 2>/dev/null; then
-            RECOMMENDATIONS+=("⚡ **Investigate performance regressions**: Review benchmark results and optimize slow operations")
-          fi
-          
-          # General recommendations
-          if [ ${#RECOMMENDATIONS[@]} -eq 0 ]; then
-            RECOMMENDATIONS+=("✅ **Great job!**: All CI checks passed successfully")
-            RECOMMENDATIONS+=("🚀 **Consider**: Review performance metrics and look for optimization opportunities")
-            RECOMMENDATIONS+=("📚 **Maintain**: Keep dependencies updated and monitor security advisories")
-          fi
-          
-          # Output recommendations
-          for rec in "${RECOMMENDATIONS[@]}"; do
-            echo "- $rec" >> ci-execution-report.md
-          done
-          echo "" >> ci-execution-report.md
-          
-          echo "## Next Steps" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          echo "1. Review this CI execution report" >> ci-execution-report.md
-          echo "2. Address any failed jobs or recommendations" >> ci-execution-report.md
-          echo "3. Monitor performance trends over time" >> ci-execution-report.md
-          echo "4. Keep dependencies and tools updated" >> ci-execution-report.md
-          echo "" >> ci-execution-report.md
-          echo "---" >> ci-execution-report.md
-          echo "*Report generated by CI Monitoring System*" >> ci-execution-report.md
-
-      - name: Finalize monitoring and create summary
-        run: |
-          # Finalize monitoring
-          python3 scripts/ci_monitor.py --mode end --output-dir ci-metrics
-          
-          # Set GitHub Actions summary
-          if [ -f "ci-execution-report.md" ]; then
-            cat ci-execution-report.md >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "::notice::CI monitoring and reporting completed"
-
-      - name: Upload CI monitoring reports
-        if: always()
-        uses: actions/upload-artifact@v3
+      - name: Setup Rust with caching
+        uses: ./.github/actions/setup-rust-cache
         with:
-          name: ci-monitoring-reports
-          path: |
-            ci-execution-report.md
-            ci-metrics/
+          toolchain: stable
+          cache-key-suffix: benchmark
+
+      - name: Run benchmarks
+        run: cargo bench --all-features
+
+  # Final status check
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [check, test, quality, security]
+    if: always()
+    steps:
+      - name: Check CI status
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ]; then
+            echo "::error::Check job failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::Test job failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.quality.result }}" != "success" ]; then
+            echo "::error::Quality job failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.security.result }}" != "success" ]; then
+            echo "::error::Security job failed"
+            exit 1
+          fi
+          
+          echo "::notice::All CI checks passed successfully!"

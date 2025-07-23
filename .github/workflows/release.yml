@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release'
-        required: true
-        default: 'v0.1.0'
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -30,20 +23,12 @@ jobs:
 
     - name: Get tag name
       id: get_tag
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-        else
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
     - name: Generate release notes
-      id: release_notes
       run: |
-        # Get the previous tag
         PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
         
-        # Generate changelog
         if [ -n "$PREV_TAG" ]; then
           echo "## Changes since $PREV_TAG" > release_notes.md
           echo "" >> release_notes.md
@@ -53,25 +38,6 @@ jobs:
           echo "" >> release_notes.md
           echo "This is the first release of libdplyr." >> release_notes.md
         fi
-        
-        echo "" >> release_notes.md
-        echo "## Installation" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "### Quick Install" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "**Linux/macOS:**" >> release_notes.md
-        echo '```bash' >> release_notes.md
-        echo 'curl -sSL https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.sh | bash' >> release_notes.md
-        echo '```' >> release_notes.md
-        echo "" >> release_notes.md
-        echo "**Windows (PowerShell):**" >> release_notes.md
-        echo '```powershell' >> release_notes.md
-        echo 'Irm https://raw.githubusercontent.com/mrchyaprk/libdplyr/main/install.ps1 | iex' >> release_notes.md
-        echo '```' >> release_notes.md
-        echo "" >> release_notes.md
-        echo "### Manual Download" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "Download the appropriate binary for your platform from the assets below." >> release_notes.md
 
     - name: Create Release
       id: create_release
@@ -94,103 +60,43 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             archive_name: libdplyr-linux-x86_64
-            
-          # Linux ARM64
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            archive_name: libdplyr-linux-aarch64
-            
-          # macOS Intel
           - target: x86_64-apple-darwin
             os: macos-latest
             archive_name: libdplyr-macos-x86_64
-            
-          # macOS Apple Silicon
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            archive_name: libdplyr-macos-aarch64
-            
-          # Windows x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive_name: libdplyr-windows-x86_64
-            extension: .exe
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust with caching
+      uses: ./.github/actions/setup-rust-cache
       with:
+        toolchain: stable
         targets: ${{ matrix.target }}
+        cache-key-suffix: release-${{ matrix.target }}
 
-    - name: Cache cargo registry
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.target }}-cargo-
-
-    # Install cross-compilation tools for Linux ARM64
-    - name: Install cross-compilation tools
-      if: matrix.target == 'aarch64-unknown-linux-gnu'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu
-
-    # Build the binary
     - name: Build binary
-      run: |
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-        fi
-        cargo build --release --target ${{ matrix.target }}
-      shell: bash
+      run: cargo build --release --target ${{ matrix.target }}
 
-    # Strip binary (Unix only)
-    - name: Strip binary
-      if: matrix.os != 'windows-latest'
-      run: |
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/libdplyr
-        else
-          strip target/${{ matrix.target }}/release/libdplyr
-        fi
-
-    # Prepare archive
     - name: Prepare archive
       run: |
         mkdir -p dist
         
-        # Copy binary
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
           cp target/${{ matrix.target }}/release/libdplyr.exe dist/
-        else
-          cp target/${{ matrix.target }}/release/libdplyr dist/
-        fi
-        
-        # Copy additional files
-        cp README.md dist/
-        cp LICENSE dist/ 2>/dev/null || echo "MIT License" > dist/LICENSE
-        
-        # Create archive
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
           cd dist && 7z a ../${{ matrix.archive_name }}.zip *
         else
+          cp target/${{ matrix.target }}/release/libdplyr dist/
           tar -czf ${{ matrix.archive_name }}.tar.gz -C dist .
         fi
       shell: bash
 
-    # Upload release asset
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
       env:
@@ -201,126 +107,22 @@ jobs:
         asset_name: ${{ matrix.os == 'windows-latest' && format('{0}.zip', matrix.archive_name) || format('{0}.tar.gz', matrix.archive_name) }}
         asset_content_type: ${{ matrix.os == 'windows-latest' && 'application/zip' || 'application/gzip' }}
 
-  # Generate checksums
-  checksums:
-    name: Generate Checksums
-    runs-on: ubuntu-latest
-    needs: [create-release, build]
-    steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v3
-      with:
-        path: artifacts
-
-    - name: Generate checksums
-      run: |
-        # Download release assets
-        gh release download ${{ github.ref_name }} --repo ${{ github.repository }}
-        
-        # Generate checksums
-        shasum -a 256 *.tar.gz *.zip > checksums.txt
-        
-        echo "## Checksums" >> checksums.txt
-        echo "" >> checksums.txt
-        echo "Verify your download with:" >> checksums.txt
-        echo '```bash' >> checksums.txt
-        echo 'shasum -a 256 -c checksums.txt' >> checksums.txt
-        echo '```' >> checksums.txt
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload checksums
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: checksums.txt
-        asset_name: checksums.txt
-        asset_content_type: text/plain
-
-  # Update installation scripts
-  update-install-scripts:
-    name: Update Installation Scripts
-    runs-on: ubuntu-latest
-    needs: [create-release, build]
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Get tag name
-      id: get_tag
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-        else
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Update version in install scripts
-      run: |
-        # Update install.sh
-        sed -i 's/VERSION=".*"/VERSION="${{ steps.get_tag.outputs.tag }}"/' install.sh
-        
-        # Update install.ps1
-        sed -i 's/\$VERSION = ".*"/\$VERSION = "${{ steps.get_tag.outputs.tag }}"/' install.ps1
-        
-        # Update Cargo.toml version
-        VERSION_NUM=$(echo "${{ steps.get_tag.outputs.tag }}" | sed 's/^v//')
-        sed -i "s/version = \".*\"/version = \"$VERSION_NUM\"/" Cargo.toml
-
-    - name: Commit and push changes
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add install.sh install.ps1 Cargo.toml
-        git diff --staged --quiet || git commit -m "Update version to ${{ steps.get_tag.outputs.tag }}"
-        git push
-
-  # Publish to crates.io (optional)
+  # Publish to crates.io
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [create-release, build]
+    needs: create-release
     if: ${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust with caching
+      uses: ./.github/actions/setup-rust-cache
+      with:
+        toolchain: stable
+        cache-key-suffix: publish
 
     - name: Publish to crates.io
       run: cargo publish --token ${{ secrets.CRATES_TOKEN }}
       continue-on-error: true
-
-  # Notify on completion
-  notify:
-    name: Notify Release Complete
-    runs-on: ubuntu-latest
-    needs: [create-release, build, checksums, update-install-scripts]
-    if: always()
-    steps:
-    - name: Get tag name
-      id: get_tag
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-        else
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Notify success
-      if: ${{ needs.create-release.result == 'success' && needs.build.result == 'success' }}
-      run: |
-        echo "✅ Release ${{ steps.get_tag.outputs.tag }} completed successfully!"
-        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.get_tag.outputs.tag }}"
-
-    - name: Notify failure
-      if: ${{ needs.create-release.result == 'failure' || needs.build.result == 'failure' }}
-      run: |
-        echo "❌ Release ${{ steps.get_tag.outputs.tag }} failed!"
-        echo "Please check the workflow logs for details."
-        exit 1
