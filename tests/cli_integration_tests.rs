@@ -20,7 +20,24 @@ fn write_to_stdin(child: &mut std::process::Child, input: &[u8]) {
 
 /// Helper function to build the libdplyr binary path
 fn get_libdplyr_path() -> String {
-    "./target/debug/libdplyr".to_string()
+    let binary_name = if cfg!(windows) { "libdplyr.exe" } else { "libdplyr" };
+    
+    // Try different possible paths for the binary
+    let possible_paths = [
+        format!("./target/debug/{}", binary_name),
+        format!("target/debug/{}", binary_name),
+        format!("./target/llvm-cov-target/debug/{}", binary_name),
+        format!("target/llvm-cov-target/debug/{}", binary_name),
+    ];
+    
+    for path in &possible_paths {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+    
+    // Fallback to default path
+    format!("./target/debug/{}", binary_name)
 }
 
 #[test]

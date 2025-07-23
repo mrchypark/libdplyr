@@ -618,7 +618,7 @@ impl ErrorHandler {
 
         // Print main error message
         if self.use_korean {
-            let _ = writeln!(stderr, "Error: {}", error_info.message);
+            let _ = writeln!(stderr, "오류: {}", error_info.message);
         } else {
             let _ = writeln!(stderr, "Error: {}", error_info.message);
         }
@@ -631,7 +631,7 @@ impl ErrorHandler {
         // Print context if available
         if let Some(context) = &error_info.context {
             if self.use_korean {
-                let _ = writeln!(stderr, "Context: {}", context);
+                let _ = writeln!(stderr, "상황: {}", context);
             } else {
                 let _ = writeln!(stderr, "Context: {}", context);
             }
@@ -669,7 +669,7 @@ impl ErrorHandler {
     /// Prints a success message
     pub fn print_success(&self, message: &str) {
         if self.use_korean {
-            println!("Success: {}", message);
+            println!("성공: {}", message);
         } else {
             println!("Success: {}", message);
         }
@@ -679,7 +679,7 @@ impl ErrorHandler {
     pub fn print_warning(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "Warning: {}", message);
+            let _ = writeln!(stderr, "경고: {}", message);
         } else {
             let _ = writeln!(stderr, "Warning: {}", message);
         }
@@ -690,7 +690,7 @@ impl ErrorHandler {
     pub fn print_info(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "Info: {}", message);
+            let _ = writeln!(stderr, "정보: {}", message);
         } else {
             let _ = writeln!(stderr, "Info: {}", message);
         }
@@ -705,7 +705,7 @@ impl ErrorHandler {
             | TranspileError::ValidationError(_) => self.handle_transpile_error(error),
             TranspileError::GenerationError(_) => self.handle_transpile_error(error),
             TranspileError::IoError(msg) => {
-                let io_error = std::io::Error::new(std::io::ErrorKind::Other, msg.clone());
+                let io_error = std::io::Error::other(msg.clone());
                 self.handle_io_error(&io_error)
             }
             TranspileError::ConfigurationError(msg) => {

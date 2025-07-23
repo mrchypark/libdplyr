@@ -52,7 +52,7 @@ impl SignalHandler {
         shutdown_flag: Arc<AtomicBool>,
         sigpipe_flag: Arc<AtomicBool>,
     ) -> Result<(), SignalError> {
-        let mut signals = Signals::new(&[SIGINT, SIGTERM, SIGPIPE]).map_err(|e| {
+        let mut signals = Signals::new([SIGINT, SIGTERM, SIGPIPE]).map_err(|e| {
             SignalError::SetupError(format!("Failed to setup signal handler: {}", e))
         })?;
 

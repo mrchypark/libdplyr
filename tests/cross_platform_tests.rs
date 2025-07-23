@@ -166,7 +166,6 @@ mod platform_specific_tests {
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
     use std::io::Write;
     use std::process::{Command, Stdio};
 
