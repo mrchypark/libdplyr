@@ -35,7 +35,7 @@ fn test_exit_code_constants() {
     // Check codes are in reasonable range
     for &code in &codes {
         assert!(
-            code >= 0 && code <= 255,
+            (0..=255).contains(&code),
             "Exit codes should be in range 0-255"
         );
     }
@@ -57,7 +57,7 @@ fn test_exit_code_constants() {
 
 #[test]
 fn test_error_categories() {
-    let categories = vec![
+    let categories = [
         ErrorCategory::UserInput,
         ErrorCategory::System,
         ErrorCategory::Application,

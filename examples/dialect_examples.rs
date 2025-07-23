@@ -36,11 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("```\n");
 
         for (dialect_name, _) in &dialects {
-            let transpiler = match dialect_name {
-                &"PostgreSQL" => Transpiler::new(Box::new(PostgreSqlDialect::new())),
-                &"MySQL" => Transpiler::new(Box::new(MySqlDialect::new())),
-                &"SQLite" => Transpiler::new(Box::new(SqliteDialect::new())),
-                &"DuckDB" => Transpiler::new(Box::new(DuckDbDialect::new())),
+            let transpiler = match *dialect_name {
+                "PostgreSQL" => Transpiler::new(Box::new(PostgreSqlDialect::new())),
+                "MySQL" => Transpiler::new(Box::new(MySqlDialect::new())),
+                "SQLite" => Transpiler::new(Box::new(SqliteDialect::new())),
+                "DuckDB" => Transpiler::new(Box::new(DuckDbDialect::new())),
                 _ => continue,
             };
 

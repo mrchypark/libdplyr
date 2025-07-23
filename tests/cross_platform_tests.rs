@@ -173,7 +173,7 @@ mod integration_tests {
     fn test_cross_platform_cli_execution() {
         // Test that the CLI can be executed on the current platform
         let mut cmd = Command::new("cargo");
-        cmd.args(&["run", "--", "--help"]);
+        cmd.args(["run", "--", "--help"]);
 
         let output = cmd.output();
         assert!(
@@ -192,12 +192,12 @@ mod integration_tests {
     fn test_cross_platform_pipe_handling() {
         // Test basic pipe handling across platforms
         let mut cmd = Command::new("cargo");
-        cmd.args(&["run", "--", "--validate-only"])
+        cmd.args(["run", "--", "--validate-only"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn();
+        let child = cmd.spawn();
         if let Ok(mut child) = child {
             // Write some test input
             if let Some(stdin) = child.stdin.as_mut() {

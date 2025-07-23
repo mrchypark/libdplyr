@@ -131,7 +131,7 @@ fn benchmark_validation_performance(c: &mut Criterion) {
 
     let validator = DplyrValidator::new();
 
-    let test_inputs = vec![
+    let test_inputs = [
         ("valid_simple", "data %>% select(name)"),
         ("valid_medium", "data %>% select(name, age) %>% filter(age > 18) %>% arrange(desc(age))"),
         ("valid_complex", "data %>% select(name, age, city, country) %>% filter(age > 18) %>% group_by(country) %>% summarise(count = n(), avg_age = mean(age)) %>% arrange(desc(count))"),
@@ -224,11 +224,11 @@ fn benchmark_error_handling_impact(c: &mut Criterion) {
     ];
 
     for (error_name, input) in error_cases {
-        group.bench_function(&format!("error_{}", error_name), |b| {
+        group.bench_function(format!("error_{}", error_name), |b| {
             b.iter(|| {
                 let result = validator.validate(black_box(input));
                 // Simulate error handling
-                if let Err(_) = result {
+                if result.is_err() {
                     let metadata = MetadataBuilder::new("postgresql").build();
                     let error_info = libdplyr::cli::json_output::ErrorInfo {
                         error_type: "validation".to_string(),

@@ -6,7 +6,7 @@
 use libdplyr::cli::{utils, SignalAwareProcessor, SignalHandler, StdinReader};
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::thread;
+
 use std::time::Duration;
 
 #[test]
@@ -102,12 +102,11 @@ fn test_stdin_reader_with_signal_handling() {
 #[cfg(unix)]
 mod unix_integration_tests {
     use super::*;
-    use std::os::unix::process::CommandExt;
 
     #[test]
     fn test_pipe_detection_with_echo() {
         // Test basic pipe functionality with echo command
-        let mut child = Command::new("sh")
+        let child = Command::new("sh")
             .arg("-c")
             .arg("echo 'select(name, age)' | target/debug/libdplyr")
             .stdout(Stdio::piped())
@@ -127,7 +126,7 @@ mod unix_integration_tests {
     #[test]
     fn test_sigpipe_handling() {
         // Test SIGPIPE handling by piping to head -c 1 (which closes pipe early)
-        let mut child = Command::new("sh")
+        let child = Command::new("sh")
             .arg("-c")
             .arg(
                 "echo 'select(name, age) %>% filter(age > 18)' | target/debug/libdplyr | head -c 1",
@@ -164,7 +163,7 @@ mod unix_integration_tests {
             .write_all(large_input.as_bytes())
             .expect("Failed to write to stdin");
         stdin.flush().expect("Failed to flush stdin");
-        drop(stdin);
+        let _ = stdin;
 
         let output = child.wait_with_output().expect("Failed to read output");
 
@@ -193,7 +192,7 @@ mod unix_integration_tests {
     #[test]
     fn test_pipeline_environment_detection() {
         // Test pipeline environment detection
-        let mut child = Command::new("sh")
+        let child = Command::new("sh")
             .arg("-c")
             .arg("echo 'select(name)' | target/debug/libdplyr --verbose")
             .stdout(Stdio::piped())
@@ -203,7 +202,7 @@ mod unix_integration_tests {
 
         let output = child.wait_with_output().expect("Failed to read output");
 
-        let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
+        let _stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
         // In verbose mode, should detect pipeline environment
         // (exact message may vary based on implementation)
         assert!(
@@ -246,7 +245,7 @@ fn test_memory_limit_enforcement() {
         read_timeout: Some(Duration::from_secs(1)),
     };
 
-    let reader = StdinReader::with_config(config);
+    let _reader = StdinReader::with_config(config);
 
     // This test would need actual large input to verify limit enforcement
     // For now, we just verify the reader can be created with limits
@@ -272,7 +271,7 @@ fn test_error_handling_for_signal_operations() {
 /// Helper function to build the binary for testing
 fn ensure_binary_built() -> bool {
     let output = Command::new("cargo")
-        .args(&["build", "--bin", "libdplyr"])
+        .args(["build", "--bin", "libdplyr"])
         .output()
         .expect("Failed to run cargo build");
 
@@ -299,7 +298,7 @@ fn test_cli_with_signal_handling_integration() {
         .write_all(b"select(name, age)")
         .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
-    drop(stdin);
+    let _ = stdin;
 
     let output = child.wait_with_output().expect("Failed to read output");
 

@@ -20,8 +20,12 @@ fn write_to_stdin(child: &mut std::process::Child, input: &[u8]) {
 
 /// Helper function to build the libdplyr binary path
 fn get_libdplyr_path() -> String {
-    let binary_name = if cfg!(windows) { "libdplyr.exe" } else { "libdplyr" };
-    
+    let binary_name = if cfg!(windows) {
+        "libdplyr.exe"
+    } else {
+        "libdplyr"
+    };
+
     // Try different possible paths for the binary
     let possible_paths = [
         format!("./target/debug/{}", binary_name),
@@ -29,13 +33,13 @@ fn get_libdplyr_path() -> String {
         format!("./target/llvm-cov-target/debug/{}", binary_name),
         format!("target/llvm-cov-target/debug/{}", binary_name),
     ];
-    
+
     for path in &possible_paths {
         if std::path::Path::new(path).exists() {
             return path.to_string();
         }
     }
-    
+
     // Fallback to default path
     format!("./target/debug/{}", binary_name)
 }
@@ -123,7 +127,7 @@ fn test_stdin_stdout_empty_input() {
 #[test]
 fn test_validation_only_mode_success() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--validate-only"])
+        .args(["--validate-only"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -157,7 +161,7 @@ fn test_validation_only_mode_success() {
 #[test]
 fn test_validation_only_mode_failure() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--validate-only"])
+        .args(["--validate-only"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -188,7 +192,7 @@ fn test_validation_only_mode_failure() {
 #[test]
 fn test_json_output_format() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--json"])
+        .args(["--json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -228,7 +232,7 @@ fn test_json_output_format() {
 #[test]
 fn test_json_output_with_validation_error() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--json"])
+        .args(["--json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -256,7 +260,7 @@ fn test_json_output_with_validation_error() {
 #[test]
 fn test_pretty_formatting() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--pretty"])
+        .args(["--pretty"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -284,7 +288,7 @@ fn test_pretty_formatting() {
 #[test]
 fn test_compact_formatting() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--compact"])
+        .args(["--compact"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -314,7 +318,7 @@ fn test_compact_formatting() {
 #[test]
 fn test_verbose_mode() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--verbose"])
+        .args(["--verbose"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -338,7 +342,7 @@ fn test_verbose_mode() {
 #[test]
 fn test_debug_mode() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--debug"])
+        .args(["--debug"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -370,7 +374,7 @@ fn test_different_sql_dialects() {
 
     for (dialect_arg, dialect_name) in &dialects {
         let mut child = Command::new(get_libdplyr_path())
-            .args(&["--dialect", dialect_arg])
+            .args(["--dialect", dialect_arg])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -400,7 +404,7 @@ fn test_different_sql_dialects() {
 fn test_combined_options() {
     // Test --json + --verbose
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--json", "--verbose"])
+        .args(["--json", "--verbose"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -429,7 +433,7 @@ fn test_combined_options() {
 #[test]
 fn test_validation_with_json_output() {
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--validate-only", "--json"])
+        .args(["--validate-only", "--json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -494,7 +498,7 @@ fn test_exit_codes() {
 
     // Test invalid arguments (exit code 2)
     let output = Command::new(get_libdplyr_path())
-        .args(&["--invalid-option"])
+        .args(["--invalid-option"])
         .output()
         .expect("Failed to execute libdplyr");
     assert_eq!(
@@ -505,7 +509,7 @@ fn test_exit_codes() {
 
     // Test unsupported dialect (exit code 2)
     let mut child = Command::new(get_libdplyr_path())
-        .args(&["--dialect", "unsupported"])
+        .args(["--dialect", "unsupported"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -533,7 +537,7 @@ fn test_file_input_with_stdin_output() {
     let input_path = input_file.path().to_str().unwrap();
 
     let output = Command::new(get_libdplyr_path())
-        .args(&["-i", input_path, "--pretty"])
+        .args(["-i", input_path, "--pretty"])
         .output()
         .expect("Failed to execute libdplyr");
 
@@ -561,7 +565,7 @@ fn test_file_input_output() {
     let output_path = output_file.path().to_str().unwrap();
 
     let output = Command::new(get_libdplyr_path())
-        .args(&["-i", input_path, "-o", output_path, "--pretty"])
+        .args(["-i", input_path, "-o", output_path, "--pretty"])
         .output()
         .expect("Failed to execute libdplyr");
 
@@ -586,7 +590,7 @@ fn test_file_input_output() {
 #[test]
 fn test_text_input_mode() {
     let output = Command::new(get_libdplyr_path())
-        .args(&["-t", "data %>% select(name, age)", "--compact"])
+        .args(["-t", "data %>% select(name, age)", "--compact"])
         .output()
         .expect("Failed to execute libdplyr");
 
@@ -601,7 +605,7 @@ fn test_text_input_mode() {
 #[test]
 fn test_help_option() {
     let output = Command::new(get_libdplyr_path())
-        .args(&["--help"])
+        .args(["--help"])
         .output()
         .expect("Failed to execute libdplyr");
 
@@ -622,7 +626,7 @@ fn test_help_option() {
 #[test]
 fn test_version_option() {
     let output = Command::new(get_libdplyr_path())
-        .args(&["--version"])
+        .args(["--version"])
         .output()
         .expect("Failed to execute libdplyr");
 
@@ -742,7 +746,7 @@ fn test_unicode_input_handling() {
     // Unicode column names may not be fully supported yet, so we check for graceful handling
     let exit_code = output.status.code().unwrap_or(-1);
     assert!(
-        exit_code >= 0 && exit_code <= 10,
+        (0..=10).contains(&exit_code),
         "Should handle Unicode input gracefully"
     );
 
@@ -819,7 +823,7 @@ fn test_memory_usage_with_repeated_processing() {
     }
 
     // If we reach here without running out of memory, the test passes
-    assert!(true, "Memory usage test completed successfully");
+    println!("Memory usage test completed successfully");
 }
 
 #[test]
@@ -927,7 +931,7 @@ fn test_edge_case_inputs() {
         // Edge cases should either succeed or fail gracefully with appropriate exit codes
         let exit_code = output.status.code().unwrap_or(-1);
         assert!(
-            exit_code >= 0 && exit_code <= 10,
+            (0..=10).contains(&exit_code),
             "{} should have valid exit code, got {}",
             description,
             exit_code
@@ -939,7 +943,7 @@ fn test_edge_case_inputs() {
 fn test_performance_benchmarking() {
     use std::time::Instant;
 
-    let test_inputs = vec![
+    let test_inputs = [
         "data %>% select(name)",
         "data %>% select(name, age) %>% filter(age > 18)",
         "data %>% select(name, age, city) %>% filter(age > 18) %>% arrange(name)",
