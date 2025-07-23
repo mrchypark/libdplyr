@@ -619,6 +619,7 @@ fn test_version_option() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_signal_handling() {
     use std::thread;
     use std::time::Duration;
@@ -645,6 +646,36 @@ fn test_signal_handling() {
 
     // Process should handle signal gracefully
     // Exit code may vary depending on timing, but should not crash
+    assert!(
+        output.status.code().is_some(),
+        "Should have a valid exit code"
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn test_signal_handling() {
+    use std::thread;
+    use std::time::Duration;
+
+    let mut child = Command::new(get_libdplyr_path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to start libdplyr process");
+
+    // On Windows, we can't easily send SIGTERM, so we'll test basic process handling
+    // by sending input and checking that the process completes normally
+    write_to_stdin(&mut child, b"data %>% select(name)");
+
+    let output = child.wait_with_output().expect("Failed to read stdout");
+
+    // Process should complete successfully
+    assert!(
+        output.status.success(),
+        "Process should complete successfully on Windows"
+    );
     assert!(
         output.status.code().is_some(),
         "Should have a valid exit code"
