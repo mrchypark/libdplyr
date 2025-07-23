@@ -13,7 +13,7 @@ pub type ValidationResult<T> = Result<T, ValidationError>;
 pub enum ValidationError {
     #[error("Validation failed: {0}")]
     ValidationFailed(String),
-    
+
     #[error("Internal validation error: {0}")]
     InternalError(String),
 }
@@ -40,22 +40,22 @@ pub enum ValidateResult {
 pub struct ValidationSummary {
     /// Number of operations in the pipeline
     pub operation_count: usize,
-    
+
     /// Types of operations found
     pub operations: Vec<String>,
-    
+
     /// Number of columns referenced
     pub column_count: usize,
-    
+
     /// Column names referenced (if extractable)
     pub columns: Vec<String>,
-    
+
     /// Whether the query uses aggregation
     pub has_aggregation: bool,
-    
+
     /// Whether the query uses grouping
     pub has_grouping: bool,
-    
+
     /// Complexity score (0-10)
     pub complexity_score: u8,
 }
@@ -65,13 +65,13 @@ pub struct ValidationSummary {
 pub struct ValidationErrorInfo {
     /// Error type (lex, parse, semantic)
     pub error_type: String,
-    
+
     /// Error message
     pub message: String,
-    
+
     /// Position in input (if available)
     pub position: Option<usize>,
-    
+
     /// Context around the error
     pub context: Option<String>,
 }
@@ -81,13 +81,13 @@ pub struct ValidationErrorInfo {
 pub struct ValidationConfig {
     /// Whether to perform semantic validation (beyond syntax)
     pub semantic_validation: bool,
-    
+
     /// Whether to check for common mistakes
     pub check_common_mistakes: bool,
-    
+
     /// Whether to provide detailed suggestions
     pub detailed_suggestions: bool,
-    
+
     /// Maximum complexity score to allow
     pub max_complexity: Option<u8>,
 }
@@ -116,12 +116,12 @@ impl DplyrValidator {
             config: ValidationConfig::default(),
         }
     }
-    
+
     /// Creates a new validator with custom configuration
     pub fn with_config(config: ValidationConfig) -> Self {
         Self { config }
     }
-    
+
     /// Validates dplyr syntax
     pub fn validate(&self, dplyr_code: &str) -> ValidationResult<ValidateResult> {
         // Basic input validation
@@ -139,13 +139,13 @@ impl DplyrValidator {
                 ],
             });
         }
-        
+
         // Perform lexical and syntactic validation
         match self.parse_syntax(dplyr_code) {
             Ok(ast) => {
                 // Generate validation summary
                 let summary = self.analyze_ast(&ast, dplyr_code)?;
-                
+
                 // Check complexity if configured
                 if let Some(max_complexity) = self.config.max_complexity {
                     if summary.complexity_score > max_complexity {
@@ -166,7 +166,7 @@ impl DplyrValidator {
                         });
                     }
                 }
-                
+
                 // Perform semantic validation if enabled
                 if self.config.semantic_validation {
                     if let Some(semantic_error) = self.check_semantic_issues(&summary, dplyr_code) {
@@ -177,13 +177,13 @@ impl DplyrValidator {
                         });
                     }
                 }
-                
+
                 Ok(ValidateResult::Valid { summary })
             }
             Err(error) => {
                 let error_info = self.convert_transpile_error(&error, dplyr_code);
                 let suggestions = self.generate_error_suggestions(&error, dplyr_code);
-                
+
                 Ok(ValidateResult::Invalid {
                     error: error_info,
                     suggestions,
@@ -191,25 +191,36 @@ impl DplyrValidator {
             }
         }
     }
-    
+
     /// Parses the syntax without generating SQL
     fn parse_syntax(&self, dplyr_code: &str) -> Result<crate::DplyrNode, TranspileError> {
         let lexer = Lexer::new(dplyr_code.to_string());
         let mut parser = Parser::new(lexer)?;
         Ok(parser.parse()?)
     }
-    
+
     /// Analyzes the AST to generate validation summary
-    fn analyze_ast(&self, ast: &crate::DplyrNode, _code: &str) -> ValidationResult<ValidationSummary> {
+    fn analyze_ast(
+        &self,
+        ast: &crate::DplyrNode,
+        _code: &str,
+    ) -> ValidationResult<ValidationSummary> {
         let mut operations = Vec::new();
         let mut columns = HashSet::new();
         let mut has_aggregation = false;
         let mut has_grouping = false;
         let mut complexity_score = 0u8;
-        
+
         // Analyze the AST structure
-        self.analyze_node(ast, &mut operations, &mut columns, &mut has_aggregation, &mut has_grouping, &mut complexity_score);
-        
+        self.analyze_node(
+            ast,
+            &mut operations,
+            &mut columns,
+            &mut has_aggregation,
+            &mut has_grouping,
+            &mut complexity_score,
+        );
+
         Ok(ValidationSummary {
             operation_count: operations.len(),
             operations,
@@ -220,7 +231,7 @@ impl DplyrValidator {
             complexity_score: complexity_score.min(10), // Cap at 10
         })
     }
-    
+
     /// Recursively analyzes AST nodes
     fn analyze_node(
         &self,
@@ -232,11 +243,20 @@ impl DplyrValidator {
         complexity_score: &mut u8,
     ) {
         use crate::DplyrNode;
-        
+
         match node {
-            DplyrNode::Pipeline { operations: ops, .. } => {
+            DplyrNode::Pipeline {
+                operations: ops, ..
+            } => {
                 for op in ops {
-                    self.analyze_operation(op, operations, columns, has_aggregation, has_grouping, complexity_score);
+                    self.analyze_operation(
+                        op,
+                        operations,
+                        columns,
+                        has_aggregation,
+                        has_grouping,
+                        complexity_score,
+                    );
                 }
             }
             DplyrNode::DataSource { .. } => {
@@ -244,7 +264,7 @@ impl DplyrValidator {
             }
         }
     }
-    
+
     /// Analyzes individual operations
     fn analyze_operation(
         &self,
@@ -256,7 +276,7 @@ impl DplyrValidator {
         complexity_score: &mut u8,
     ) {
         use crate::DplyrOperation;
-        
+
         match operation {
             DplyrOperation::Select { columns: cols, .. } => {
                 operations.push("select".to_string());
@@ -313,9 +333,13 @@ impl DplyrValidator {
             }
         }
     }
-    
+
     /// Checks for semantic issues
-    fn check_semantic_issues(&self, summary: &ValidationSummary, _code: &str) -> Option<ValidationErrorInfo> {
+    fn check_semantic_issues(
+        &self,
+        summary: &ValidationSummary,
+        _code: &str,
+    ) -> Option<ValidationErrorInfo> {
         // Check for aggregation without grouping in complex cases
         if summary.has_aggregation && !summary.has_grouping && summary.operation_count > 2 {
             return Some(ValidationErrorInfo {
@@ -325,20 +349,23 @@ impl DplyrValidator {
                 context: Some("Consider adding group_by() before summarise()".to_string()),
             });
         }
-        
+
         // Check for very high complexity
         if summary.complexity_score > 8 {
             return Some(ValidationErrorInfo {
                 error_type: "complexity".to_string(),
-                message: format!("Query complexity is very high ({})", summary.complexity_score),
+                message: format!(
+                    "Query complexity is very high ({})",
+                    summary.complexity_score
+                ),
                 position: None,
                 context: Some("Consider breaking the query into smaller parts".to_string()),
             });
         }
-        
+
         None
     }
-    
+
     /// Converts TranspileError to ValidationErrorInfo
     fn convert_transpile_error(&self, error: &TranspileError, code: &str) -> ValidationErrorInfo {
         match error {
@@ -386,7 +413,7 @@ impl DplyrValidator {
             },
         }
     }
-    
+
     /// Extracts context around an error position
     fn extract_error_context(&self, code: &str, position: Option<usize>) -> Option<String> {
         if let Some(pos) = position {
@@ -397,7 +424,7 @@ impl DplyrValidator {
             None
         }
     }
-    
+
     /// Generates suggestions for fixing errors
     fn generate_error_suggestions(&self, error: &TranspileError, _code: &str) -> Vec<String> {
         match error {
@@ -412,9 +439,9 @@ impl DplyrValidator {
                 "Verify function names are spelled correctly".to_string(),
                 "Check parentheses and comma placement".to_string(),
             ],
-            TranspileError::GenerationError(_) => vec![
-                "This error shouldn't occur during validation-only mode".to_string(),
-            ],
+            TranspileError::GenerationError(_) => {
+                vec!["This error shouldn't occur during validation-only mode".to_string()]
+            }
             TranspileError::IoError(_) => vec![
                 "Check file permissions and paths".to_string(),
                 "Ensure input/output resources are available".to_string(),
@@ -433,7 +460,7 @@ impl DplyrValidator {
             ],
         }
     }
-    
+
     /// Generates suggestions for semantic errors
     fn generate_semantic_suggestions(&self, error: &ValidationErrorInfo) -> Vec<String> {
         match error.error_type.as_str() {
@@ -449,12 +476,12 @@ impl DplyrValidator {
             _ => vec!["Review the query structure".to_string()],
         }
     }
-    
+
     /// Gets the current validation configuration
     pub fn config(&self) -> &ValidationConfig {
         &self.config
     }
-    
+
     /// Updates the validation configuration
     pub fn set_config(&mut self, config: ValidationConfig) {
         self.config = config;
@@ -470,7 +497,7 @@ impl Default for DplyrValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validator_creation() {
         let validator = DplyrValidator::new();
@@ -478,7 +505,7 @@ mod tests {
         assert!(validator.config.check_common_mistakes);
         assert!(validator.config.detailed_suggestions);
         assert!(validator.config.max_complexity.is_none());
-        
+
         let config = ValidationConfig {
             semantic_validation: false,
             check_common_mistakes: false,
@@ -489,12 +516,12 @@ mod tests {
         assert!(!custom_validator.config.semantic_validation);
         assert_eq!(custom_validator.config.max_complexity, Some(5));
     }
-    
+
     #[test]
     fn test_valid_simple_query() {
         let validator = DplyrValidator::new();
         let result = validator.validate("data %>% select(name, age)").unwrap();
-        
+
         match result {
             ValidateResult::Valid { summary } => {
                 assert_eq!(summary.operation_count, 1);
@@ -509,14 +536,14 @@ mod tests {
             ValidateResult::Invalid { .. } => panic!("Expected valid result"),
         }
     }
-    
+
     #[test]
     fn test_valid_complex_query() {
         let validator = DplyrValidator::new();
         let result = validator.validate(
             "data %>% select(name, age, salary) %>% filter(age > 18) %>% group_by(department) %>% summarise(avg_salary = mean(salary))"
         ).unwrap();
-        
+
         match result {
             ValidateResult::Valid { summary } => {
                 assert_eq!(summary.operation_count, 4);
@@ -531,12 +558,12 @@ mod tests {
             ValidateResult::Invalid { .. } => panic!("Expected valid result"),
         }
     }
-    
+
     #[test]
     fn test_invalid_syntax() {
         let validator = DplyrValidator::new();
         let result = validator.validate("invalid_function(test)").unwrap();
-        
+
         match result {
             ValidateResult::Invalid { error, suggestions } => {
                 assert_eq!(error.error_type, "parse");
@@ -546,12 +573,12 @@ mod tests {
             ValidateResult::Valid { .. } => panic!("Expected invalid result"),
         }
     }
-    
+
     #[test]
     fn test_empty_input() {
         let validator = DplyrValidator::new();
         let result = validator.validate("").unwrap();
-        
+
         match result {
             ValidateResult::Invalid { error, suggestions } => {
                 assert_eq!(error.error_type, "input");
@@ -561,7 +588,7 @@ mod tests {
             ValidateResult::Valid { .. } => panic!("Expected invalid result"),
         }
     }
-    
+
     #[test]
     fn test_complexity_limit() {
         let config = ValidationConfig {
@@ -569,12 +596,14 @@ mod tests {
             ..Default::default()
         };
         let validator = DplyrValidator::with_config(config);
-        
+
         // This should exceed complexity limit
-        let result = validator.validate(
-            "data %>% select(a, b, c) %>% filter(a > 1) %>% mutate(d = a + b) %>% arrange(d)"
-        ).unwrap();
-        
+        let result = validator
+            .validate(
+                "data %>% select(a, b, c) %>% filter(a > 1) %>% mutate(d = a + b) %>% arrange(d)",
+            )
+            .unwrap();
+
         match result {
             ValidateResult::Invalid { error, .. } => {
                 assert_eq!(error.error_type, "complexity");
@@ -583,12 +612,14 @@ mod tests {
             ValidateResult::Valid { .. } => panic!("Expected complexity error"),
         }
     }
-    
+
     #[test]
     fn test_validation_summary() {
         let validator = DplyrValidator::new();
-        let result = validator.validate("data %>% select(name) %>% filter(age > 18)").unwrap();
-        
+        let result = validator
+            .validate("data %>% select(name) %>% filter(age > 18)")
+            .unwrap();
+
         match result {
             ValidateResult::Valid { summary } => {
                 assert_eq!(summary.operation_count, 2);
@@ -598,7 +629,7 @@ mod tests {
             ValidateResult::Invalid { .. } => panic!("Expected valid result"),
         }
     }
-    
+
     #[test]
     fn test_semantic_validation_disabled() {
         let config = ValidationConfig {
@@ -606,16 +637,20 @@ mod tests {
             ..Default::default()
         };
         let validator = DplyrValidator::with_config(config);
-        
+
         // This would normally trigger a semantic warning but shouldn't with disabled validation
-        let result = validator.validate("data %>% select(name) %>% summarise(count = n())").unwrap();
-        
+        let result = validator
+            .validate("data %>% select(name) %>% summarise(count = n())")
+            .unwrap();
+
         match result {
-            ValidateResult::Valid { .. } => {}, // Should be valid with semantic validation disabled
-            ValidateResult::Invalid { .. } => panic!("Expected valid result with semantic validation disabled"),
+            ValidateResult::Valid { .. } => {} // Should be valid with semantic validation disabled
+            ValidateResult::Invalid { .. } => {
+                panic!("Expected valid result with semantic validation disabled")
+            }
         }
     }
-    
+
     #[test]
     fn test_validation_error_info() {
         let error_info = ValidationErrorInfo {
@@ -624,7 +659,7 @@ mod tests {
             position: Some(10),
             context: Some("around position 10".to_string()),
         };
-        
+
         assert_eq!(error_info.error_type, "parse");
         assert_eq!(error_info.message, "Unexpected token");
         assert_eq!(error_info.position, Some(10));

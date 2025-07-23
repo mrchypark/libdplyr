@@ -16,10 +16,10 @@ pub mod validator;
 pub fn run_cli() -> i32 {
     // Parse command line arguments
     let args = pipeline::parse_args();
-    
+
     // Create CLI configuration from arguments
     let config = CliConfig::from_args(&args);
-    
+
     // Create processing pipeline
     let mut pipeline = match ProcessingPipeline::new(config) {
         Ok(pipeline) => pipeline,
@@ -28,7 +28,7 @@ pub fn run_cli() -> i32 {
             return error_handler.handle_error(&error);
         }
     };
-    
+
     // Process input according to configuration
     match pipeline.process() {
         Ok(output) => {
@@ -36,7 +36,7 @@ pub fn run_cli() -> i32 {
             if let Err(error) = pipeline.write_output(&output) {
                 return pipeline.handle_error(&error);
             }
-            
+
             // Success
             ExitCode::SUCCESS
         }
@@ -48,10 +48,17 @@ pub fn run_cli() -> i32 {
 }
 
 // Re-export all modules
-pub use error_handler::{ErrorHandler, ErrorInfo, ErrorCategory, ExitCode};
-pub use json_output::{JsonOutputFormatter, TranspileMetadata, MetadataBuilder, ProcessingStats, InputInfo, ErrorInfo as JsonErrorInfo};
-pub use output_formatter::{OutputFormatter, OutputFormat, FormatConfig};
-pub use pipeline::{ProcessingPipeline, CliConfig, CliMode, CliArgs, SqlDialectType, parse_args};
-pub use signal_handler::{SignalHandler, SignalAwareProcessor, ProcessingError, SignalError, utils};
+pub use error_handler::{ErrorCategory, ErrorHandler, ErrorInfo, ExitCode};
+pub use json_output::{
+    ErrorInfo as JsonErrorInfo, InputInfo, JsonOutputFormatter, MetadataBuilder, ProcessingStats,
+    TranspileMetadata,
+};
+pub use output_formatter::{FormatConfig, OutputFormat, OutputFormatter};
+pub use pipeline::{parse_args, CliArgs, CliConfig, CliMode, ProcessingPipeline, SqlDialectType};
+pub use signal_handler::{
+    utils, ProcessingError, SignalAwareProcessor, SignalError, SignalHandler,
+};
 pub use stdin_reader::StdinReader;
-pub use validator::{DplyrValidator, ValidateResult, ValidationSummary, ValidationConfig, ValidationErrorInfo};
+pub use validator::{
+    DplyrValidator, ValidateResult, ValidationConfig, ValidationErrorInfo, ValidationSummary,
+};

@@ -3,8 +3,8 @@
 //! This module provides utilities for verbose and debug output during CLI operations.
 //! It handles different verbosity levels and formats debug information appropriately.
 
-use std::time::{Duration, Instant};
 use colored::Colorize;
+use std::time::{Duration, Instant};
 
 /// Debug logger configuration
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ impl DebugLogger {
             } else {
                 "[INFO]".to_string()
             };
-            
+
             eprintln!("{} {}", prefix, message);
         }
     }
@@ -78,7 +78,7 @@ impl DebugLogger {
             } else {
                 "[DEBUG]".to_string()
             };
-            
+
             eprintln!("{} {}", prefix, message);
         }
     }
@@ -92,7 +92,7 @@ impl DebugLogger {
             } else {
                 "[TIME]".to_string()
             };
-            
+
             eprintln!("{} {} took {:.2?}", prefix, label, elapsed);
             self.step_time = Instant::now();
         }
@@ -107,7 +107,7 @@ impl DebugLogger {
             } else {
                 "[TOTAL]".to_string()
             };
-            
+
             eprintln!("{} Execution completed in {:.2?}", prefix, elapsed);
         }
     }
@@ -120,7 +120,7 @@ impl DebugLogger {
             } else {
                 "[AST]".to_string()
             };
-            
+
             eprintln!("{} Structure:\\n{:#?}", prefix, ast);
         }
     }
@@ -133,7 +133,7 @@ impl DebugLogger {
             } else {
                 "[SQL]".to_string()
             };
-            
+
             eprintln!("{} Generated {} SQL:\\n{}", prefix, dialect, sql);
         }
     }
@@ -146,7 +146,7 @@ impl DebugLogger {
             } else {
                 "[STATS]".to_string()
             };
-            
+
             eprintln!("{} {}", prefix, stats);
         }
     }

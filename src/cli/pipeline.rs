@@ -4,12 +4,15 @@
 //! CLI modes (file, text, stdin) and processing types (validation, transpilation).
 
 use crate::cli::{
-    debug_logger::DebugLogger, 
-    ErrorHandler, JsonOutputFormatter, OutputFormatter, ExitCode,
-    StdinReader, DplyrValidator, ValidateResult, TranspileMetadata, OutputFormat,
-    signal_handler::{SignalHandler, SignalAwareProcessor, ProcessingError, utils}
+    debug_logger::DebugLogger,
+    signal_handler::{utils, ProcessingError, SignalAwareProcessor, SignalHandler},
+    DplyrValidator, ErrorHandler, ExitCode, JsonOutputFormatter, OutputFormat, OutputFormatter,
+    StdinReader, TranspileMetadata, ValidateResult,
 };
-use crate::{Transpiler, TranspileError, PostgreSqlDialect, MySqlDialect, SqliteDialect, DuckDbDialect, SqlDialect};
+use crate::{
+    DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect, TranspileError,
+    Transpiler,
+};
 use clap::{value_parser, Arg, ArgMatches, Command};
 use std::io::{self, Write};
 
@@ -232,7 +235,7 @@ impl CliConfig {
     pub fn from_args(args: &CliArgs) -> Self {
         let mode = Self::determine_mode(args);
         let output_format = Self::determine_output_format(args);
-        
+
         Self {
             mode,
             dialect: args.dialect.clone(),
@@ -242,7 +245,7 @@ impl CliConfig {
             debug: args.debug,
         }
     }
-    
+
     /// Determine the CLI mode based on arguments
     fn determine_mode(args: &CliArgs) -> CliMode {
         if let Some(ref input_text) = args.input_text {
@@ -262,7 +265,7 @@ impl CliConfig {
             }
         }
     }
-    
+
     /// Determine output format based on arguments
     fn determine_output_format(args: &CliArgs) -> OutputFormat {
         if args.json_output {
@@ -295,36 +298,40 @@ impl ProcessingPipeline {
     pub fn new(config: CliConfig) -> Result<Self, TranspileError> {
         let dialect = create_dialect(&config.dialect);
         let transpiler = Transpiler::new(dialect);
-        
+
         let validator = if config.validation_only {
             Some(DplyrValidator::new())
         } else {
             None
         };
-        
+
         let output_formatter = OutputFormatter::with_format(config.output_format.clone());
         let json_formatter = JsonOutputFormatter::new();
         let error_handler = ErrorHandler::with_settings(false, config.verbose, false);
         let debug_logger = DebugLogger::with_settings(config.verbose, config.debug);
-        
+
         // Initialize signal handling for Unix pipeline integration
-        let (signal_handler, signal_processor) = if utils::is_unix_like() && matches!(config.mode, CliMode::StdinMode { .. }) {
+        let (signal_handler, signal_processor) = if utils::is_unix_like()
+            && matches!(config.mode, CliMode::StdinMode { .. })
+        {
             // Enable signal handling for stdin mode on Unix-like systems
-            let handler = SignalHandler::new()
-                .map_err(|e| TranspileError::SystemError(format!("Failed to initialize signal handler: {}", e)))?;
-            let processor = SignalAwareProcessor::new()
-                .map_err(|e| TranspileError::SystemError(format!("Failed to initialize signal processor: {}", e)))?;
-            
+            let handler = SignalHandler::new().map_err(|e| {
+                TranspileError::SystemError(format!("Failed to initialize signal handler: {}", e))
+            })?;
+            let processor = SignalAwareProcessor::new().map_err(|e| {
+                TranspileError::SystemError(format!("Failed to initialize signal processor: {}", e))
+            })?;
+
             // Ignore SIGPIPE to handle broken pipes gracefully
             if let Err(e) = utils::ignore_sigpipe() {
                 eprintln!("Warning: Failed to ignore SIGPIPE: {}", e);
             }
-            
+
             (Some(handler), Some(processor))
         } else {
             (None, None)
         };
-        
+
         Ok(Self {
             config,
             transpiler,
@@ -337,15 +344,15 @@ impl ProcessingPipeline {
             signal_processor,
         })
     }
-    
+
     /// Process input according to the configured mode
     pub fn process(&mut self) -> Result<String, TranspileError> {
         self.debug_logger.verbose("Starting processing pipeline");
         self.debug_logger.reset_step_timer();
-        
+
         let input = self.read_input()?;
         self.debug_logger.timing("Input reading");
-        
+
         let result = if self.config.validation_only {
             self.debug_logger.verbose("Validation mode enabled");
             self.validate_input(&input)
@@ -353,90 +360,109 @@ impl ProcessingPipeline {
             self.debug_logger.verbose("Transpilation mode enabled");
             self.transpile_input(&input)
         };
-        
+
         self.debug_logger.total_time();
         result
     }
-    
+
     /// Read input based on the configured mode
     fn read_input(&self) -> Result<String, TranspileError> {
         match &self.config.mode {
             CliMode::StdinMode { .. } => {
                 self.debug_logger.verbose("Reading from stdin...");
                 self.debug_logger.debug("Stdin mode: waiting for input");
-                
+
                 // Check if we're in a pipeline environment
                 if utils::is_in_pipeline() {
                     self.debug_logger.debug("Pipeline environment detected");
                 }
-                
+
                 // Use signal-aware stdin reader for Unix-like systems
                 let reader = if utils::is_unix_like() {
                     self.debug_logger.debug("Using signal-aware stdin reader");
-                    StdinReader::with_signal_handling()
-                        .map_err(|e| TranspileError::SystemError(format!("Failed to create signal-aware stdin reader: {}", e)))?
+                    StdinReader::with_signal_handling().map_err(|e| {
+                        TranspileError::SystemError(format!(
+                            "Failed to create signal-aware stdin reader: {}",
+                            e
+                        ))
+                    })?
                 } else {
                     StdinReader::new()
                 };
-                
+
                 // Read input with signal handling
                 let result = if let Some(ref signal_processor) = self.signal_processor {
                     self.read_stdin_with_signals(&reader, signal_processor)?
                 } else {
-                    reader.read_all()
-                        .map_err(|e| TranspileError::IoError(format!("Failed to read from stdin: {}", e)))?
+                    reader.read_all().map_err(|e| {
+                        TranspileError::IoError(format!("Failed to read from stdin: {}", e))
+                    })?
                 };
-                
-                self.debug_logger.debug(&format!("Read {} bytes from stdin", result.len()));
+
+                self.debug_logger
+                    .debug(&format!("Read {} bytes from stdin", result.len()));
                 Ok(result)
             }
             CliMode::TextMode { input_text, .. } => {
                 self.debug_logger.verbose("Processing direct text input...");
-                self.debug_logger.debug(&format!("Text input length: {} characters", input_text.len()));
+                self.debug_logger.debug(&format!(
+                    "Text input length: {} characters",
+                    input_text.len()
+                ));
                 Ok(input_text.clone())
             }
             CliMode::FileMode { input_file, .. } => {
-                self.debug_logger.verbose(&format!("Reading from file: {}", input_file));
-                self.debug_logger.debug(&format!("File path: {}", input_file));
-                
-                let result = std::fs::read_to_string(input_file)
-                    .map_err(|e| TranspileError::IoError(format!("Failed to read file '{}': {}", input_file, e)))?;
-                
-                self.debug_logger.debug(&format!("Read {} bytes from file", result.len()));
+                self.debug_logger
+                    .verbose(&format!("Reading from file: {}", input_file));
+                self.debug_logger
+                    .debug(&format!("File path: {}", input_file));
+
+                let result = std::fs::read_to_string(input_file).map_err(|e| {
+                    TranspileError::IoError(format!("Failed to read file '{}': {}", input_file, e))
+                })?;
+
+                self.debug_logger
+                    .debug(&format!("Read {} bytes from file", result.len()));
                 Ok(result)
             }
         }
     }
-    
+
     /// Validate input without transpilation
     fn validate_input(&self, input: &str) -> Result<String, TranspileError> {
         if let Some(ref validator) = self.validator {
             self.debug_logger.verbose("Validating dplyr syntax...");
-            self.debug_logger.debug(&format!("Input to validate: {}", input.trim()));
-            
+            self.debug_logger
+                .debug(&format!("Input to validate: {}", input.trim()));
+
             let result = validator.validate(input)?;
-            
+
             match result {
                 ValidateResult::Valid { summary } => {
-                    self.debug_logger.debug(&format!("Validation successful: {:?}", summary));
+                    self.debug_logger
+                        .debug(&format!("Validation successful: {:?}", summary));
                     self.debug_logger.verbose("Syntax validation passed");
-                    
+
                     match self.config.output_format {
                         OutputFormat::Json => {
                             let metadata = TranspileMetadata::from_validation_summary(&summary);
-                            Ok(self.json_formatter.format_validation_success(&summary, &metadata))
+                            Ok(self
+                                .json_formatter
+                                .format_validation_success(&summary, &metadata))
                         }
-                        _ => Ok("Valid dplyr syntax".to_string())
+                        _ => Ok("Valid dplyr syntax".to_string()),
                     }
                 }
                 ValidateResult::Invalid { error, suggestions } => {
-                    self.debug_logger.debug(&format!("Validation failed: {:?}", error));
-                    self.debug_logger.verbose(&format!("Validation error: {}", error.message));
-                    
+                    self.debug_logger
+                        .debug(&format!("Validation failed: {:?}", error));
+                    self.debug_logger
+                        .verbose(&format!("Validation error: {}", error.message));
+
                     match self.config.output_format {
-                        OutputFormat::Json => {
-                            Ok(self.json_formatter.format_validation_error(&error, &suggestions))
-                        }
+                        OutputFormat::Json => Ok(self
+                            .json_formatter
+                            .format_validation_error(&error, &suggestions)),
                         _ => {
                             let mut error_msg = format!("Validation failed: {}", error.message);
                             if !suggestions.is_empty() {
@@ -451,67 +477,81 @@ impl ProcessingPipeline {
                 }
             }
         } else {
-            Err(TranspileError::ConfigurationError("Validator not configured for validation mode".to_string()))
+            Err(TranspileError::ConfigurationError(
+                "Validator not configured for validation mode".to_string(),
+            ))
         }
     }
-    
+
     /// Transpile input to SQL
     fn transpile_input(&mut self, input: &str) -> Result<String, TranspileError> {
-        self.debug_logger.verbose(&format!("Transpiling dplyr to SQL (dialect: {})...", self.config.dialect));
-        self.debug_logger.debug(&format!("Input to transpile: {}", input.trim()));
-        
+        self.debug_logger.verbose(&format!(
+            "Transpiling dplyr to SQL (dialect: {})...",
+            self.config.dialect
+        ));
+        self.debug_logger
+            .debug(&format!("Input to transpile: {}", input.trim()));
+
         // Parse dplyr code to AST
         self.debug_logger.debug("Starting lexical analysis...");
         let ast = self.transpiler.parse_dplyr(input)?;
         self.debug_logger.timing("Parsing");
-        
+
         // Log AST structure if debug mode is enabled
         self.debug_logger.log_ast(&ast);
-        
+
         // Generate SQL from AST
         self.debug_logger.debug("Starting SQL generation...");
         let sql = self.transpiler.generate_sql(&ast)?;
         self.debug_logger.timing("SQL generation");
-        
-        self.debug_logger.log_sql_generation(&sql, &self.config.dialect.to_string());
-        self.debug_logger.verbose("Transpilation completed successfully");
-        
+
+        self.debug_logger
+            .log_sql_generation(&sql, &self.config.dialect.to_string());
+        self.debug_logger
+            .verbose("Transpilation completed successfully");
+
         match self.config.output_format {
             OutputFormat::Json => {
                 let metadata = TranspileMetadata::transpilation_success(
                     &self.config.dialect,
                     self.debug_logger.elapsed(),
                     input,
-                    &sql
+                    &sql,
                 );
                 Ok(self.json_formatter.format_transpile_result(&sql, &metadata))
             }
-            _ => {
-                Ok(self.output_formatter.format(&sql)?)
-            }
+            _ => Ok(self.output_formatter.format(&sql)?),
         }
     }
-    
+
     /// Write output to the appropriate destination
     pub fn write_output(&self, output: &str) -> Result<(), TranspileError> {
         match &self.config.mode {
-            CliMode::FileMode { output_file: Some(file), .. } |
-            CliMode::TextMode { output_file: Some(file), .. } => {
+            CliMode::FileMode {
+                output_file: Some(file),
+                ..
+            }
+            | CliMode::TextMode {
+                output_file: Some(file),
+                ..
+            } => {
                 if self.config.verbose {
                     eprintln!("Writing output to file: {}", file);
                 }
-                std::fs::write(file, output)
-                    .map_err(|e| TranspileError::IoError(format!("Failed to write to file '{}': {}", file, e)))
+                std::fs::write(file, output).map_err(|e| {
+                    TranspileError::IoError(format!("Failed to write to file '{}': {}", file, e))
+                })
             }
             _ => {
                 // Write to stdout
                 print!("{}", output);
-                io::stdout().flush()
+                io::stdout()
+                    .flush()
                     .map_err(|e| TranspileError::IoError(format!("Failed to flush stdout: {}", e)))
             }
         }
     }
-    
+
     /// Handle errors using the configured error handler
     pub fn handle_error(&self, error: &TranspileError) -> i32 {
         // If JSON output is requested, format error as JSON
@@ -521,9 +561,9 @@ impl ProcessingPipeline {
                 &self.config.dialect,
                 std::time::Duration::from_millis(0),
                 "",
-                ""
+                "",
             );
-            
+
             let json_output = self.json_formatter.format_error(error_info, metadata);
             match json_output {
                 Ok(json) => {
@@ -534,10 +574,12 @@ impl ProcessingPipeline {
                     return self.error_handler.handle_error(error);
                 }
             }
-            
+
             // Return appropriate exit code based on error type
             match error {
-                TranspileError::LexError(_) | TranspileError::ParseError(_) => ExitCode::VALIDATION_ERROR,
+                TranspileError::LexError(_) | TranspileError::ParseError(_) => {
+                    ExitCode::VALIDATION_ERROR
+                }
                 TranspileError::GenerationError(_) => ExitCode::TRANSPILATION_ERROR,
                 TranspileError::IoError(_) => ExitCode::IO_ERROR,
                 TranspileError::ValidationError(_) => ExitCode::VALIDATION_ERROR,
@@ -548,33 +590,46 @@ impl ProcessingPipeline {
             self.error_handler.handle_error(error)
         }
     }
-    
+
     /// Read stdin with signal handling support
-    fn read_stdin_with_signals(&self, reader: &StdinReader, signal_processor: &SignalAwareProcessor) -> Result<String, TranspileError> {
-        self.debug_logger.debug("Reading stdin with signal handling");
-        
-        signal_processor.execute_with_signal_check(|should_continue| {
-            if !should_continue() {
-                if let Some(ref handler) = self.signal_handler {
-                    if handler.pipe_closed() {
-                        return Err(ProcessingError::PipeClosed);
-                    } else {
-                        return Err(ProcessingError::Interrupted);
+    fn read_stdin_with_signals(
+        &self,
+        reader: &StdinReader,
+        signal_processor: &SignalAwareProcessor,
+    ) -> Result<String, TranspileError> {
+        self.debug_logger
+            .debug("Reading stdin with signal handling");
+
+        signal_processor
+            .execute_with_signal_check(|should_continue| {
+                if !should_continue() {
+                    if let Some(ref handler) = self.signal_handler {
+                        if handler.pipe_closed() {
+                            return Err(ProcessingError::PipeClosed);
+                        } else {
+                            return Err(ProcessingError::Interrupted);
+                        }
                     }
                 }
-            }
-            
-            reader.read_all()
-                .map_err(|e| ProcessingError::ProcessingError(format!("Failed to read from stdin: {}", e)))
-        })
-        .map_err(|e| match e {
-            ProcessingError::Interrupted => TranspileError::SystemError("Reading interrupted by signal".to_string()),
-            ProcessingError::PipeClosed => TranspileError::SystemError("Output pipe was closed".to_string()),
-            ProcessingError::ProcessingError(msg) => TranspileError::IoError(msg),
-            ProcessingError::SignalError(sig_err) => TranspileError::SystemError(format!("Signal error: {}", sig_err)),
-        })
+
+                reader.read_all().map_err(|e| {
+                    ProcessingError::ProcessingError(format!("Failed to read from stdin: {}", e))
+                })
+            })
+            .map_err(|e| match e {
+                ProcessingError::Interrupted => {
+                    TranspileError::SystemError("Reading interrupted by signal".to_string())
+                }
+                ProcessingError::PipeClosed => {
+                    TranspileError::SystemError("Output pipe was closed".to_string())
+                }
+                ProcessingError::ProcessingError(msg) => TranspileError::IoError(msg),
+                ProcessingError::SignalError(sig_err) => {
+                    TranspileError::SystemError(format!("Signal error: {}", sig_err))
+                }
+            })
     }
-    
+
     /// Check if processing should continue (signal handling)
     pub fn should_continue(&self) -> bool {
         if let Some(ref handler) = self.signal_handler {
@@ -583,7 +638,7 @@ impl ProcessingPipeline {
             true
         }
     }
-    
+
     /// Check if the output pipe was closed
     pub fn pipe_closed(&self) -> bool {
         if let Some(ref handler) = self.signal_handler {
@@ -592,7 +647,7 @@ impl ProcessingPipeline {
             false
         }
     }
-    
+
     /// Get configuration reference
     pub fn config(&self) -> &CliConfig {
         &self.config
@@ -623,7 +678,7 @@ mod tests {
     fn test_cli_config_from_args_stdin_mode() {
         let args = create_test_args();
         let config = CliConfig::from_args(&args);
-        
+
         assert!(matches!(config.mode, CliMode::StdinMode { .. }));
         assert_eq!(config.dialect, SqlDialectType::PostgreSql);
         assert!(matches!(config.output_format, OutputFormat::Default));
@@ -635,16 +690,20 @@ mod tests {
         let mut args = create_test_args();
         args.input_text = Some("select(name)".to_string());
         args.json_output = true;
-        
+
         let config = CliConfig::from_args(&args);
-        
-        if let CliMode::TextMode { input_text, output_file } = config.mode {
+
+        if let CliMode::TextMode {
+            input_text,
+            output_file,
+        } = config.mode
+        {
             assert_eq!(input_text, "select(name)");
             assert_eq!(output_file, None);
         } else {
             panic!("Expected TextMode");
         }
-        
+
         assert!(matches!(config.output_format, OutputFormat::Json));
     }
 
@@ -654,16 +713,20 @@ mod tests {
         args.input_file = Some("input.dplyr".to_string());
         args.output_file = Some("output.sql".to_string());
         args.pretty_print = true;
-        
+
         let config = CliConfig::from_args(&args);
-        
-        if let CliMode::FileMode { input_file, output_file } = config.mode {
+
+        if let CliMode::FileMode {
+            input_file,
+            output_file,
+        } = config.mode
+        {
             assert_eq!(input_file, "input.dplyr");
             assert_eq!(output_file, Some("output.sql".to_string()));
         } else {
             panic!("Expected FileMode");
         }
-        
+
         assert!(matches!(config.output_format, OutputFormat::Pretty));
     }
 
@@ -673,9 +736,9 @@ mod tests {
         args.validate_only = true;
         args.verbose = true;
         args.debug = true;
-        
+
         let config = CliConfig::from_args(&args);
-        
+
         assert!(config.validation_only);
         assert!(config.verbose);
         assert!(config.debug);
@@ -685,7 +748,7 @@ mod tests {
     fn test_processing_pipeline_creation() {
         let args = create_test_args();
         let config = CliConfig::from_args(&args);
-        
+
         let pipeline = ProcessingPipeline::new(config);
         assert!(pipeline.is_ok());
     }
@@ -695,7 +758,7 @@ mod tests {
         let mut args = create_test_args();
         args.validate_only = true;
         let config = CliConfig::from_args(&args);
-        
+
         let pipeline = ProcessingPipeline::new(config).unwrap();
         assert!(pipeline.validator.is_some());
     }

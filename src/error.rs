@@ -130,8 +130,8 @@ pub enum TranspileError {
 }
 
 // Import ValidationError for From implementation
-use crate::cli::validator::ValidationError;
 use crate::cli::output_formatter::FormatError;
+use crate::cli::validator::ValidationError;
 
 impl From<ValidationError> for TranspileError {
     fn from(error: ValidationError) -> Self {

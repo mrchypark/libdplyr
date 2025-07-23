@@ -8,8 +8,8 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use libdplyr::cli::{
-    OutputFormatter, JsonOutputFormatter, DplyrValidator,
-    OutputFormat, MetadataBuilder, ProcessingStats, InputInfo
+    DplyrValidator, InputInfo, JsonOutputFormatter, MetadataBuilder, OutputFormat, OutputFormatter,
+    ProcessingStats,
 };
 
 /// Benchmark JSON serialization performance
@@ -21,12 +21,24 @@ fn benchmark_json_serialization(c: &mut Criterion) {
 
     // Test different SQL output sizes
     let simple_sql = "SELECT \"name\" FROM \"data\"";
-    let medium_sql = "SELECT \"name\", \"age\", \"city\" FROM \"data\" WHERE \"age\" > 18 ORDER BY \"age\" DESC";
-    let complex_sql = format!("SELECT {} FROM \"data\" WHERE {} ORDER BY {}", 
-        (0..20).map(|i| format!("\"col_{}\"", i)).collect::<Vec<_>>().join(", "),
-        (0..5).map(|i| format!("\"col_{}\" > {}", i, i * 10)).collect::<Vec<_>>().join(" AND "),
-        (0..3).map(|i| format!("\"col_{}\"", i)).collect::<Vec<_>>().join(", "));
-    
+    let medium_sql =
+        "SELECT \"name\", \"age\", \"city\" FROM \"data\" WHERE \"age\" > 18 ORDER BY \"age\" DESC";
+    let complex_sql = format!(
+        "SELECT {} FROM \"data\" WHERE {} ORDER BY {}",
+        (0..20)
+            .map(|i| format!("\"col_{}\"", i))
+            .collect::<Vec<_>>()
+            .join(", "),
+        (0..5)
+            .map(|i| format!("\"col_{}\" > {}", i, i * 10))
+            .collect::<Vec<_>>()
+            .join(" AND "),
+        (0..3)
+            .map(|i| format!("\"col_{}\"", i))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
     let test_outputs = vec![
         ("simple", simple_sql),
         ("medium", medium_sql),
@@ -43,21 +55,13 @@ fn benchmark_json_serialization(c: &mut Criterion) {
             BenchmarkId::new("compact_json", size_name),
             sql,
             |b, sql| {
-                b.iter(|| {
-                    formatter.format_success(black_box(sql), black_box(metadata.clone()))
-                })
+                b.iter(|| formatter.format_success(black_box(sql), black_box(metadata.clone())))
             },
         );
 
-        group.bench_with_input(
-            BenchmarkId::new("pretty_json", size_name),
-            sql,
-            |b, sql| {
-                b.iter(|| {
-                    pretty_formatter.format_success(black_box(sql), black_box(metadata.clone()))
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("pretty_json", size_name), sql, |b, sql| {
+            b.iter(|| pretty_formatter.format_success(black_box(sql), black_box(metadata.clone())))
+        });
     }
 
     group.finish();
@@ -68,19 +72,40 @@ fn benchmark_output_formatting(c: &mut Criterion) {
     let mut group = c.benchmark_group("output_formatting");
 
     let formatters = vec![
-        ("default", OutputFormatter::with_format(OutputFormat::Default)),
+        (
+            "default",
+            OutputFormatter::with_format(OutputFormat::Default),
+        ),
         ("pretty", OutputFormatter::with_format(OutputFormat::Pretty)),
-        ("compact", OutputFormatter::with_format(OutputFormat::Compact)),
+        (
+            "compact",
+            OutputFormatter::with_format(OutputFormat::Compact),
+        ),
     ];
 
     let simple_sql = "SELECT \"name\" FROM \"data\"";
-    let medium_sql = "SELECT \"name\", \"age\" FROM \"data\" WHERE \"age\" > 18 ORDER BY \"age\" DESC";
-    let complex_sql = format!("SELECT {} FROM \"data\" WHERE {} GROUP BY {} ORDER BY {}", 
-        (0..15).map(|i| format!("\"col_{}\"", i)).collect::<Vec<_>>().join(", "),
-        (0..3).map(|i| format!("\"col_{}\" > {}", i, i * 10)).collect::<Vec<_>>().join(" AND "),
-        (0..2).map(|i| format!("\"col_{}\"", i)).collect::<Vec<_>>().join(", "),
-        (0..2).map(|i| format!("\"col_{}\"", i)).collect::<Vec<_>>().join(", "));
-    
+    let medium_sql =
+        "SELECT \"name\", \"age\" FROM \"data\" WHERE \"age\" > 18 ORDER BY \"age\" DESC";
+    let complex_sql = format!(
+        "SELECT {} FROM \"data\" WHERE {} GROUP BY {} ORDER BY {}",
+        (0..15)
+            .map(|i| format!("\"col_{}\"", i))
+            .collect::<Vec<_>>()
+            .join(", "),
+        (0..3)
+            .map(|i| format!("\"col_{}\" > {}", i, i * 10))
+            .collect::<Vec<_>>()
+            .join(" AND "),
+        (0..2)
+            .map(|i| format!("\"col_{}\"", i))
+            .collect::<Vec<_>>()
+            .join(", "),
+        (0..2)
+            .map(|i| format!("\"col_{}\"", i))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
     let test_sqls = vec![
         ("simple", simple_sql),
         ("medium", medium_sql),
@@ -92,9 +117,7 @@ fn benchmark_output_formatting(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new(format!("{}_{}", format_name, sql_name), sql.len()),
                 sql,
-                |b, sql| {
-                    b.iter(|| formatter.format(black_box(sql)))
-                },
+                |b, sql| b.iter(|| formatter.format(black_box(sql))),
             );
         }
     }
@@ -121,9 +144,7 @@ fn benchmark_validation_performance(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("validate", test_name),
             &input,
-            |b, input| {
-                b.iter(|| validator.validate(black_box(input)))
-            },
+            |b, input| b.iter(|| validator.validate(black_box(input))),
         );
     }
 
@@ -136,12 +157,12 @@ fn benchmark_memory_usage_patterns(c: &mut Criterion) {
 
     // Test memory efficiency with repeated operations
     let base_query = "data %>% select(name, age) %>% filter(age > 18)";
-    
+
     group.bench_function("repeated_small_operations", |b| {
         b.iter(|| {
             let validator = DplyrValidator::new();
             let formatter = OutputFormatter::with_format(OutputFormat::Default);
-            
+
             for _ in 0..100 {
                 let _ = black_box(validator.validate(black_box(base_query)));
                 let _ = black_box(formatter.format(black_box("SELECT * FROM data")));
@@ -152,7 +173,7 @@ fn benchmark_memory_usage_patterns(c: &mut Criterion) {
     // Test memory usage with large single operations
     let large_columns: Vec<String> = (0..200).map(|i| format!("col_{}", i)).collect();
     let large_query = format!("data %>% select({})", large_columns.join(", "));
-    
+
     group.bench_function("single_large_operation", |b| {
         b.iter(|| {
             let validator = DplyrValidator::new();
@@ -164,7 +185,7 @@ fn benchmark_memory_usage_patterns(c: &mut Criterion) {
     let small_queries: Vec<String> = (0..100)
         .map(|i| format!("data{} %>% select(col_{})", i % 10, i % 50))
         .collect();
-    
+
     group.bench_function("many_different_small_operations", |b| {
         b.iter(|| {
             let validator = DplyrValidator::new();

@@ -148,7 +148,10 @@ mod tests {
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"), "Should contain SELECT");
-        assert!(sql.contains("CONCAT"), "Should contain string concatenation");
+        assert!(
+            sql.contains("CONCAT"),
+            "Should contain string concatenation"
+        );
     }
 
     #[test]

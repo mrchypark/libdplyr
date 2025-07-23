@@ -13,10 +13,10 @@ pub type JsonResult<T> = Result<T, JsonError>;
 pub enum JsonError {
     #[error("JSON serialization failed: {0}")]
     SerializationError(#[from] serde_json::Error),
-    
+
     #[error("Metadata collection failed: {0}")]
     MetadataError(String),
-    
+
     #[error("Invalid input data: {0}")]
     InvalidInput(String),
 }
@@ -26,16 +26,16 @@ pub enum JsonError {
 pub struct TranspileMetadata {
     /// Timestamp when transpilation started (Unix timestamp)
     pub timestamp: u64,
-    
+
     /// SQL dialect used for transpilation
     pub dialect: String,
-    
+
     /// Processing statistics
     pub stats: ProcessingStats,
-    
+
     /// Input information
     pub input_info: InputInfo,
-    
+
     /// Version information
     pub version: String,
 }
@@ -45,25 +45,25 @@ pub struct TranspileMetadata {
 pub struct ProcessingStats {
     /// Time taken for lexical analysis (microseconds)
     pub lex_time_us: u64,
-    
+
     /// Time taken for parsing (microseconds)
     pub parse_time_us: u64,
-    
+
     /// Time taken for SQL generation (microseconds)
     pub generation_time_us: u64,
-    
+
     /// Total processing time (microseconds)
     pub total_time_us: u64,
-    
+
     /// Number of tokens generated
     pub token_count: usize,
-    
+
     /// Number of AST nodes created
     pub ast_node_count: usize,
-    
+
     /// Input size in bytes
     pub input_size_bytes: usize,
-    
+
     /// Output size in bytes
     pub output_size_bytes: usize,
 }
@@ -73,13 +73,13 @@ pub struct ProcessingStats {
 pub struct InputInfo {
     /// Source type (file, stdin, text)
     pub source_type: String,
-    
+
     /// Source identifier (filename, "stdin", "text")
     pub source_id: String,
-    
+
     /// Input size in bytes
     pub size_bytes: usize,
-    
+
     /// Number of lines in input
     pub line_count: usize,
 }
@@ -89,13 +89,13 @@ pub struct InputInfo {
 pub struct JsonOutput {
     /// Success status
     pub success: bool,
-    
+
     /// Generated SQL (if successful)
     pub sql: Option<String>,
-    
+
     /// Error information (if failed)
     pub error: Option<ErrorInfo>,
-    
+
     /// Transpilation metadata
     pub metadata: TranspileMetadata,
 }
@@ -105,13 +105,13 @@ pub struct JsonOutput {
 pub struct ErrorInfo {
     /// Error type (lex, parse, generation)
     pub error_type: String,
-    
+
     /// Error message
     pub message: String,
-    
+
     /// Position information (if available)
     pub position: Option<usize>,
-    
+
     /// Suggestions for fixing the error
     pub suggestions: Vec<String>,
 }
@@ -121,7 +121,7 @@ pub struct ErrorInfo {
 pub struct JsonOutputFormatter {
     /// Whether to pretty-print JSON
     pub pretty_print: bool,
-    
+
     /// Whether to include debug information
     pub include_debug: bool,
 }
@@ -134,7 +134,7 @@ impl JsonOutputFormatter {
             include_debug: false,
         }
     }
-    
+
     /// Creates a new JSON output formatter with pretty printing
     pub fn pretty() -> Self {
         Self {
@@ -142,7 +142,7 @@ impl JsonOutputFormatter {
             include_debug: false,
         }
     }
-    
+
     /// Creates a new JSON output formatter with debug information
     pub fn with_debug() -> Self {
         Self {
@@ -150,23 +150,19 @@ impl JsonOutputFormatter {
             include_debug: true,
         }
     }
-    
+
     /// Formats a successful transpilation result as JSON
-    pub fn format_success(
-        &self,
-        sql: &str,
-        metadata: TranspileMetadata,
-    ) -> JsonResult<String> {
+    pub fn format_success(&self, sql: &str, metadata: TranspileMetadata) -> JsonResult<String> {
         let output = JsonOutput {
             success: true,
             sql: Some(sql.to_string()),
             error: None,
             metadata,
         };
-        
+
         self.serialize_output(&output)
     }
-    
+
     /// Formats a successful transpilation result as JSON with pre-allocated capacity
     pub fn format_success_with_capacity(
         &self,
@@ -180,10 +176,10 @@ impl JsonOutputFormatter {
             error: None,
             metadata,
         };
-        
+
         self.serialize_output_with_capacity(&output, estimated_size)
     }
-    
+
     /// Formats a failed transpilation result as JSON
     pub fn format_error(
         &self,
@@ -196,10 +192,10 @@ impl JsonOutputFormatter {
             error: Some(error_info),
             metadata,
         };
-        
+
         self.serialize_output(&output)
     }
-    
+
     /// Formats a successful validation result as JSON
     pub fn format_validation_success(
         &self,
@@ -222,14 +218,14 @@ impl JsonOutputFormatter {
             },
             "metadata": metadata
         });
-        
+
         if self.pretty_print {
             serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string())
         } else {
             serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string())
         }
     }
-    
+
     /// Formats a validation error as JSON
     pub fn format_validation_error(
         &self,
@@ -249,14 +245,14 @@ impl JsonOutputFormatter {
                 "suggestions": suggestions
             }
         });
-        
+
         if self.pretty_print {
             serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string())
         } else {
             serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string())
         }
     }
-    
+
     /// Formats a transpilation result as JSON
     pub fn format_transpile_result(&self, sql: &str, metadata: &TranspileMetadata) -> String {
         let output = serde_json::json!({
@@ -264,14 +260,14 @@ impl JsonOutputFormatter {
             "sql": sql,
             "metadata": metadata
         });
-        
+
         if self.pretty_print {
             serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string())
         } else {
             serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string())
         }
     }
-    
+
     /// Serializes the JSON output
     fn serialize_output(&self, output: &JsonOutput) -> JsonResult<String> {
         if self.pretty_print {
@@ -280,9 +276,13 @@ impl JsonOutputFormatter {
             Ok(serde_json::to_string(output)?)
         }
     }
-    
+
     /// Serializes the JSON output with pre-allocated capacity
-    fn serialize_output_with_capacity(&self, output: &JsonOutput, estimated_size: usize) -> JsonResult<String> {
+    fn serialize_output_with_capacity(
+        &self,
+        output: &JsonOutput,
+        estimated_size: usize,
+    ) -> JsonResult<String> {
         if self.pretty_print {
             let mut buf = String::with_capacity(estimated_size);
             let pretty_json = serde_json::to_string_pretty(output)?;
@@ -336,25 +336,25 @@ impl MetadataBuilder {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
-    
+
     /// Sets processing statistics
     pub fn with_stats(mut self, stats: ProcessingStats) -> Self {
         self.stats = stats;
         self
     }
-    
+
     /// Sets input information
     pub fn with_input_info(mut self, input_info: InputInfo) -> Self {
         self.input_info = input_info;
         self
     }
-    
+
     /// Sets version information
     pub fn with_version(mut self, version: &str) -> Self {
         self.version = version.to_string();
         self
     }
-    
+
     /// Builds the metadata
     pub fn build(self) -> TranspileMetadata {
         TranspileMetadata {
@@ -385,13 +385,9 @@ impl ProcessingStats {
             output_size_bytes: 0,
         }
     }
-    
+
     /// Creates processing stats with timing information
-    pub fn with_timing(
-        lex_time_us: u64,
-        parse_time_us: u64,
-        generation_time_us: u64,
-    ) -> Self {
+    pub fn with_timing(lex_time_us: u64, parse_time_us: u64, generation_time_us: u64) -> Self {
         Self {
             lex_time_us,
             parse_time_us,
@@ -415,7 +411,7 @@ impl InputInfo {
             line_count: content.lines().count(),
         }
     }
-    
+
     /// Creates input info for stdin source
     pub fn from_stdin(content: &str) -> Self {
         Self {
@@ -425,7 +421,7 @@ impl InputInfo {
             line_count: content.lines().count(),
         }
     }
-    
+
     /// Creates input info for text source
     pub fn from_text(content: &str) -> Self {
         Self {
@@ -538,7 +534,7 @@ impl TranspileMetadata {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
-    
+
     /// Creates metadata for successful transpilation
     pub fn transpilation_success(
         dialect: &crate::cli::SqlDialectType,
@@ -576,45 +572,45 @@ impl TranspileMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_json_output_formatter_creation() {
         let formatter = JsonOutputFormatter::new();
         assert!(!formatter.pretty_print);
         assert!(!formatter.include_debug);
-        
+
         let pretty_formatter = JsonOutputFormatter::pretty();
         assert!(pretty_formatter.pretty_print);
         assert!(!pretty_formatter.include_debug);
-        
+
         let debug_formatter = JsonOutputFormatter::with_debug();
         assert!(!debug_formatter.pretty_print);
         assert!(debug_formatter.include_debug);
     }
-    
+
     #[test]
     fn test_metadata_builder() {
         let metadata = MetadataBuilder::new("postgresql")
             .with_version("1.0.0")
             .build();
-        
+
         assert_eq!(metadata.dialect, "postgresql");
         assert_eq!(metadata.version, "1.0.0");
         assert!(metadata.timestamp > 0);
     }
-    
+
     #[test]
     fn test_processing_stats() {
         let stats = ProcessingStats::empty();
         assert_eq!(stats.total_time_us, 0);
-        
+
         let stats = ProcessingStats::with_timing(100, 200, 300);
         assert_eq!(stats.lex_time_us, 100);
         assert_eq!(stats.parse_time_us, 200);
         assert_eq!(stats.generation_time_us, 300);
         assert_eq!(stats.total_time_us, 600);
     }
-    
+
     #[test]
     fn test_input_info() {
         let info = InputInfo::from_file("test.R", "data %>% select(name)");
@@ -622,30 +618,30 @@ mod tests {
         assert_eq!(info.source_id, "test.R");
         assert!(info.size_bytes > 0);
         assert_eq!(info.line_count, 1);
-        
+
         let info = InputInfo::from_stdin("data %>% select(name)");
         assert_eq!(info.source_type, "stdin");
         assert_eq!(info.source_id, "stdin");
-        
+
         let info = InputInfo::from_text("data %>% select(name)");
         assert_eq!(info.source_type, "text");
         assert_eq!(info.source_id, "command_line");
     }
-    
+
     #[test]
     fn test_json_output_success() {
         let formatter = JsonOutputFormatter::new();
         let metadata = MetadataBuilder::new("postgresql").build();
-        
+
         let result = formatter.format_success("SELECT * FROM data", metadata);
         assert!(result.is_ok());
-        
+
         let json = result.unwrap();
         assert!(json.contains("\"success\":true"));
         assert!(json.contains("SELECT * FROM data"));
         assert!(json.contains("postgresql"));
     }
-    
+
     #[test]
     fn test_json_output_error() {
         let formatter = JsonOutputFormatter::new();
@@ -656,30 +652,30 @@ mod tests {
             position: Some(10),
             suggestions: vec!["Check syntax".to_string()],
         };
-        
+
         let result = formatter.format_error(error_info, metadata);
         assert!(result.is_ok());
-        
+
         let json = result.unwrap();
         assert!(json.contains("\"success\":false"));
         assert!(json.contains("Invalid syntax"));
         assert!(json.contains("parse"));
     }
-    
+
     #[test]
     fn test_pretty_print() {
         let formatter = JsonOutputFormatter::pretty();
         let metadata = MetadataBuilder::new("postgresql").build();
-        
+
         let result = formatter.format_success("SELECT * FROM data", metadata);
         assert!(result.is_ok());
-        
+
         let json = result.unwrap();
         // Pretty printed JSON should contain newlines and indentation
         assert!(json.contains('\n'));
         assert!(json.contains("  "));
     }
-    
+
     #[test]
     fn test_error_info_from_transpile_error() {
         // This test would require actual TranspileError instances
@@ -690,13 +686,13 @@ mod tests {
             position: Some(5),
             suggestions: vec!["Check for invalid characters".to_string()],
         };
-        
+
         assert_eq!(error_info.error_type, "lex");
         assert_eq!(error_info.message, "Unexpected character");
         assert_eq!(error_info.position, Some(5));
         assert_eq!(error_info.suggestions.len(), 1);
     }
-    
+
     #[test]
     fn test_json_serialization() {
         let output = JsonOutput {
@@ -705,13 +701,13 @@ mod tests {
             error: None,
             metadata: MetadataBuilder::new("postgresql").build(),
         };
-        
+
         let json = serde_json::to_string(&output);
         assert!(json.is_ok());
-        
+
         let deserialized: Result<JsonOutput, _> = serde_json::from_str(&json.unwrap());
         assert!(deserialized.is_ok());
-        
+
         let deserialized = deserialized.unwrap();
         assert!(deserialized.success);
         assert_eq!(deserialized.sql, Some("SELECT * FROM data".to_string()));

@@ -1,8 +1,6 @@
 //! Unit tests for OutputFormatter module
 
-use libdplyr::cli::output_formatter::{
-    OutputFormatter, OutputFormat, FormatConfig, FormatError
-};
+use libdplyr::cli::output_formatter::{FormatConfig, FormatError, OutputFormat, OutputFormatter};
 
 #[test]
 fn test_output_format_display() {
@@ -44,7 +42,7 @@ fn test_format_config_custom() {
         indent: "    ".to_string(),
         preserve_case: false,
     };
-    
+
     assert_eq!(config.format, OutputFormat::Compact);
     assert!(!config.add_newline);
     assert_eq!(config.indent, "    ");
@@ -59,7 +57,7 @@ fn test_format_config_clone() {
         indent: "\t".to_string(),
         preserve_case: true,
     };
-    
+
     let config2 = config1.clone();
     assert_eq!(config1.format, config2.format);
     assert_eq!(config1.add_newline, config2.add_newline);
@@ -72,10 +70,10 @@ fn test_output_formatter_creation() {
     let formatter = OutputFormatter::new();
     assert_eq!(formatter.config().format, OutputFormat::Basic);
     assert!(formatter.config().add_newline);
-    
+
     let pretty_formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     assert_eq!(pretty_formatter.config().format, OutputFormat::Pretty);
-    
+
     let custom_config = FormatConfig {
         format: OutputFormat::Compact,
         add_newline: false,
@@ -92,19 +90,22 @@ fn test_output_formatter_creation() {
 fn test_output_formatter_default() {
     let formatter1 = OutputFormatter::new();
     let formatter2 = OutputFormatter::default();
-    
+
     assert_eq!(formatter1.config().format, formatter2.config().format);
-    assert_eq!(formatter1.config().add_newline, formatter2.config().add_newline);
+    assert_eq!(
+        formatter1.config().add_newline,
+        formatter2.config().add_newline
+    );
 }
 
 #[test]
 fn test_basic_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Basic);
     let sql = "SELECT   name,   age   FROM   users   WHERE   age > 18";
-    
+
     let result = formatter.format(sql).unwrap();
     assert_eq!(result, "SELECT name, age FROM users WHERE age > 18\n");
-    
+
     // Test with multiple spaces
     let sql_multi_space = "SELECT    name,     age    FROM     users";
     let result = formatter.format(sql_multi_space).unwrap();
@@ -115,7 +116,7 @@ fn test_basic_formatting() {
 fn test_basic_formatting_preserves_structure() {
     let formatter = OutputFormatter::with_format(OutputFormat::Basic);
     let sql = "SELECT name FROM users WHERE status = 'active'";
-    
+
     let result = formatter.format(sql).unwrap();
     assert_eq!(result, "SELECT name FROM users WHERE status = 'active'\n");
 }
@@ -124,9 +125,9 @@ fn test_basic_formatting_preserves_structure() {
 fn test_pretty_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT name, age FROM users WHERE age > 18 AND status = 'active' ORDER BY name";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // Check that major clauses are on separate lines
     assert!(result.contains("SELECT name, age"));
     assert!(result.contains("\nFROM users"));
@@ -140,9 +141,9 @@ fn test_pretty_formatting() {
 fn test_pretty_formatting_with_joins() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT u.name, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.age > 18";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     assert!(result.contains("SELECT u.name, o.total"));
     assert!(result.contains("\nFROM users u"));
     assert!(result.contains("LEFT JOIN orders o"));
@@ -153,9 +154,9 @@ fn test_pretty_formatting_with_joins() {
 fn test_pretty_formatting_complex_joins() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT * FROM users u INNER JOIN profiles p ON u.id = p.user_id RIGHT JOIN orders o ON u.id = o.user_id";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     assert!(result.contains("\nFROM users u"));
     assert!(result.contains("INNER JOIN profiles p"));
     assert!(result.contains("RIGHT JOIN orders o"));
@@ -165,14 +166,14 @@ fn test_pretty_formatting_complex_joins() {
 fn test_compact_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Compact);
     let sql = "SELECT   name,   age   FROM   users   WHERE   age > 18";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // Should be compact but still readable
     assert!(!result.contains("  ")); // No double spaces
     assert!(result.contains(", ")); // Proper comma spacing
     assert!(result.ends_with('\n'));
-    
+
     // Should contain all the original content
     assert!(result.contains("SELECT"));
     assert!(result.contains("name"));
@@ -186,9 +187,9 @@ fn test_compact_formatting() {
 fn test_compact_formatting_operators() {
     let formatter = OutputFormatter::with_format(OutputFormat::Compact);
     let sql = "SELECT name FROM users WHERE age >= 18 AND status != 'inactive'";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // Should handle operators properly - compact format removes spaces around operators
     assert!(result.contains("age>=18") || result.contains("age >= 18"));
     assert!(result.contains("status!='inactive'") || result.contains("status != 'inactive'"));
@@ -200,9 +201,9 @@ fn test_compact_formatting_operators() {
 fn test_json_formatting_fallback() {
     let formatter = OutputFormatter::with_format(OutputFormat::Json);
     let sql = "SELECT name FROM users";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // JSON formatting should fall back to basic formatting for now
     assert_eq!(result, "SELECT name FROM users\n");
 }
@@ -211,7 +212,7 @@ fn test_json_formatting_fallback() {
 fn test_default_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Default);
     let sql = "SELECT   name   FROM   users";
-    
+
     let result = formatter.format(sql).unwrap();
     assert_eq!(result, "SELECT name FROM users\n");
 }
@@ -219,15 +220,15 @@ fn test_default_formatting() {
 #[test]
 fn test_empty_sql_error() {
     let formatter = OutputFormatter::new();
-    
+
     let result = formatter.format("");
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), FormatError::InvalidSql(_)));
-    
+
     let result = formatter.format("   ");
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), FormatError::InvalidSql(_)));
-    
+
     let result = formatter.format("\n\t  \n");
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), FormatError::InvalidSql(_)));
@@ -237,7 +238,7 @@ fn test_empty_sql_error() {
 fn test_format_error_display() {
     let error = FormatError::InvalidSql("test error".to_string());
     assert_eq!(error.to_string(), "Invalid SQL input: test error");
-    
+
     let error = FormatError::FormattingFailed("format error".to_string());
     assert_eq!(error.to_string(), "Formatting failed: format error");
 }
@@ -246,10 +247,10 @@ fn test_format_error_display() {
 fn test_config_updates() {
     let mut formatter = OutputFormatter::new();
     assert_eq!(formatter.config().format, OutputFormat::Basic);
-    
+
     formatter.set_format(OutputFormat::Pretty);
     assert_eq!(formatter.config().format, OutputFormat::Pretty);
-    
+
     let new_config = FormatConfig {
         format: OutputFormat::Compact,
         add_newline: false,
@@ -270,7 +271,7 @@ fn test_newline_handling() {
         ..Default::default()
     };
     let formatter = OutputFormatter::with_config(config);
-    
+
     let result = formatter.format("SELECT name FROM users").unwrap();
     assert!(!result.ends_with('\n'));
     assert_eq!(result, "SELECT name FROM users");
@@ -284,7 +285,7 @@ fn test_newline_handling_enabled() {
         ..Default::default()
     };
     let formatter = OutputFormatter::with_config(config);
-    
+
     let result = formatter.format("SELECT name FROM users").unwrap();
     assert!(result.ends_with('\n'));
     assert_eq!(result, "SELECT name FROM users\n");
@@ -294,9 +295,9 @@ fn test_newline_handling_enabled() {
 fn test_complex_query_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT u.name, u.email, COUNT(o.id) as order_count FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = 'active' AND u.created_at > '2023-01-01' GROUP BY u.id, u.name, u.email HAVING COUNT(o.id) > 0 ORDER BY order_count DESC LIMIT 10";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // Check that all major clauses are on separate lines
     assert!(result.contains("SELECT u.name"));
     assert!(result.contains("\nFROM users u"));
@@ -313,9 +314,9 @@ fn test_complex_query_formatting() {
 fn test_union_queries_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT name FROM users WHERE active = true UNION SELECT name FROM archived_users UNION ALL SELECT name FROM temp_users";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     assert!(result.contains("SELECT name"));
     assert!(result.contains("\nUNION"));
     assert!(result.contains("\nUNION ALL"));
@@ -325,9 +326,9 @@ fn test_union_queries_formatting() {
 fn test_subquery_formatting() {
     let formatter = OutputFormatter::with_format(OutputFormat::Pretty);
     let sql = "SELECT name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 100) INTERSECT SELECT name FROM premium_users";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     assert!(result.contains("SELECT name"));
     assert!(result.contains("\nWHERE"));
     assert!(result.contains("\nINTERSECT"));
@@ -342,10 +343,10 @@ fn test_custom_indent_formatting() {
         preserve_case: true,
     };
     let formatter = OutputFormatter::with_config(config);
-    
+
     let sql = "SELECT name FROM users WHERE age > 18 AND status = 'active'";
     let result = formatter.format(sql).unwrap();
-    
+
     // Should use 4-space indentation for AND clause - check if formatting includes proper indentation
     assert!(result.contains("AND status") || result.contains("    AND status"));
 }
@@ -354,7 +355,7 @@ fn test_custom_indent_formatting() {
 fn test_format_error_debug() {
     let error = FormatError::InvalidSql("empty input".to_string());
     let debug_str = format!("{:?}", error);
-    
+
     assert!(debug_str.contains("InvalidSql"));
     assert!(debug_str.contains("empty input"));
 }
@@ -363,7 +364,7 @@ fn test_format_error_debug() {
 fn test_output_format_debug() {
     let format = OutputFormat::Pretty;
     let debug_str = format!("{:?}", format);
-    
+
     assert!(debug_str.contains("Pretty"));
 }
 
@@ -371,7 +372,7 @@ fn test_output_format_debug() {
 fn test_format_config_debug() {
     let config = FormatConfig::default();
     let debug_str = format!("{:?}", config);
-    
+
     assert!(debug_str.contains("FormatConfig"));
     assert!(debug_str.contains("format"));
     assert!(debug_str.contains("add_newline"));
@@ -381,21 +382,27 @@ fn test_format_config_debug() {
 fn test_output_formatter_debug() {
     let formatter = OutputFormatter::new();
     let debug_str = format!("{:?}", formatter);
-    
+
     assert!(debug_str.contains("OutputFormatter"));
 }
 
 #[test]
 fn test_whitespace_normalization() {
     let formatter = OutputFormatter::with_format(OutputFormat::Basic);
-    
+
     // Test various whitespace scenarios
     let test_cases = vec![
-        ("SELECT\n\nname\n\nFROM\n\nusers", "SELECT name FROM users\n"),
+        (
+            "SELECT\n\nname\n\nFROM\n\nusers",
+            "SELECT name FROM users\n",
+        ),
         ("SELECT\tname\tFROM\tusers", "SELECT name FROM users\n"),
-        ("SELECT  name   ,   age  FROM   users", "SELECT name , age FROM users\n"),
+        (
+            "SELECT  name   ,   age  FROM   users",
+            "SELECT name , age FROM users\n",
+        ),
     ];
-    
+
     for (input, expected) in test_cases {
         let result = formatter.format(input).unwrap();
         assert_eq!(result, expected, "Failed for input: '{}'", input);
@@ -406,9 +413,9 @@ fn test_whitespace_normalization() {
 fn test_case_preservation() {
     let formatter = OutputFormatter::with_format(OutputFormat::Basic);
     let sql = "select Name, AGE from Users where Status = 'Active'";
-    
+
     let result = formatter.format(sql).unwrap();
-    
+
     // Should preserve original case
     assert!(result.contains("select"));
     assert!(result.contains("Name"));
