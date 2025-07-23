@@ -32,7 +32,6 @@ runs:
       id: cache-key
       shell: bash
       run: |
-        # Create cache key based on OS, toolchain, and Cargo.lock
         RUST_VERSION=$(rustc --version | cut -d' ' -f2)
         
         if [ -f Cargo.lock ]; then
@@ -85,30 +84,20 @@ runs:
     - name: Configure Cargo
       shell: bash
       run: |
-        # Create Cargo config for better performance
         mkdir -p ~/.cargo
-        
-        cat > ~/.cargo/config.toml << 'EOF'
-[build]
-incremental = true
-
-[registries.crates-io]
-protocol = "sparse"
-EOF
-        
+        echo '[build]' > ~/.cargo/config.toml
+        echo 'incremental = true' >> ~/.cargo/config.toml
+        echo '' >> ~/.cargo/config.toml
+        echo '[registries.crates-io]' >> ~/.cargo/config.toml
+        echo 'protocol = "sparse"' >> ~/.cargo/config.toml
         echo "Cargo configuration updated"
 
     - name: Warm up cache
       shell: bash
       run: |
         echo "Warming up Cargo cache..."
-        
-        # Fetch dependencies without building
         cargo fetch --verbose || echo "Fetch failed, continuing..."
-        
-        # Generate Cargo.lock if it doesn't exist
         if [ ! -f Cargo.lock ]; then
           cargo generate-lockfile || echo "Generate lockfile failed, continuing..."
         fi
-        
         echo "Cache warm-up completed"
