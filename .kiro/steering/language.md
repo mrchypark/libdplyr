@@ -7,8 +7,8 @@ inclusion: always
 ## 기본 응답 언어
 - 모든 응답은 한국어로 작성해주세요
 - 기술 용어는 한국어와 영어를 병행 표기 (예: 함수(function), 변수(variable))
-- 코드 주석은 영어로 작성해주세요
-- 코드에서의 메세지도 영어로 작성해주세요.
+- use English in code comment 
+- use English in message of code 
 
 ## 응답 스타일
 - 존댓말 사용 (예: ~습니다, ~해주세요)

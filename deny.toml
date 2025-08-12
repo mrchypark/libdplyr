@@ -1,42 +1,49 @@
-# cargo-deny configuration for libdplyr project
-# This file defines security, license, and dependency policies
+# cargo-deny configuration file
+# This file is used to configure the cargo-deny tool for security auditing
 
 [graph]
-# Target triples to include in the dependency graph
-targets = []
-# Include all features in the graph analysis
-all-features = true
-# Include dev dependencies in the graph
-no-dev-dependencies = false
-
-[output]
-# Feature depth for inclusion graphs
-feature-depth = 1
+# If 1 or more target triples (and optionally, target_features) are specified,
+# only the specified targets will be checked when running `cargo deny check`.
+# This means, if a particular package is only ever used as a target specific
+# dependency, such as, for example, `winapi` or `nix`, a problem with that package
+# will not cause `cargo deny check` to fail unless the target(s) it targets are
+# also included in the target list below.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "x86_64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]
 
 [advisories]
-# Advisory database configuration
+# The path where the advisory database is cloned/fetched into
 db-path = "~/.cargo/advisory-db"
+# The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
-
-# Security vulnerability handling
+# The lint level for security vulnerabilities
 vulnerability = "deny"
-# Unmaintained crates handling
+# The lint level for unmaintained crates
 unmaintained = "warn"
-# Yanked crates handling
+# The lint level for crates that have been yanked from their source registry
 yanked = "warn"
-# Security notices handling
+# The lint level for crates with security notices. Note that as of
+# 2019-12-17 there are no security notice advisories in
+# https://github.com/rustsec/advisory-db
 notice = "warn"
-
-# Advisory IDs to ignore (add specific IDs if needed)
+# A list of advisory IDs to ignore. Note that ignored advisories will still
+# output a note when they are encountered.
 ignore = [
-  # Example: "RUSTSEC-2020-0001",
+  #"RUSTSEC-0000-0000",
 ]
 
 [licenses]
-# License detection confidence threshold
+# The confidence threshold for detecting a license from a license text.
+# The higher the value, the more closely the license text must match the
+# canonical license text of a valid SPDX license file.
 confidence-threshold = 0.8
-
-# Explicitly allowed licenses
+# List of explicitly allowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
 allow = [
   "MIT",
   "Apache-2.0",
@@ -46,63 +53,73 @@ allow = [
   "ISC",
   "Unicode-DFS-2016",
   "CC0-1.0",
-  "Unlicense",
-  "0BSD",
 ]
-
-# Explicitly disallowed licenses
-deny = [
-  "GPL-2.0",
-  "GPL-3.0",
-  "AGPL-1.0",
-  "AGPL-3.0",
-  "LGPL-2.0",
-  "LGPL-2.1",
-  "LGPL-3.0",
-]
-
-# Copyleft license handling
+# List of explicitly disallowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
+deny = ["GPL-2.0", "GPL-3.0", "AGPL-1.0", "AGPL-3.0"]
+# Lint level for when multiple versions of the same license are detected
 copyleft = "warn"
-# Unlicensed crates handling
-unlicensed = "deny"
-# Allow OSI/FSF free licenses
-allow-osi-fsf-free = "neither"
-
-# Exceptions for specific crates (if needed)
+# Blanket approval or denial for OSI-approved or FSF Free/Libre licenses
+allow-osi-fsf-free = "either"
+# Lint level used when no license is detected
+default = "deny"
+# The confidence threshold for detecting a license from a license text.
+# The higher the value, the more closely the license text must match the
+# canonical license text of a valid SPDX license file.
+# [possible values: any between 0.0 and 1.0].
+confidence-threshold = 0.8
+# Allow 1 or more licenses on a per-crate basis, so that particular licenses
+# aren't accepted for every possible crate as with the normal allow list
 exceptions = [
-  # Example: { allow = ["GPL-3.0"], name = "some-gpl-crate" },
+  # Each entry is the crate and version constraint, and its the license
+  #{ allow = ["Zlib"], name = "adler32", version = "*" },
 ]
 
 [bans]
-# Multiple versions of the same crate
+# Lint level for when multiple versions of the same crate are detected
 multiple-versions = "warn"
-# Wildcard version requirements
+# Lint level for when a crate version requirement is `*`
 wildcards = "allow"
-# Graph highlighting for dotgraphs
+# The graph highlighting used when creating dotgraphs for crates
+# with multiple versions
+# * lowest-version - The path to the lowest versioned duplicate is highlighted
+# * simplest-path - The path to the version with the fewest edges is highlighted
+# * all - Both lowest-version and simplest-path are used
 highlight = "all"
-
-# Explicitly allowed crates (use sparingly)
-allow = []
-
-# Explicitly denied crates
+# List of crates that are allowed. Use with care!
+allow = [
+  #{ name = "ansi_term", version = "=0.11.0" },
+]
+# List of crates to deny
 deny = [
-  # Example security-problematic crates
-  # { name = "openssl", version = "< 0.10.55" },
+  # Each entry the name of a crate and a version range. If version is
+  # not specified, all versions will be matched.
+  #{ name = "ansi_term", version = "=0.11.0" },
+
+  # Wrapper crates can optionally be specified to allow the crate when it
+  # is a direct dependency of the otherwise banned crate
+  #{ name = "ansi_term", version = "=0.11.0", wrappers = [] },
+]
+# Certain crates/versions that will be skipped when doing duplicate detection.
+skip = [
+  #{ name = "ansi_term", version = "=0.11.0" },
+]
+# Similarly to `skip` allows you to skip certain crates from being checked. Unlike
+# `skip`, a skipped crate is removed from the dependency graph entirely and so
+# will not be checked for any other criteria such as license or sources.
+skip-tree = [
+  #{ name = "ansi_term", version = "=0.11.0", depth = 20 },
 ]
 
-# Skip certain crates from duplicate detection
-skip = []
-# Skip entire dependency trees
-skip-tree = []
-
 [sources]
-# Unknown registry handling
+# Lint level for what to happen when a crate from a crate registry that is
+# not in the allow list is encountered
 unknown-registry = "warn"
-# Unknown git repository handling
+# Lint level for what to happen when a crate from a git repository that is not
+# in the allow list is encountered
 unknown-git = "warn"
-
-# Allowed registries
+# List of URLs for allowed crate registries. Defaults to the crates.io index
+# if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-
-# Allowed git repositories (add if using git dependencies)
+# List of URLs for allowed Git repositories
 allow-git = []
