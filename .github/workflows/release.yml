@@ -8,6 +8,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
 jobs:
   create-release:
     name: Create Release
