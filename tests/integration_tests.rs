@@ -738,8 +738,7 @@ fn test_dialect_specific_functions() {
 
     // PostgreSQL might not support median, but should still attempt to transpile
     // The specific behavior depends on implementation
-    if pg_result.is_ok() {
-        let pg_sql = pg_result.unwrap();
+    if let Ok(pg_sql) = pg_result {
         // If successful, should contain some form of median handling
         assert!(!pg_sql.is_empty(), "PostgreSQL should generate some SQL");
     }
