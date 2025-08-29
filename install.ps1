@@ -1,247 +1,103 @@
 # libdplyr installation script for Windows
-# Supports Windows 10/11 with PowerShell 5.1+
+# Usage: Irm https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex
 
 param(
-    [string]$Version = "0.1.0",
-    [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [switch]$Latest,
+    [string]$Version = "",
+    [string]$InstallDir = "$env:LOCALAPPDATA\libdplyr\bin",
     [switch]$Help
 )
 
-# Configuration
-$REPO = "example/libdplyr"  # Change this to your actual GitHub repository path
+$ErrorActionPreference = "Stop"
+$REPO = "mrchypark/libdplyr"
+$BINARY_NAME = "libdplyr.exe"
+$DEFAULT_VERSION = "0.1.0"
 
-# Color definitions for console output
-$Colors = @{
-    Red = "Red"
-    Green = "Green"
-    Yellow = "Yellow"
-    Blue = "Blue"
-    White = "White"
-}
+function Write-Info { param([string]$Message); Write-Host "[INFO] $Message" -ForegroundColor Blue }
+function Write-Success { param([string]$Message); Write-Host "[SUCCESS] $Message" -ForegroundColor Green }
+function Write-Warning { param([string]$Message); Write-Host "[WARNING] $Message" -ForegroundColor Yellow }
+function Write-Error { param([string]$Message); Write-Host "[ERROR] $Message" -ForegroundColor Red }
 
-# Logging functions
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[INFO] $Message" -ForegroundColor $Colors.Blue
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[SUCCESS] $Message" -ForegroundColor $Colors.Green
-}
-
-function Write-Warning {
-    param([string]$Message)
-    Write-Host "[WARNING] $Message" -ForegroundColor $Colors.Yellow
-}
-
-function Write-Error {
-    param([string]$Message)
-    Write-Host "[ERROR] $Message" -ForegroundColor $Colors.Red
-}
-
-# Show help
 function Show-Help {
-    Write-Host @"
-libdplyr installation script for Windows
-
-Usage:
-  .\install.ps1 [options]
-
-Options:
-  -Version <VERSION>      Install specific version
-  -InstallDir <DIRECTORY> Specify installation directory (default: $env:USERPROFILE\.local\bin)
-  -Latest                 Force check for latest version
-  -Help                   Show this help message
-
-Examples:
-  .\install.ps1                           # Install latest version
-  .\install.ps1 -Version 0.2.0           # Install specific version
-  .\install.ps1 -InstallDir "C:\Tools"   # Custom installation directory
-
-Environment variables:
-  LIBDPLYR_INSTALL_DIR    Installation directory override
-
-"@
+    Write-Host "libdplyr installation script for Windows"
+    Write-Host "Usage: .\install.ps1 [OPTIONS]"
+    Write-Host "Options:"
+    Write-Host "  -Version VERSION     Install specific version (default: latest)"
+    Write-Host "  -InstallDir DIR      Installation directory"
+    Write-Host "  -Help               Show this help message"
 }
 
-# Detect system architecture
-function Get-SystemArchitecture {
-    $arch = $env:PROCESSOR_ARCHITECTURE
-    switch ($arch) {
-        "AMD64" { return "x86_64" }
-        "ARM64" { return "aarch64" }
-        default {
-            Write-Error "Unsupported architecture: $arch"
-            exit 1
-        }
-    }
-}
-
-# Get latest version from GitHub API
 function Get-LatestVersion {
     try {
-        Write-Info "Fetching latest version from GitHub..."
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest" -Method Get
-        $latestVersion = $response.tag_name -replace '^v', ''
-        Write-Info "Latest version: $latestVersion"
-        return $latestVersion
-    }
-    catch {
-        Write-Warning "Could not fetch latest version. Using default version $Version."
-        return $Version
+        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest"
+        return $response.tag_name -replace '^v', ''
+    } catch {
+        Write-Warning "Could not fetch latest version"
+        return $null
     }
 }
 
-# Generate download URL
-function Get-DownloadUrl {
-    param([string]$Version, [string]$Architecture)
-    
-    $filename = "libdplyr-windows-$Architecture.exe.zip"
-    $url = "https://github.com/$REPO/releases/download/v$Version/$filename"
-    Write-Info "Download URL: $url"
-    return $url
-}
-
-# Download and install binary
 function Install-Binary {
-    param([string]$DownloadUrl, [string]$InstallDir, [string]$Version)
+    param([string]$Version, [string]$InstallDirectory)
     
-    # Create temporary directory
+    $platform = "windows-x86_64"
+    $filename = "libdplyr-v$Version-$platform"
+    $archiveName = "$filename.zip"
+    $downloadUrl = "https://github.com/$REPO/releases/download/v$Version/$archiveName"
+    
+    Write-Info "Downloading libdplyr v$Version..."
+    
     $tempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
-    Write-Info "Temporary directory: $tempDir"
+    $archivePath = Join-Path $tempDir $archiveName
     
-    try {
-        # Download
-        Write-Info "Downloading libdplyr v$Version..."
-        $zipPath = Join-Path $tempDir "libdplyr.zip"
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $zipPath -UseBasicParsing
-        
-        # Extract
-        Write-Info "Extracting archive..."
-        Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
-        
-        # Create install directory
-        if (-not (Test-Path $InstallDir)) {
-            New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        }
-        
-        # Copy binary
-        Write-Info "Installing to $InstallDir..."
-        $exePath = Get-ChildItem -Path $tempDir -Filter "*.exe" | Select-Object -First 1
-        if ($exePath) {
-            Copy-Item -Path $exePath.FullName -Destination (Join-Path $InstallDir "libdplyr.exe") -Force
-        } else {
-            Write-Error "Could not find libdplyr.exe in the downloaded archive"
-            exit 1
-        }
-        
-        Write-Success "libdplyr v$Version has been successfully installed!"
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath -UseBasicParsing
+    Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
+    
+    $binaryPath = Get-ChildItem -Path $tempDir -Name $BINARY_NAME -Recurse | Select-Object -First 1
+    if (-not $binaryPath) { throw "Binary not found in archive" }
+    
+    if (-not (Test-Path $InstallDirectory)) {
+        New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
     }
-    finally {
-        # Clean up temporary files
-        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    
+    $destinationPath = Join-Path $InstallDirectory $BINARY_NAME
+    Copy-Item -Path (Join-Path $tempDir $binaryPath) -Destination $destinationPath -Force
+    Remove-Item -Path $tempDir -Recurse -Force
+    
+    Write-Success "libdplyr v$Version installed successfully!"
+    return $destinationPath
 }
 
-# Check PATH and provide guidance
-function Test-PathConfiguration {
-    param([string]$InstallDir)
+function Add-ToPath {
+    param([string]$Directory)
     
-    $currentPath = $env:PATH -split ';'
-    if ($InstallDir -notin $currentPath) {
-        Write-Warning "$InstallDir is not in your PATH."
-        Write-Host ""
-        Write-Host "To add it to your PATH permanently, run one of the following:"
-        Write-Host ""
-        Write-Host "For current user only:"
-        Write-Host "  [Environment]::SetEnvironmentVariable('PATH', `$env:PATH + ';$InstallDir', 'User')" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "For system-wide (requires admin):"
-        Write-Host "  [Environment]::SetEnvironmentVariable('PATH', `$env:PATH + ';$InstallDir', 'Machine')" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Or for the current session only:"
-        Write-Host "  `$env:PATH += ';$InstallDir'" -ForegroundColor Cyan
-        Write-Host ""
-    }
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($currentPath -split ';' -contains $Directory) { return }
+    
+    $newPath = if ($currentPath) { "$currentPath;$Directory" } else { $Directory }
+    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    $env:PATH = "$env:PATH;$Directory"
+    
+    Write-Success "Added to PATH successfully!"
 }
 
-# Verify installation
-function Test-Installation {
-    param([string]$InstallDir)
-    
-    $exePath = Join-Path $InstallDir "libdplyr.exe"
-    if (Test-Path $exePath) {
-        Write-Success "Installation verified: $exePath"
-        
-        # Check version
-        try {
-            $versionOutput = & $exePath --version 2>$null
-            if ($versionOutput) {
-                $installedVersion = ($versionOutput | Select-String '\d+\.\d+\.\d+').Matches[0].Value
-                Write-Success "Installed version: $installedVersion"
-            }
-        }
-        catch {
-            Write-Warning "Could not verify version, but binary exists"
-        }
-        
-        Write-Host ""
-        Write-Host "Usage:"
-        Write-Host "  libdplyr --help"
-        Write-Host "  echo 'data %>% select(name, age)' | libdplyr --dialect postgresql"
-    }
-    else {
-        Write-Error "Installation verification failed"
-        exit 1
-    }
+if ($Help) { Show-Help; return }
+
+Write-Info "Starting libdplyr installation..."
+
+$versionToInstall = if ($Version) { $Version } else { 
+    $latest = Get-LatestVersion
+    if ($latest) { $latest } else { $DEFAULT_VERSION }
 }
 
-# Main function
-function Main {
-    # Show help if requested
-    if ($Help) {
-        Show-Help
-        exit 0
-    }
-    
-    # Check for environment variable override
-    if ($env:LIBDPLYR_INSTALL_DIR) {
-        $InstallDir = $env:LIBDPLYR_INSTALL_DIR
-    }
-    
-    Write-Info "Starting libdplyr installation script"
-    
-    # Detect system architecture
-    $architecture = Get-SystemArchitecture
-    Write-Info "Detected architecture: $architecture"
-    
-    # Get latest version if requested or using default
-    if ($Latest -or $Version -eq "0.1.0") {
-        $Version = Get-LatestVersion
-    }
-    
-    # Generate download URL
-    $downloadUrl = Get-DownloadUrl -Version $Version -Architecture $architecture
-    
-    # Execute installation
-    Install-Binary -DownloadUrl $downloadUrl -InstallDir $InstallDir -Version $Version
-    
-    # Check PATH configuration
-    Test-PathConfiguration -InstallDir $InstallDir
-    
-    # Verify installation
-    Test-Installation -InstallDir $InstallDir
-    
-    Write-Success "Installation completed!"
-}
+Write-Info "Installing version: $versionToInstall"
 
-# Execute main function
 try {
-    Main
-}
-catch {
+    $binaryPath = Install-Binary -Version $versionToInstall -InstallDirectory $InstallDir
+    Add-ToPath -Directory $InstallDir
+    
+    Write-Success "Installation complete!"
+    Write-Host "Run 'libdplyr --help' to get started"
+} catch {
     Write-Error "Installation failed: $($_.Exception.Message)"
     exit 1
 }

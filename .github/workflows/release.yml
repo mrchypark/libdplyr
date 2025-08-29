@@ -16,48 +16,67 @@ jobs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Get version from tag
       id: get_version
       run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+    - name: Generate changelog
+      id: changelog
+      run: |
+        if [ -f CHANGELOG.md ]; then
+          # Extract changelog for this version
+          awk '/^## \[?v?${{ steps.get_version.outputs.version }}\]?/{flag=1; next} /^## \[?v?[0-9]/{flag=0} flag' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "### Changes in v${{ steps.get_version.outputs.version }}" > release_notes.md
+            echo "See the full changelog for details." >> release_notes.md
+          fi
+        else
+          echo "### Release v${{ steps.get_version.outputs.version }}" > release_notes.md
+          echo "Binary releases for multiple platforms are now available." >> release_notes.md
+        fi
+
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release v${{ steps.get_version.outputs.version }}
+        tag_name: ${{ github.ref_name }}
+        name: Release v${{ steps.get_version.outputs.version }}
+        body_path: release_notes.md
         draft: false
-        prerelease: false
+        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        generate_release_notes: true
 
   build-release:
     name: Build Release
     needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: libdplyr
-            asset_name: libdplyr-linux-x86_64
+            asset_name: libdplyr-v${{ needs.create-release.outputs.version }}-linux-x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact_name: libdplyr
-            asset_name: libdplyr-linux-x86_64-musl
+            asset_name: libdplyr-v${{ needs.create-release.outputs.version }}-linux-x86_64-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: libdplyr.exe
-            asset_name: libdplyr-windows-x86_64.exe
+            asset_name: libdplyr-v${{ needs.create-release.outputs.version }}-windows-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: libdplyr
-            asset_name: libdplyr-macos-x86_64
+            asset_name: libdplyr-v${{ needs.create-release.outputs.version }}-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: libdplyr
-            asset_name: libdplyr-macos-aarch64
+            asset_name: libdplyr-v${{ needs.create-release.outputs.version }}-macos-aarch64
 
     steps:
     - name: Checkout code
@@ -79,42 +98,65 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-
 
     - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }}
+      run: cargo build --release --target ${{ matrix.target }} --locked
 
     - name: Strip binary (Unix only)
       if: matrix.os != 'windows-latest'
       run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
+    - name: Create README for release
+      shell: bash
+      run: |
+        cat > release_readme.txt << 'EOF'
+        libdplyr v${{ needs.create-release.outputs.version }}
+        
+        A Rust-based transpiler that converts R dplyr syntax to SQL queries.
+        
+        Usage:
+          ./libdplyr --help                    # Show help
+          ./libdplyr -t "data %>% select(name, age)"  # Convert dplyr to SQL
+          ./libdplyr -i input.R -o output.sql # Convert file
+        
+        For more information, visit: https://github.com/mrchypark/libdplyr
+        EOF
+
     - name: Create archive
       shell: bash
       run: |
+        mkdir -p release_files
+        cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release_files/
+        cp release_readme.txt release_files/README.txt
+        cp LICENSE release_files/ 2>/dev/null || echo "No LICENSE file found"
+        
         if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-          7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }}
+          cd release_files
+          7z a ../${{ matrix.asset_name }}.zip *
+          cd ..
           echo "ASSET=${{ matrix.asset_name }}.zip" >> $GITHUB_ENV
+          echo "ASSET_CONTENT_TYPE=application/zip" >> $GITHUB_ENV
         else
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-          tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }}
+          tar czf ${{ matrix.asset_name }}.tar.gz -C release_files .
           echo "ASSET=${{ matrix.asset_name }}.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
         fi
 
     - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./${{ env.ASSET }}
-        asset_name: ${{ env.ASSET }}
-        asset_content_type: application/octet-stream
+        tag_name: v${{ needs.create-release.outputs.version }}
+        files: ${{ env.ASSET }}
+        fail_on_unmatched_files: true
 
   publish-crate:
     name: Publish to crates.io
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    if: "!contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc')"
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -122,26 +164,95 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Verify version matches tag
+      run: |
+        CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+        TAG_VERSION="${{ needs.create-release.outputs.version }}"
+        if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+          echo "Version mismatch: Cargo.toml has $CARGO_VERSION, tag is $TAG_VERSION"
+          exit 1
+        fi
+
     - name: Publish to crates.io
       run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      continue-on-error: true
 
   update-install-script:
     name: Update Install Script
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    if: "!contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc')"
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update install script version
       run: |
-        sed -i 's/VERSION=".*"/VERSION="${{ needs.create-release.outputs.version }}"/' install.sh
-        sed -i 's/VERSION=".*"/VERSION="${{ needs.create-release.outputs.version }}"/' install.ps1
+        VERSION="${{ needs.create-release.outputs.version }}"
+        
+        # Update install.sh if it exists
+        if [ -f install.sh ]; then
+          sed -i "s/VERSION=\".*\"/VERSION=\"$VERSION\"/" install.sh
+          sed -i "s/version=\".*\"/version=\"$VERSION\"/" install.sh
+        fi
+        
+        # Update install.ps1 if it exists
+        if [ -f install.ps1 ]; then
+          sed -i "s/\$VERSION = \".*\"/\$VERSION = \"$VERSION\"/" install.ps1
+          sed -i "s/\$version = \".*\"/\$version = \"$VERSION\"/" install.ps1
+        fi
 
     - name: Commit and push updated install scripts
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add install.sh install.ps1
-        git commit -m "Update install scripts to version ${{ needs.create-release.outputs.version }}" || exit 0
+        
+        if git diff --quiet; then
+          echo "No changes to commit"
+          exit 0
+        fi
+        
+        git add install.sh install.ps1 2>/dev/null || true
+        git commit -m "chore: update install scripts to version ${{ needs.create-release.outputs.version }}" || exit 0
         git push
+
+  create-checksums:
+    name: Create Checksums
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create checksums
+      run: |
+        cd artifacts
+        find . -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          if [ -f "$file" ]; then
+            sha256sum "$file" >> ../checksums.txt
+            md5sum "$file" >> ../checksums_md5.txt
+          fi
+        done
+        cd ..
+        
+        if [ -s checksums.txt ]; then
+          echo "SHA256 Checksums:" > release_checksums.txt
+          cat checksums.txt >> release_checksums.txt
+          echo "" >> release_checksums.txt
+          echo "MD5 Checksums:" >> release_checksums.txt
+          cat checksums_md5.txt >> release_checksums.txt
+        fi
+
+    - name: Upload checksums
+      uses: softprops/action-gh-release@v2
+      if: hashFiles('release_checksums.txt') != ''
+      with:
+        tag_name: v${{ needs.create-release.outputs.version }}
+        files: |
+          release_checksums.txt
+          checksums.txt
+          checksums_md5.txt
