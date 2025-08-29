@@ -17,6 +17,8 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
@@ -58,6 +60,8 @@ jobs:
     name: Build Release
     needs: create-release
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -142,25 +146,41 @@ jobs:
           cd release_files
           7z a ../${{ matrix.asset_name }}.zip *
           cd ..
-          echo "ASSET=${{ matrix.asset_name }}.zip" >> $GITHUB_ENV
+          ASSET="${{ matrix.asset_name }}.zip"
           echo "ASSET_CONTENT_TYPE=application/zip" >> $GITHUB_ENV
         else
           tar czf ${{ matrix.asset_name }}.tar.gz -C release_files .
-          echo "ASSET=${{ matrix.asset_name }}.tar.gz" >> $GITHUB_ENV
+          ASSET="${{ matrix.asset_name }}.tar.gz"
           echo "ASSET_CONTENT_TYPE=application/gzip" >> $GITHUB_ENV
         fi
+        
+        echo "ASSET=$ASSET" >> $GITHUB_ENV
+        echo "Created asset: $ASSET"
+        
+        # Generate checksums
+        sha256sum "$ASSET" > "${ASSET}.sha256"
+        md5sum "$ASSET" > "${ASSET}.md5"
+        
+        echo "Generated files:"
+        ls -la "$ASSET"*
 
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v${{ needs.create-release.outputs.version }}
-        files: ${{ env.ASSET }}
+        tag_name: ${{ github.ref_name }}
+        files: |
+          ${{ env.ASSET }}
+          ${{ env.ASSET }}.sha256
+          ${{ env.ASSET }}.md5
         fail_on_unmatched_files: true
+        append_body: false
 
   publish-crate:
     name: Publish to crates.io
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: "!contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc')"
     steps:
     - name: Checkout code
@@ -186,78 +206,126 @@ jobs:
     name: Update Install Script
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: "!contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc')"
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup git configuration
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+    - name: Switch to main branch safely
+      run: |
+        # Check if main branch exists locally
+        if git show-ref --verify --quiet refs/heads/main; then
+          echo "Main branch exists locally, switching to it"
+          git checkout main
+        elif git show-ref --verify --quiet refs/remotes/origin/main; then
+          echo "Main branch exists on remote, creating local branch"
+          git checkout -b main origin/main
+        else
+          echo "Main branch doesn't exist, creating new one"
+          git checkout -b main
+        fi
+        
+        # Ensure we're on the right commit
+        git pull origin main || echo "No remote main branch to pull from"
 
     - name: Update install script version
       run: |
         VERSION="${{ needs.create-release.outputs.version }}"
+        echo "Updating install scripts to version: $VERSION"
         
         # Update install.sh if it exists
         if [ -f install.sh ]; then
-          sed -i "s/VERSION=\".*\"/VERSION=\"$VERSION\"/" install.sh
-          sed -i "s/version=\".*\"/version=\"$VERSION\"/" install.sh
+          echo "Updating install.sh"
+          # Update VERSION variable
+          sed -i.bak "s/^VERSION=\"[^\"]*\"/VERSION=\"$VERSION\"/" install.sh
+          # Update DEFAULT_VERSION variable if exists
+          sed -i.bak "s/^DEFAULT_VERSION=\"[^\"]*\"/DEFAULT_VERSION=\"$VERSION\"/" install.sh
+          rm -f install.sh.bak
+          echo "Updated install.sh"
         fi
         
         # Update install.ps1 if it exists
         if [ -f install.ps1 ]; then
-          sed -i "s/\$VERSION = \".*\"/\$VERSION = \"$VERSION\"/" install.ps1
-          sed -i "s/\$version = \".*\"/\$version = \"$VERSION\"/" install.ps1
+          echo "Updating install.ps1"
+          # Update DEFAULT_VERSION variable
+          sed -i.bak "s/^\\\$DEFAULT_VERSION = \"[^\"]*\"/\$DEFAULT_VERSION = \"$VERSION\"/" install.ps1
+          rm -f install.ps1.bak
+          echo "Updated install.ps1"
         fi
-
-    - name: Commit and push updated install scripts
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
         
-        if git diff --quiet; then
+        echo "Version update completed"
+
+    - name: Check for changes and commit
+      run: |
+        echo "Checking for changes..."
+        git status
+        
+        if git diff --quiet && git diff --cached --quiet; then
           echo "No changes to commit"
           exit 0
         fi
         
+        echo "Changes detected, committing..."
         git add install.sh install.ps1 2>/dev/null || true
-        git commit -m "chore: update install scripts to version ${{ needs.create-release.outputs.version }}" || exit 0
-        git push
+        
+        if git commit -m "chore: update install scripts to version ${{ needs.create-release.outputs.version }}"; then
+          echo "Committed successfully, pushing to main..."
+          git push origin main
+          echo "Push completed successfully"
+        else
+          echo "Commit failed or no changes to commit"
+        fi
+      continue-on-error: true
 
   create-checksums:
     name: Create Checksums
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Create checksums
+    - name: Create checksums documentation
       run: |
-        cd artifacts
-        find . -name "*.tar.gz" -o -name "*.zip" | while read file; do
-          if [ -f "$file" ]; then
-            sha256sum "$file" >> ../checksums.txt
-            md5sum "$file" >> ../checksums_md5.txt
-          fi
-        done
-        cd ..
-        
-        if [ -s checksums.txt ]; then
-          echo "SHA256 Checksums:" > release_checksums.txt
-          cat checksums.txt >> release_checksums.txt
-          echo "" >> release_checksums.txt
-          echo "MD5 Checksums:" >> release_checksums.txt
-          cat checksums_md5.txt >> release_checksums.txt
-        fi
+        echo "# libdplyr ${{ github.ref_name }} - Release Checksums" > release_checksums.md
+        echo "" >> release_checksums.md
+        echo "This release includes binaries for multiple platforms." >> release_checksums.md
+        echo "" >> release_checksums.md
+        echo "## Available Downloads" >> release_checksums.md
+        echo "- Linux x86_64 (glibc): \`libdplyr-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz\`" >> release_checksums.md
+        echo "- Linux x86_64 (musl): \`libdplyr-${{ needs.create-release.outputs.version }}-linux-x86_64-musl.tar.gz\`" >> release_checksums.md
+        echo "- Windows x86_64: \`libdplyr-${{ needs.create-release.outputs.version }}-windows-x86_64.zip\`" >> release_checksums.md
+        echo "- macOS x86_64: \`libdplyr-${{ needs.create-release.outputs.version }}-macos-x86_64.tar.gz\`" >> release_checksums.md
+        echo "- macOS ARM64: \`libdplyr-${{ needs.create-release.outputs.version }}-macos-aarch64.tar.gz\`" >> release_checksums.md
+        echo "" >> release_checksums.md
+        echo "## Installation" >> release_checksums.md
+        echo "Use the install script for automatic installation:" >> release_checksums.md
+        echo '```bash' >> release_checksums.md
+        echo "# Linux/macOS" >> release_checksums.md
+        echo "curl -fsSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash" >> release_checksums.md
+        echo "" >> release_checksums.md
+        echo "# Windows PowerShell" >> release_checksums.md
+        echo "iwr -useb https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex" >> release_checksums.md
+        echo '```' >> release_checksums.md
+        echo "" >> release_checksums.md
+        echo "## Manual Verification" >> release_checksums.md
+        echo "Each binary archive includes SHA256 and MD5 checksums for verification." >> release_checksums.md
 
-    - name: Upload checksums
+    - name: Upload checksums documentation
       uses: softprops/action-gh-release@v2
-      if: hashFiles('release_checksums.txt') != ''
       with:
-        tag_name: v${{ needs.create-release.outputs.version }}
-        files: |
-          release_checksums.txt
-          checksums.txt
-          checksums_md5.txt
+        tag_name: ${{ github.ref_name }}
+        files: release_checksums.md
+        append_body: false
