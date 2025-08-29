@@ -5,6 +5,8 @@ A Rust-based transpiler that converts R dplyr syntax to SQL queries.
 [![Crates.io](https://img.shields.io/crates/v/libdplyr.svg)](https://crates.io/crates/libdplyr)
 [![Documentation](https://docs.rs/libdplyr/badge.svg)](https://docs.rs/libdplyr)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/mrchypark/libdplyr/workflows/CI/badge.svg)](https://github.com/mrchypark/libdplyr/actions)
+[![codecov](https://codecov.io/gh/mrchypark/libdplyr/branch/main/graph/badge.svg)](https://codecov.io/gh/mrchypark/libdplyr)
 
 ## Overview
 
