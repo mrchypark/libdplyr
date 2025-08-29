@@ -676,8 +676,6 @@ fn test_signal_handling() {
 #[test]
 #[cfg(windows)]
 fn test_signal_handling() {
-    use std::thread;
-    use std::time::Duration;
 
     let mut child = Command::new(get_libdplyr_path())
         .stdin(Stdio::piped())

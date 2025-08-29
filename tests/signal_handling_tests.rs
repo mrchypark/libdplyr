@@ -224,8 +224,7 @@ mod non_unix_tests {
         // Signal handler creation should still work but may have limited functionality
         let handler = SignalHandler::new();
         // This might fail on non-Unix systems, which is acceptable
-        if handler.is_ok() {
-            let handler = handler.unwrap();
+        if let Ok(handler) = handler {
             assert!(
                 !handler.should_shutdown(),
                 "Should not be shutdown initially"
