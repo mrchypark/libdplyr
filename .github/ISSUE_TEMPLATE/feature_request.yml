@@ -1,0 +1,179 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for the DuckDB dplyr extension
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide as much detail as possible to help us understand and evaluate your request.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please verify these items before submitting
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have checked the documentation to see if this feature already exists
+          required: true
+        - label: This feature request is specific to the DuckDB dplyr extension
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A brief summary of the feature you'd like to see
+      placeholder: Add support for dplyr's pivot_longer() function
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What category does this feature fall into?
+      options:
+        - dplyr Function Support
+        - SQL Generation Enhancement
+        - Performance Improvement
+        - Error Handling
+        - Developer Experience
+        - Documentation
+        - Testing/Quality
+        - Platform Support
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation and Use Case
+      description: Why is this feature needed? What problem does it solve?
+      placeholder: |
+        This feature would help users who need to reshape data from wide to long format,
+        which is a common data manipulation task in R/dplyr workflows.
+    validations:
+      required: true
+
+  - type: textarea
+    id: detailed-description
+    attributes:
+      label: Detailed Description
+      description: Provide a detailed description of the proposed feature
+      placeholder: |
+        The pivot_longer() function should:
+        1. Accept column specifications for columns to pivot
+        2. Support names_to and values_to parameters
+        3. Handle different data types appropriately
+        4. Generate efficient SQL using UNPIVOT or equivalent constructs
+
+  - type: textarea
+    id: example-usage
+    attributes:
+      label: Example Usage
+      description: Show how you would like to use this feature
+      placeholder: |
+        # R/dplyr syntax
+        data %>%
+          pivot_longer(
+            cols = c(col1, col2, col3),
+            names_to = "variable",
+            values_to = "value"
+          )
+      render: r
+
+  - type: textarea
+    id: expected-sql
+    attributes:
+      label: Expected SQL Output
+      description: What SQL should be generated (if applicable)
+      placeholder: |
+        SELECT id, 'col1' as variable, col1 as value FROM data
+        UNION ALL
+        SELECT id, 'col2' as variable, col2 as value FROM data
+        UNION ALL
+        SELECT id, 'col3' as variable, col3 as value FROM data
+      render: sql
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Low (nice to have)
+        - Medium (would be helpful)
+        - High (important for my use case)
+        - Critical (blocking my adoption)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated Complexity
+      description: How complex do you think this feature would be to implement?
+      options:
+        - Low (simple addition)
+        - Medium (moderate changes required)
+        - High (significant implementation effort)
+        - Unknown
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What alternatives have you considered or tried?
+      placeholder: |
+        - Using raw SQL with UNPIVOT
+        - Pre-processing data outside of DuckDB
+        - Using other dplyr functions as workaround
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or references
+      placeholder: |
+        - Links to R documentation
+        - Similar features in other tools
+        - Performance considerations
+        - Compatibility requirements
+
+  - type: checkboxes
+    id: dplyr-compatibility
+    attributes:
+      label: dplyr Compatibility
+      description: Compatibility considerations
+      options:
+        - label: This feature exists in R's dplyr package
+        - label: This feature should match R dplyr behavior exactly
+        - label: This feature could have DuckDB-specific enhancements
+        - label: This is a new feature not in R dplyr
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Are you willing to help implement this feature?
+      options:
+        - label: I am willing to submit a pull request to implement this feature
+        - label: I can help with testing and validation
+        - label: I can provide domain expertise and feedback
+        - label: I can help with documentation
+
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation Notes
+      description: Any thoughts on how this could be implemented?
+      placeholder: |
+        - Could leverage DuckDB's UNPIVOT functionality
+        - Might need new AST nodes in the parser
+        - Should consider performance implications for large datasets

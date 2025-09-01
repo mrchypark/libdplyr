@@ -1,0 +1,38 @@
+# cppcheck configuration for C++ static analysis
+# R7-AC4: C++ code quality checks
+
+# Enable all checks
+enable=all
+
+# Inconclusive checks
+inconclusive
+
+# Suppress specific warnings
+suppress=missingIncludeSystem
+suppress=unmatchedSuppression
+suppress=unusedFunction:tests/*
+suppress=unusedFunction:benches/*
+
+# Include paths
+include=extension/include/
+
+# Platform settings
+platform=unix64
+
+# Language standard
+std=c++17
+
+# Max configurations to check
+max-configs=10
+
+# Inline suppressions
+inline-suppr
+
+# Check configuration
+check-config
+
+# Force checking of all configurations
+force
+
+# Report progress
+verbose
