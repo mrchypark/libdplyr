@@ -1,4 +1,100 @@
-uckDB CLI
+name: Performance Testing
+
+# R6-AC1, R6-AC2: Performance target validation and regression detection
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      benchmark_duration:
+        description: 'Benchmark duration in seconds'
+        required: false
+        default: '30'
+        type: string
+      sample_size:
+        description: 'Sample size for benchmarks'
+        required: false
+        default: '1000'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # =============================================================================
+  # Performance Benchmarks
+  # =============================================================================
+  performance-benchmarks:
+    name: Performance Benchmarks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-linux-amd64.zip"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-osx-universal.zip"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-windows-amd64.zip"
+
+    steps:
+    # -------------------------------------------------------------------------
+    # Environment Setup
+    # -------------------------------------------------------------------------
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: performance-${{ matrix.target }}
+
+    - name: Install CMake
+      uses: jwlawson/actions-setup-cmake@v1.14
+      with:
+        cmake-version: '3.20'
+
+    # -------------------------------------------------------------------------
+    # Platform-specific Dependencies
+    # -------------------------------------------------------------------------
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libssl-dev unzip
+
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew install pkg-config openssl
+
+    - name: Install Windows dependencies
+      if: runner.os == 'Windows'
+      run: |
+        # Windows dependencies handled by vcpkg
+        echo "Windows dependencies configured"
+
+    # -------------------------------------------------------------------------
+    # Download and Install DuckDB CLI
     # -------------------------------------------------------------------------
     - name: Download and install DuckDB CLI
       shell: bash
@@ -190,7 +286,7 @@ uckDB CLI
       run: |
         mkdir -p performance-report
         
-        cat > performance-report/README.md << EOF
+        cat > performance-report/README.md << 'EOF'
         # Performance Test Report
         
         **Generated**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")  
@@ -222,7 +318,7 @@ uckDB CLI
           fi
         done
         
-        cat >> performance-report/README.md << EOF
+        cat >> performance-report/README.md << 'EOF'
         
         ## Benchmark Categories
         
@@ -256,17 +352,11 @@ uckDB CLI
           fi
         done
         
-        cat >> performance-report/README.md << EOF
+        cat >> performance-report/README.md << 'EOF'
         
         ## Performance Trends
         
-        $(if [ "${{ github.event_name }}" = "schedule" ]; then
-          echo "This is a scheduled performance monitoring run."
-        elif [ "${{ github.event_name }}" = "pull_request" ]; then
-          echo "This is a pull request performance validation."
-        else
-          echo "This is a push-triggered performance validation."
-        fi)
+        This is a performance validation run.
         
         ### Key Metrics Summary
         - All performance targets met ✅
