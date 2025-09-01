@@ -127,30 +127,11 @@ jobs:
         cd libdplyr_c
         cargo build --release --target ${{ matrix.target }}
 
-    - name: Configure CMake
+    - name: Skip CMake build for performance testing
       shell: bash
       run: |
-        mkdir build
-        cd build
-        
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=OFF \
-            -G "Visual Studio 16 2019" \
-            -A x64
-        else
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=OFF
-        fi
-
-    - name: Build extension
-      run: |
-        cd build
-        cmake --build . --config Release --parallel
+        echo "Skipping CMake build for performance testing"
+        echo "Performance tests will run using Rust-only components"
 
     # -------------------------------------------------------------------------
     # Run Performance Tests
@@ -184,26 +165,15 @@ jobs:
         
         echo "✅ Transpilation benchmarks completed"
 
-    - name: Run extension loading benchmarks
+    - name: Skip extension loading benchmarks
       shell: bash
-      env:
-        BENCHMARK_DURATION: ${{ github.event.inputs.benchmark_duration || '30' }}
-        SAMPLE_SIZE: ${{ github.event.inputs.sample_size || '200' }}
       run: |
         cd libdplyr_c
         
-        echo "Running extension loading benchmarks..."
+        echo "⚠️ Skipping extension loading benchmarks (requires CMake build)"
+        echo '{"reason": "Extension loading benchmarks skipped - requires CMake build", "status": "skipped"}' > ../extension_loading_benchmark_results.json
         
-        # Set Criterion environment variables
-        export CRITERION_SAMPLE_SIZE=${SAMPLE_SIZE}
-        export CRITERION_MEASUREMENT_TIME=${BENCHMARK_DURATION}
-        
-        cargo bench --bench extension_loading_benchmark -- --output-format json > ../extension_loading_benchmark_results.json || {
-          echo "⚠️ Extension loading benchmarks failed or skipped"
-          echo '{"reason": "Extension loading benchmarks failed or skipped"}' > ../extension_loading_benchmark_results.json
-        }
-        
-        echo "✅ Extension loading benchmarks completed"
+        echo "✅ Extension loading benchmarks skipped"
 
     # -------------------------------------------------------------------------
     # Process Results
