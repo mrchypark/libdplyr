@@ -62,6 +62,12 @@ jobs:
       with:
         toolchain: stable
         targets: ${{ matrix.target }}
+        
+    - name: Set Rust toolchain as default
+      shell: bash
+      run: |
+        rustup default stable
+        rustup target add ${{ matrix.target }}
 
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
@@ -132,7 +138,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=OFF \
             -DBUILD_DUCKDB=OFF \
-            -G "Visual Studio 17 2022" \
+            -G "Visual Studio 16 2019" \
             -A x64
         else
           cmake .. \
@@ -393,26 +399,32 @@ jobs:
     - name: Comment on PR (if applicable)
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
+      continue-on-error: true
       with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
-          const fs = require('fs');
-          
-          // Read the performance summary
-          let summary = "## 📊 Performance Test Results\n\n";
-          summary += "✅ All performance targets met:\n";
-          summary += "- Simple queries: P95 < 2ms\n";
-          summary += "- Complex queries: P95 < 15ms\n"; 
-          summary += "- Extension loading: P95 < 50ms\n";
-          summary += "- Caching effectiveness validated\n\n";
-          summary += "📈 **Requirements Fulfilled**: R6-AC1, R6-AC2\n\n";
-          summary += "📋 Detailed results available in the performance-report artifact.";
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: summary
-          });
+          try {
+            const fs = require('fs');
+            
+            // Read the performance summary
+            let summary = "## 📊 Performance Test Results\n\n";
+            summary += "✅ All performance targets met:\n";
+            summary += "- Simple queries: P95 < 2ms\n";
+            summary += "- Complex queries: P95 < 15ms\n"; 
+            summary += "- Extension loading: P95 < 50ms\n";
+            summary += "- Caching effectiveness validated\n\n";
+            summary += "📈 **Requirements Fulfilled**: R6-AC1, R6-AC2\n\n";
+            summary += "📋 Detailed results available in the performance-report artifact.";
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+          } catch (error) {
+            console.log('Failed to create PR comment:', error.message);
+          }
 
     - name: Create performance summary
       run: |
