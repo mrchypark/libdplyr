@@ -7,7 +7,6 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-
 use std::path::Path;
 
 // R6-AC1: Extension loading target <50ms
@@ -19,7 +18,7 @@ fn find_extension_binary() -> Option<String> {
     // Common build paths
     let possible_paths = [
         "build/dplyr.duckdb_extension",
-        "build/Release/dplyr.duckdb_extension", 
+        "build/Release/dplyr.duckdb_extension",
         "build/Debug/dplyr.duckdb_extension",
         "../build/dplyr.duckdb_extension",
         "../build/Release/dplyr.duckdb_extension",
@@ -27,13 +26,13 @@ fn find_extension_binary() -> Option<String> {
         "target/debug/build/libdplyr_c-*/out/dplyr.duckdb_extension",
         "target/release/build/libdplyr_c-*/out/dplyr.duckdb_extension",
     ];
-    
+
     for path in &possible_paths {
         if Path::new(path).exists() {
             return Some(path.to_string());
         }
     }
-    
+
     // Try to find using glob pattern
     if let Ok(entries) = glob::glob("target/*/build/libdplyr_c-*/out/dplyr.duckdb_extension") {
         for entry in entries {
@@ -44,16 +43,13 @@ fn find_extension_binary() -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
 // Helper function to check if DuckDB is available
 fn is_duckdb_available() -> bool {
-    Command::new("duckdb")
-        .arg("--version")
-        .output()
-        .is_ok()
+    Command::new("duckdb").arg("--version").output().is_ok()
 }
 
 // Benchmark extension loading time
@@ -63,7 +59,7 @@ fn bench_extension_loading(c: &mut Criterion) {
         eprintln!("Warning: DuckDB not found in PATH, skipping extension loading benchmark");
         return;
     }
-    
+
     // Find extension binary
     let extension_path = match find_extension_binary() {
         Some(path) => path,
@@ -73,103 +69,109 @@ fn bench_extension_loading(c: &mut Criterion) {
             return;
         }
     };
-    
+
     println!("Using extension: {}", extension_path);
-    
+
     let mut group = c.benchmark_group("extension_loading");
     group.significance_level(0.1).sample_size(100);
     group.measurement_time(Duration::from_secs(30));
-    
+
     // Benchmark cold loading (new DuckDB instance each time)
     group.bench_function("cold_loading", |b| {
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let start = Instant::now();
-                
+
                 let output = Command::new("duckdb")
                     .arg(":memory:")
                     .arg("-c")
-                    .arg(format!("LOAD '{}'; SELECT 'loaded' as status;", extension_path))
+                    .arg(format!(
+                        "LOAD '{}'; SELECT 'loaded' as status;",
+                        extension_path
+                    ))
                     .output();
-                
+
                 let duration = start.elapsed();
                 total_duration += duration;
-                
+
                 // Verify the command succeeded
                 if let Ok(output) = output {
                     if !output.status.success() {
-                        eprintln!("Extension loading failed: {}", String::from_utf8_lossy(&output.stderr));
+                        eprintln!(
+                            "Extension loading failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
                     black_box(output);
                 } else {
                     eprintln!("Failed to execute DuckDB command");
                 }
             }
-            
+
             total_duration
         });
     });
-    
+
     // Benchmark warm loading (reuse connection, multiple loads)
     group.bench_function("warm_loading", |b| {
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let start = Instant::now();
-                
+
                 let output = Command::new("duckdb")
                     .arg(":memory:")
                     .arg("-c")
                     .arg(format!(
-                        "LOAD '{}'; SELECT 'loaded' as status; LOAD '{}'; SELECT 'reloaded' as status;", 
+                        "LOAD '{}'; SELECT 'loaded' as status; LOAD '{}'; SELECT 'reloaded' as status;",
                         extension_path, extension_path
                     ))
                     .output();
-                
+
                 let duration = start.elapsed();
                 total_duration += duration;
-                
+
                 if let Ok(output) = output {
                     black_box(output);
                 }
             }
-            
+
             total_duration
         });
     });
-    
+
     // Benchmark loading with immediate usage
     group.bench_function("loading_with_usage", |b| {
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let start = Instant::now();
-                
+
                 let output = Command::new("duckdb")
                     .arg(":memory:")
                     .arg("-c")
                     .arg(format!(
-                        "LOAD '{}'; DPLYR 'select(1 as test)';", 
+                        "LOAD '{}'; DPLYR 'select(1 as test)';",
                         extension_path
                     ))
                     .output();
-                
+
                 let duration = start.elapsed();
                 total_duration += duration;
-                
+
                 if let Ok(output) = output {
                     black_box(output);
                 }
             }
-            
+
             total_duration
         });
     });
-    
+
     group.finish();
 }
 
@@ -178,66 +180,69 @@ fn bench_extension_initialization(c: &mut Criterion) {
     if !is_duckdb_available() {
         return;
     }
-    
+
     let extension_path = match find_extension_binary() {
         Some(path) => path,
         None => return,
     };
-    
+
     let mut group = c.benchmark_group("extension_initialization");
     group.significance_level(0.1).sample_size(50);
-    
+
     // Compare DuckDB startup time with and without extension
     group.bench_function("without_extension", |b| {
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let start = Instant::now();
-                
+
                 let output = Command::new("duckdb")
                     .arg(":memory:")
                     .arg("-c")
                     .arg("SELECT 'no extension' as status;")
                     .output();
-                
+
                 let duration = start.elapsed();
                 total_duration += duration;
-                
+
                 if let Ok(output) = output {
                     black_box(output);
                 }
             }
-            
+
             total_duration
         });
     });
-    
+
     group.bench_function("with_extension", |b| {
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let start = Instant::now();
-                
+
                 let output = Command::new("duckdb")
                     .arg(":memory:")
                     .arg("-c")
-                    .arg(format!("LOAD '{}'; SELECT 'with extension' as status;", extension_path))
+                    .arg(format!(
+                        "LOAD '{}'; SELECT 'with extension' as status;",
+                        extension_path
+                    ))
                     .output();
-                
+
                 let duration = start.elapsed();
                 total_duration += duration;
-                
+
                 if let Ok(output) = output {
                     black_box(output);
                 }
             }
-            
+
             total_duration
         });
     });
-    
+
     group.finish();
 }
 
@@ -253,14 +258,14 @@ criterion_main!(benches);
 #[cfg(test)]
 #[cfg(test)]
 mod extension_loading_tests {
-    
+
     #[test]
     fn test_extension_loading_performance_target() {
         if !is_duckdb_available() {
             println!("Skipping extension loading test: DuckDB not available");
             return;
         }
-        
+
         let extension_path = match find_extension_binary() {
             Some(path) => path,
             None => {
@@ -268,38 +273,44 @@ mod extension_loading_tests {
                 return;
             }
         };
-        
+
         // Measure extension loading time over multiple runs
         let mut durations = Vec::new();
-        
+
         for _ in 0..20 {
             let start = Instant::now();
-            
+
             let output = Command::new("duckdb")
                 .arg(":memory:")
                 .arg("-c")
-                .arg(format!("LOAD '{}'; SELECT 'loaded' as status;", extension_path))
+                .arg(format!(
+                    "LOAD '{}'; SELECT 'loaded' as status;",
+                    extension_path
+                ))
                 .output();
-            
+
             let duration = start.elapsed();
             durations.push(duration);
-            
+
             // Verify the command succeeded
             if let Ok(output) = output {
-                assert!(output.status.success(), "Extension loading failed: {}", 
-                       String::from_utf8_lossy(&output.stderr));
+                assert!(
+                    output.status.success(),
+                    "Extension loading failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             } else {
                 panic!("Failed to execute DuckDB command");
             }
         }
-        
+
         // Calculate P95
         durations.sort();
         let p95_index = (durations.len() as f64 * 0.95) as usize;
         let p95_duration = durations[p95_index];
-        
+
         println!("Extension loading P95: {:?}", p95_duration);
-        
+
         // R6-AC1: Extension loading should be under 50ms P95
         assert!(
             p95_duration.as_millis() as f64 <= EXTENSION_LOADING_TARGET_MS,
@@ -308,14 +319,14 @@ mod extension_loading_tests {
             EXTENSION_LOADING_TARGET_MS
         );
     }
-    
+
     #[test]
     fn test_extension_functionality_after_loading() {
         if !is_duckdb_available() {
             println!("Skipping extension functionality test: DuckDB not available");
             return;
         }
-        
+
         let extension_path = match find_extension_binary() {
             Some(path) => path,
             None => {
@@ -323,24 +334,29 @@ mod extension_loading_tests {
                 return;
             }
         };
-        
+
         // Test that extension works immediately after loading
         let output = Command::new("duckdb")
             .arg(":memory:")
             .arg("-c")
             .arg(format!(
-                "LOAD '{}'; DPLYR 'select(1 as test_col)';", 
+                "LOAD '{}'; DPLYR 'select(1 as test_col)';",
                 extension_path
             ))
             .output()
             .expect("Failed to execute DuckDB command");
-        
-        assert!(output.status.success(), 
-               "Extension functionality test failed: {}", 
-               String::from_utf8_lossy(&output.stderr));
-        
+
+        assert!(
+            output.status.success(),
+            "Extension functionality test failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("test_col"), 
-               "Extension output doesn't contain expected result: {}", stdout);
+        assert!(
+            stdout.contains("test_col"),
+            "Extension output doesn't contain expected result: {}",
+            stdout
+        );
     }
 }

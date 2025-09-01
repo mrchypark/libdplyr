@@ -9,7 +9,7 @@
 //! - R6-AC1: Performance target validation
 //! - R6-AC2: Caching effectiveness measurement
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
 use std::ffi::{CStr, CString};
 use std::ptr;
@@ -38,15 +38,15 @@ const COMPLEX_QUERIES: &[&str] = &[
 ];
 
 const EDGE_CASE_QUERIES: &[&str] = &[
-    "", // Empty query
-    "select()", // Empty select
-    "filter()", // Empty filter
+    "",                       // Empty query
+    "select()",               // Empty select
+    "filter()",               // Empty filter
     "invalid_function(test)", // Invalid function
-    "select(col1 col2)", // Syntax error
+    "select(col1 col2)",      // Syntax error
 ];
 
 // Performance targets from R6-AC1
-const SIMPLE_QUERY_TARGET_MS: f64 = 2.0;   // P95 < 2ms for simple queries
+const SIMPLE_QUERY_TARGET_MS: f64 = 2.0; // P95 < 2ms for simple queries
 const COMPLEX_QUERY_TARGET_MS: f64 = 15.0; // P95 < 15ms for complex queries
 
 // Helper function to create default options
@@ -87,7 +87,7 @@ fn safe_dplyr_compile(query: &str, options: &DplyrOptions) -> Result<String, Str
     let c_query = CString::new(query).unwrap();
     let mut out_sql: *mut i8 = ptr::null_mut();
     let mut out_error: *mut i8 = ptr::null_mut();
-    
+
     let result = unsafe {
         dplyr_compile(
             c_query.as_ptr(),
@@ -96,7 +96,7 @@ fn safe_dplyr_compile(query: &str, options: &DplyrOptions) -> Result<String, Str
             &mut out_error,
         )
     };
-    
+
     if result == 0 {
         // Success
         let sql = unsafe {
@@ -121,73 +121,61 @@ fn safe_dplyr_compile(query: &str, options: &DplyrOptions) -> Result<String, Str
 // R6-AC1: Benchmark simple queries (target <2ms P95)
 fn bench_simple_queries(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let mut group = c.benchmark_group("simple_transpile");
     group.significance_level(0.1).sample_size(1000);
-    
+
     for (i, query) in SIMPLE_QUERIES.iter().enumerate() {
         group.throughput(Throughput::Elements(1));
-        group.bench_with_input(
-            BenchmarkId::new("simple", i),
-            query,
-            |b, query| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(&options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("simple", i), query, |b, query| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(&options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
 // R6-AC1: Benchmark complex queries (target <15ms P95)
 fn bench_complex_queries(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let mut group = c.benchmark_group("complex_transpile");
     group.significance_level(0.1).sample_size(500);
     group.measurement_time(Duration::from_secs(10));
-    
+
     for (i, query) in COMPLEX_QUERIES.iter().enumerate() {
         group.throughput(Throughput::Elements(1));
-        group.bench_with_input(
-            BenchmarkId::new("complex", i),
-            query,
-            |b, query| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(&options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("complex", i), query, |b, query| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(&options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
 // Benchmark error handling performance
 fn bench_error_handling(c: &mut Criterion) {
     let options = create_strict_options();
-    
+
     let mut group = c.benchmark_group("error_handling");
     group.significance_level(0.1).sample_size(500);
-    
+
     for (i, query) in EDGE_CASE_QUERIES.iter().enumerate() {
         group.throughput(Throughput::Elements(1));
-        group.bench_with_input(
-            BenchmarkId::new("error", i),
-            query,
-            |b, query| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(&options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("error", i), query, |b, query| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(&options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
@@ -195,10 +183,10 @@ fn bench_error_handling(c: &mut Criterion) {
 fn bench_caching_performance(c: &mut Criterion) {
     let options = create_default_options();
     let query = "mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)";
-    
+
     let mut group = c.benchmark_group("caching");
     group.significance_level(0.1).sample_size(1000);
-    
+
     // First call (cache miss)
     group.bench_function("cache_miss", |b| {
         b.iter_custom(|iters| {
@@ -214,58 +202,54 @@ fn bench_caching_performance(c: &mut Criterion) {
             total_duration
         });
     });
-    
+
     // Repeated calls (cache hit)
     group.bench_function("cache_hit", |b| {
         // Prime the cache
         let _ = safe_dplyr_compile(query, &options);
-        
+
         b.iter(|| {
             let result = safe_dplyr_compile(black_box(query), black_box(&options));
             black_box(result)
         });
     });
-    
+
     group.finish();
 }
 
 // Benchmark different options configurations
 fn bench_options_impact(c: &mut Criterion) {
     let query = "data %>% select(col1, col2) %>% filter(col1 > 100) %>% arrange(col2)";
-    
+
     let mut group = c.benchmark_group("options_impact");
     group.significance_level(0.1).sample_size(500);
-    
+
     let configs = [
         ("default", create_default_options()),
         ("strict", create_strict_options()),
         ("debug", create_debug_options()),
     ];
-    
+
     for (name, options) in &configs {
         group.throughput(Throughput::Elements(1));
-        group.bench_with_input(
-            BenchmarkId::new("options", name),
-            options,
-            |b, options| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("options", name), options, |b, options| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
 // Benchmark memory allocation patterns
 fn bench_memory_patterns(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let mut group = c.benchmark_group("memory_patterns");
     group.significance_level(0.1).sample_size(500);
-    
+
     // Small queries
     let small_query = "select(col1)";
     group.throughput(Throughput::Bytes(small_query.len() as u64));
@@ -275,7 +259,7 @@ fn bench_memory_patterns(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // Medium queries
     let medium_query = "data %>% select(col1, col2, col3) %>% filter(col1 > 0) %>% group_by(col2) %>% summarise(total = sum(col3))";
     group.throughput(Throughput::Bytes(medium_query.len() as u64));
@@ -285,12 +269,18 @@ fn bench_memory_patterns(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // Large queries
     let large_query = format!(
         "data %>% select({}) %>% filter(col1 > 0) %>% group_by(col2) %>% summarise({})",
-        (1..=50).map(|i| format!("col{}", i)).collect::<Vec<_>>().join(", "),
-        (1..=20).map(|i| format!("sum{} = sum(col{})", i, i)).collect::<Vec<_>>().join(", ")
+        (1..=50)
+            .map(|i| format!("col{}", i))
+            .collect::<Vec<_>>()
+            .join(", "),
+        (1..=20)
+            .map(|i| format!("sum{} = sum(col{})", i, i))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     group.throughput(Throughput::Bytes(large_query.len() as u64));
     group.bench_function("large_query", |b| {
@@ -299,14 +289,14 @@ fn bench_memory_patterns(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     group.finish();
 }
 
 // Benchmark concurrent access patterns (simulated)
 fn bench_concurrent_patterns(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let queries = [
         "select(mpg)",
         "filter(cyl == 4)",
@@ -315,10 +305,10 @@ fn bench_concurrent_patterns(c: &mut Criterion) {
         "group_by(gear)",
         "summarise(avg_mpg = mean(mpg))",
     ];
-    
+
     let mut group = c.benchmark_group("concurrent_simulation");
     group.significance_level(0.1).sample_size(500);
-    
+
     // Simulate concurrent access by rapidly switching between different queries
     group.bench_function("rapid_switching", |b| {
         let mut counter = 0;
@@ -329,7 +319,7 @@ fn bench_concurrent_patterns(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // Simulate mixed workload
     group.bench_function("mixed_workload", |b| {
         let mut counter = 0;
@@ -346,68 +336,60 @@ fn bench_concurrent_patterns(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     group.finish();
 }
 
 // Benchmark input size scaling
 fn bench_input_scaling(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let mut group = c.benchmark_group("input_scaling");
     group.significance_level(0.1).sample_size(200);
-    
+
     // Generate queries of different sizes
     let sizes = [10, 50, 100, 500, 1000];
-    
+
     for size in sizes {
         let columns: Vec<String> = (1..=size).map(|i| format!("col{}", i)).collect();
         let query = format!("select({})", columns.join(", "));
-        
+
         group.throughput(Throughput::Bytes(query.len() as u64));
-        group.bench_with_input(
-            BenchmarkId::new("columns", size),
-            &query,
-            |b, query| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(&options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("columns", size), &query, |b, query| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(&options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
 // Benchmark pipeline depth scaling
 fn bench_pipeline_depth(c: &mut Criterion) {
     let options = create_default_options();
-    
+
     let mut group = c.benchmark_group("pipeline_depth");
     group.significance_level(0.1).sample_size(200);
-    
+
     let depths = [1, 3, 5, 10, 20];
-    
+
     for depth in depths {
         let mut query = "data".to_string();
         for i in 0..depth {
             query.push_str(&format!(" %>% mutate(col{} = col{} + 1)", i, i));
         }
-        
+
         group.throughput(Throughput::Elements(depth as u64));
-        group.bench_with_input(
-            BenchmarkId::new("depth", depth),
-            &query,
-            |b, query| {
-                b.iter(|| {
-                    let result = safe_dplyr_compile(black_box(query), black_box(&options));
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("depth", depth), &query, |b, query| {
+            b.iter(|| {
+                let result = safe_dplyr_compile(black_box(query), black_box(&options));
+                black_box(result)
+            });
+        });
     }
-    
+
     group.finish();
 }
 
@@ -432,17 +414,17 @@ criterion_main!(benches);
 mod performance_tests {
     use super::*;
     use std::time::Instant;
-    
+
     #[test]
     fn test_simple_query_performance_target() {
         let options = create_default_options();
         let query = "select(mpg, cyl)";
-        
+
         // Warm up
         for _ in 0..10 {
             let _ = safe_dplyr_compile(query, &options);
         }
-        
+
         // Measure performance over multiple runs
         let mut durations = Vec::new();
         for _ in 0..100 {
@@ -450,14 +432,14 @@ mod performance_tests {
             let _ = safe_dplyr_compile(query, &options);
             durations.push(start.elapsed());
         }
-        
+
         // Calculate P95
         durations.sort();
         let p95_index = (durations.len() as f64 * 0.95) as usize;
         let p95_duration = durations[p95_index];
-        
+
         println!("Simple query P95: {:?}", p95_duration);
-        
+
         // R6-AC1: Simple queries should be under 2ms P95
         assert!(
             p95_duration.as_millis() as f64 <= SIMPLE_QUERY_TARGET_MS,
@@ -466,17 +448,17 @@ mod performance_tests {
             SIMPLE_QUERY_TARGET_MS
         );
     }
-    
+
     #[test]
     fn test_complex_query_performance_target() {
         let options = create_default_options();
         let query = "mtcars %>% select(mpg, cyl, hp) %>% filter(mpg > 20) %>% group_by(cyl) %>% summarise(avg_hp = mean(hp)) %>% arrange(desc(avg_hp))";
-        
+
         // Warm up
         for _ in 0..5 {
             let _ = safe_dplyr_compile(query, &options);
         }
-        
+
         // Measure performance over multiple runs
         let mut durations = Vec::new();
         for _ in 0..50 {
@@ -484,14 +466,14 @@ mod performance_tests {
             let _ = safe_dplyr_compile(query, &options);
             durations.push(start.elapsed());
         }
-        
+
         // Calculate P95
         durations.sort();
         let p95_index = (durations.len() as f64 * 0.95) as usize;
         let p95_duration = durations[p95_index];
-        
+
         println!("Complex query P95: {:?}", p95_duration);
-        
+
         // R6-AC1: Complex queries should be under 15ms P95
         assert!(
             p95_duration.as_millis() as f64 <= COMPLEX_QUERY_TARGET_MS,
@@ -500,24 +482,27 @@ mod performance_tests {
             COMPLEX_QUERY_TARGET_MS
         );
     }
-    
+
     #[test]
     fn test_cache_effectiveness() {
         let options = create_default_options();
         let query = "select(mpg, cyl) %>% filter(mpg > 20)";
-        
+
         // First call (cache miss)
         let start = Instant::now();
         let _ = safe_dplyr_compile(query, &options);
         let cache_miss_duration = start.elapsed();
-        
+
         // Second call (cache hit)
         let start = Instant::now();
         let _ = safe_dplyr_compile(query, &options);
         let cache_hit_duration = start.elapsed();
-        
-        println!("Cache miss: {:?}, Cache hit: {:?}", cache_miss_duration, cache_hit_duration);
-        
+
+        println!(
+            "Cache miss: {:?}, Cache hit: {:?}",
+            cache_miss_duration, cache_hit_duration
+        );
+
         // R6-AC2: Cache should provide significant speedup
         // Cache hit should be at least 2x faster than cache miss
         assert!(
@@ -527,29 +512,29 @@ mod performance_tests {
             cache_hit_duration
         );
     }
-    
+
     #[test]
     fn test_benchmark_queries_dont_panic() {
         let options = create_default_options();
-        
+
         // Test that our benchmark queries don't panic
         for query in SIMPLE_QUERIES {
             let result = safe_dplyr_compile(query, &options);
             assert!(result.is_ok(), "Simple query failed: {}", query);
         }
-        
+
         for query in COMPLEX_QUERIES {
             let result = safe_dplyr_compile(query, &options);
             assert!(result.is_ok(), "Complex query failed: {}", query);
         }
-        
+
         // Edge cases should return errors, not panic
         for query in EDGE_CASE_QUERIES {
             let result = safe_dplyr_compile(query, &options);
             // Should either succeed or return an error, but not panic
             match result {
-                Ok(_) => {}, // Some edge cases might actually be valid
-                Err(_) => {}, // Expected for most edge cases
+                Ok(_) => {}  // Some edge cases might actually be valid
+                Err(_) => {} // Expected for most edge cases
             }
         }
     }

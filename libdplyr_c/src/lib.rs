@@ -37,11 +37,11 @@ use cache::SimpleTranspileCache;
 
 // Import error components for internal use
 use error::{create_error_message_with_context, TranspileError};
-use error::{dplyr_error_code_name, dplyr_is_success, dplyr_is_recoverable_error};
+// Re-export error handling functions for C header generation
+pub use error::{dplyr_error_code_name, dplyr_is_recoverable_error, dplyr_is_success};
 use error::{
-    DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8, 
-    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_ERROR_SYNTAX, 
-    DPLYR_ERROR_UNSUPPORTED, DPLYR_SUCCESS,
+    DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
+    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
 };
 
 // R3-AC1: C-compatible options structure
@@ -2167,33 +2167,33 @@ mod tests {
     #[test]
     fn test_simple_query_performance_target() {
         use std::time::Instant;
-        
+
         let options = DplyrOptions::default();
         let query = "select(mpg, cyl)";
-        
+
         // Warm up
         for _ in 0..10 {
             let _ = safe_dplyr_compile_test(query, &options);
         }
-        
+
         // Measure performance over multiple runs
         let mut durations = Vec::new();
         for _ in 0..100 {
             let start = Instant::now();
             let result = safe_dplyr_compile_test(query, &options);
             durations.push(start.elapsed());
-            
+
             // Verify the query actually works
             assert!(result.is_ok(), "Query should succeed: {:?}", result);
         }
-        
+
         // Calculate P95
         durations.sort();
         let p95_index = (durations.len() as f64 * 0.95) as usize;
         let p95_duration = durations[p95_index];
-        
+
         println!("Simple query P95: {:?}", p95_duration);
-        
+
         // R6-AC1: Simple queries should be under 2ms P95
         const SIMPLE_QUERY_TARGET_MS: f64 = 2.0;
         assert!(
@@ -2207,33 +2207,33 @@ mod tests {
     #[test]
     fn test_complex_query_performance_target() {
         use std::time::Instant;
-        
+
         let options = DplyrOptions::default();
         let query = "mtcars %>% select(mpg, cyl, hp) %>% filter(mpg > 20) %>% group_by(cyl) %>% summarise(avg_hp = mean(hp)) %>% arrange(desc(avg_hp))";
-        
+
         // Warm up
         for _ in 0..5 {
             let _ = safe_dplyr_compile_test(query, &options);
         }
-        
+
         // Measure performance over multiple runs
         let mut durations = Vec::new();
         for _ in 0..50 {
             let start = Instant::now();
             let result = safe_dplyr_compile_test(query, &options);
             durations.push(start.elapsed());
-            
+
             // Verify the query actually works
             assert!(result.is_ok(), "Query should succeed: {:?}", result);
         }
-        
+
         // Calculate P95
         durations.sort();
         let p95_index = (durations.len() as f64 * 0.95) as usize;
         let p95_duration = durations[p95_index];
-        
+
         println!("Complex query P95: {:?}", p95_duration);
-        
+
         // R6-AC1: Complex queries should be under 15ms P95
         const COMPLEX_QUERY_TARGET_MS: f64 = 15.0;
         assert!(
@@ -2247,27 +2247,34 @@ mod tests {
     #[test]
     fn test_cache_effectiveness() {
         use std::time::Instant;
-        
+
         let options = DplyrOptions::default();
         let query = "select(mpg, cyl) %>% filter(mpg > 20)";
-        
+
         // First call (cache miss)
         let start = Instant::now();
         let result1 = safe_dplyr_compile_test(query, &options);
         let cache_miss_duration = start.elapsed();
-        
+
         assert!(result1.is_ok(), "First query should succeed");
-        
+
         // Second call (cache hit)
         let start = Instant::now();
         let result2 = safe_dplyr_compile_test(query, &options);
         let cache_hit_duration = start.elapsed();
-        
+
         assert!(result2.is_ok(), "Second query should succeed");
-        assert_eq!(result1.unwrap(), result2.unwrap(), "Results should be identical");
-        
-        println!("Cache miss: {:?}, Cache hit: {:?}", cache_miss_duration, cache_hit_duration);
-        
+        assert_eq!(
+            result1.unwrap(),
+            result2.unwrap(),
+            "Results should be identical"
+        );
+
+        println!(
+            "Cache miss: {:?}, Cache hit: {:?}",
+            cache_miss_duration, cache_hit_duration
+        );
+
         // R6-AC2: Cache should provide significant speedup
         // Cache hit should be at least 2x faster than cache miss
         assert!(
@@ -2281,18 +2288,18 @@ mod tests {
     // Helper function for performance tests
     fn safe_dplyr_compile_test(query: &str, options: &DplyrOptions) -> Result<String, String> {
         use std::ffi::{CStr, CString};
-        
+
         let c_query = CString::new(query).unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
-        
+
         let result = dplyr_compile(
             c_query.as_ptr(),
             options as *const DplyrOptions,
             &mut out_sql,
             &mut out_error,
         );
-        
+
         if result == 0 {
             // Success
             let sql = unsafe {

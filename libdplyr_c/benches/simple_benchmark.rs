@@ -14,7 +14,7 @@ extern "C" {
         out_sql: *mut *mut i8,
         out_error: *mut *mut i8,
     ) -> i32;
-    
+
     fn dplyr_free_string(ptr: *mut i8);
 }
 
@@ -25,16 +25,10 @@ fn bench_simple_query(c: &mut Criterion) {
             let query = CString::new("select(mpg)").unwrap();
             let mut out_sql: *mut i8 = ptr::null_mut();
             let mut out_error: *mut i8 = ptr::null_mut();
-            
-            let result = unsafe {
-                dplyr_compile(
-                    query.as_ptr(),
-                    ptr::null(),
-                    &mut out_sql,
-                    &mut out_error,
-                )
-            };
-            
+
+            let result =
+                unsafe { dplyr_compile(query.as_ptr(), ptr::null(), &mut out_sql, &mut out_error) };
+
             if result == 0 && !out_sql.is_null() {
                 unsafe {
                     dplyr_free_string(out_sql);
@@ -45,7 +39,7 @@ fn bench_simple_query(c: &mut Criterion) {
                     dplyr_free_string(out_error);
                 }
             }
-            
+
             black_box(result);
         });
     });
