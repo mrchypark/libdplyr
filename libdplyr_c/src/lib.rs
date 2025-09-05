@@ -41,7 +41,7 @@ use error::{create_error_message_with_context, TranspileError};
 pub use error::{dplyr_error_code_name, dplyr_is_recoverable_error, dplyr_is_success};
 use error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
-    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
+    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS, DPLYR_ERROR_SYNTAX, DPLYR_ERROR_UNSUPPORTED
 };
 
 // R3-AC1: C-compatible options structure
