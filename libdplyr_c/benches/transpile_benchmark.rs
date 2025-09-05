@@ -10,7 +10,7 @@
 //! - R6-AC2: Caching effectiveness measurement
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
+use crate::{dplyr_compile, dplyr_free_string, DplyrOptions};
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
