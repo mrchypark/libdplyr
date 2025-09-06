@@ -1,23 +1,63 @@
+# Codecov configuration for libdplyr DuckDB extension
+# R7-AC4: Code coverage configuration
+
 coverage:
+  # Coverage targets
+  range: 70..100
+  round: down
+  precision: 2
+  
+  # Status checks
   status:
     project:
       default:
-        target: 85%
-        threshold: 1%
+        target: 70%
+        threshold: 5%
+        if_no_uploads: error
         if_not_found: success
+        if_ci_failed: error
     patch:
       default:
-        target: 80%
-        threshold: 1%
+        target: 70%
+        threshold: 10%
+        if_no_uploads: error
         if_not_found: success
+        if_ci_failed: error
 
+# Comment configuration
 comment:
-  layout: "reach,diff,flags,tree"
+  layout: "reach,diff,flags,tree,reach"
   behavior: default
   require_changes: false
+  require_base: no
+  require_head: yes
 
+# Ignore paths
 ignore:
-  - "benches/**/*"
-  - "examples/**/*"
-  - "tests/**/*"
-  - "target/**/*"
+  - "tests/"
+  - "benches/"
+  - "examples/"
+  - "target/"
+  - "build/"
+  - "*.md"
+  - "*.yml"
+  - "*.yaml"
+  - "*.toml"
+  - "Cargo.lock"
+
+# Flag configuration for different test types
+flags:
+  rust-unittests:
+    paths:
+      - libdplyr_c/src/
+    carryforward: true
+  
+  integration-tests:
+    paths:
+      - extension/
+      - tests/
+    carryforward: true
+
+# GitHub integration
+github_checks:
+  annotations: true

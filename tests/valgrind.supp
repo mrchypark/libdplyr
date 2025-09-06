@@ -1,0 +1,69 @@
+# Valgrind suppressions for libdplyr DuckDB extension
+# R4-AC2: Memory safety testing configuration
+
+# Rust standard library suppressions
+{
+   rust_std_alloc
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:rust_begin_unwind
+}
+
+{
+   rust_std_thread_local
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:*/libstd-*
+}
+
+# DuckDB internal suppressions
+{
+   duckdb_internal_alloc
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:*/libduckdb*
+}
+
+{
+   duckdb_extension_load
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:*Extension*Load*
+}
+
+# System library suppressions
+{
+   glibc_dl_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:_dl_init
+}
+
+{
+   glibc_dl_open
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:calloc
+   ...
+   fun:dlopen*
+}
+
+# Corrosion/Rust FFI suppressions
+{
+   corrosion_ffi_boundary
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:*corrosion*
+}

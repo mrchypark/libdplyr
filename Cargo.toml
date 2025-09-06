@@ -69,3 +69,9 @@ harness = false
 [lib]
 name = "libdplyr"
 path = "src/lib.rs"
+
+[workspace]
+members = [
+    ".",
+    "libdplyr_c"
+]

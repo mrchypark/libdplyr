@@ -1,0 +1,58 @@
+name: Performance Checks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Run performance validation tests
+      run: |
+        cd libdplyr_c
+        echo "🧪 Running performance validation tests..."
+        cargo test --release performance_tests -- --nocapture
+
+  rust-benchmarks:
+    name: Rust Component Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Run Rust benchmarks
+      run: |
+        cd libdplyr_c
+        cargo bench --bench transpile_benchmark
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: libdplyr_c/target/criterion/
+        retention-days: 30
