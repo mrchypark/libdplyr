@@ -9,6 +9,8 @@ build = "build.rs"
 
 # R3-AC1: C ABI 호환성을 위한 정적/동적 라이브러리 생성
 [lib]
+name = "libdplyr_c"
+path = "src/lib.rs"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
