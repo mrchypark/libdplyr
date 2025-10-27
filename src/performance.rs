@@ -119,7 +119,7 @@ impl PerformanceProfiler {
 
         let (success, output_size, error_type) = match result {
             Ok(sql) => (true, sql.len(), None),
-            Err(e) => (false, 0, Some(format!("{:?}", e))),
+            Err(e) => (false, 0, Some(format!("{e:?}"))),
         };
 
         PerformanceMetrics {
@@ -275,8 +275,7 @@ impl BatchPerformanceStats {
         let avg_efficiency = self.total_output_size as f64 / self.total_input_size.max(1) as f64;
         if avg_efficiency > 5.0 {
             recommendations.push(format!(
-                "Output is {:.1}x larger than input on average. Consider optimizing SQL generation for conciseness.",
-                avg_efficiency
+                "Output is {avg_efficiency:.1}x larger than input on average. Consider optimizing SQL generation for conciseness."
             ));
         }
 

@@ -66,7 +66,7 @@ impl DebugLogger {
                 "[INFO]".to_string()
             };
 
-            eprintln!("{} {}", prefix, message);
+            eprintln!("{prefix} {message}");
         }
     }
 
@@ -79,7 +79,7 @@ impl DebugLogger {
                 "[DEBUG]".to_string()
             };
 
-            eprintln!("{} {}", prefix, message);
+            eprintln!("{prefix} {message}");
         }
     }
 
@@ -93,7 +93,7 @@ impl DebugLogger {
                 "[TIME]".to_string()
             };
 
-            eprintln!("{} {} took {:.2?}", prefix, label, elapsed);
+            eprintln!("{prefix} {label} took {elapsed:.2?}");
             self.step_time = Instant::now();
         }
     }
@@ -108,7 +108,7 @@ impl DebugLogger {
                 "[TOTAL]".to_string()
             };
 
-            eprintln!("{} Execution completed in {:.2?}", prefix, elapsed);
+            eprintln!("{prefix} Execution completed in {elapsed:.2?}");
         }
     }
 
@@ -121,7 +121,7 @@ impl DebugLogger {
                 "[AST]".to_string()
             };
 
-            eprintln!("{} Structure:\\n{:#?}", prefix, ast);
+            eprintln!("{prefix} Structure:\\n{ast:#?}");
         }
     }
 
@@ -134,7 +134,7 @@ impl DebugLogger {
                 "[SQL]".to_string()
             };
 
-            eprintln!("{} Generated {} SQL:\\n{}", prefix, dialect, sql);
+            eprintln!("{prefix} Generated {dialect} SQL:\\n{sql}");
         }
     }
 
@@ -147,7 +147,7 @@ impl DebugLogger {
                 "[STATS]".to_string()
             };
 
-            eprintln!("{} {}", prefix, stats);
+            eprintln!("{prefix} {stats}");
         }
     }
 

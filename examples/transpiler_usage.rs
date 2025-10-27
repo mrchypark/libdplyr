@@ -46,25 +46,25 @@ fn basic_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     println!("🐘 PostgreSQL:");
     let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let pg_sql = pg_transpiler.transpile(dplyr_code)?;
-    println!("{}\n", pg_sql);
+    println!("{pg_sql}\n");
 
     // MySQL example
     println!("🐬 MySQL:");
     let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
     let mysql_sql = mysql_transpiler.transpile(dplyr_code)?;
-    println!("{}\n", mysql_sql);
+    println!("{mysql_sql}\n");
 
     // SQLite example
     println!("🪶 SQLite:");
     let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
     let sqlite_sql = sqlite_transpiler.transpile(dplyr_code)?;
-    println!("{}\n", sqlite_sql);
+    println!("{sqlite_sql}\n");
 
     // DuckDB example
     println!("🦆 DuckDB:");
     let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
     let duckdb_sql = duckdb_transpiler.transpile(dplyr_code)?;
-    println!("{}\n", duckdb_sql);
+    println!("{duckdb_sql}\n");
 
     Ok(())
 }
@@ -87,33 +87,33 @@ fn error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for (description, code) in error_cases {
-        println!("Testing: {}", description);
-        println!("Input: '{}'", code);
+        println!("Testing: {description}");
+        println!("Input: '{code}'");
 
         match transpiler.transpile(code) {
             Ok(sql) => {
-                println!("✅ Unexpected success: {}", sql);
+                println!("✅ Unexpected success: {sql}");
             }
             Err(TranspileError::LexError(e)) => {
-                println!("❌ Lexing error: {}", e);
+                println!("❌ Lexing error: {e}");
             }
             Err(TranspileError::ParseError(e)) => {
-                println!("❌ Parsing error: {}", e);
+                println!("❌ Parsing error: {e}");
             }
             Err(TranspileError::GenerationError(e)) => {
-                println!("❌ Generation error: {}", e);
+                println!("❌ Generation error: {e}");
             }
             Err(TranspileError::IoError(e)) => {
-                println!("❌ I/O error: {}", e);
+                println!("❌ I/O error: {e}");
             }
             Err(TranspileError::ValidationError(e)) => {
-                println!("❌ Validation error: {}", e);
+                println!("❌ Validation error: {e}");
             }
             Err(TranspileError::ConfigurationError(e)) => {
-                println!("❌ Configuration error: {}", e);
+                println!("❌ Configuration error: {e}");
             }
             Err(TranspileError::SystemError(e)) => {
-                println!("❌ System error: {}", e);
+                println!("❌ System error: {e}");
             }
         }
         println!();
@@ -134,41 +134,41 @@ fn demonstrate_error_handling_pattern(
     match transpiler.transpile(code) {
         Ok(sql) => {
             println!("✅ Successfully generated SQL:");
-            println!("   {}", sql);
+            println!("   {sql}");
         }
         Err(TranspileError::LexError(e)) => {
             eprintln!("🔤 Tokenization failed:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check for invalid characters or malformed tokens");
         }
         Err(TranspileError::ParseError(e)) => {
             eprintln!("📝 Parsing failed:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check dplyr syntax - ensure proper function calls and operators");
         }
         Err(TranspileError::GenerationError(e)) => {
             eprintln!("🏗️  SQL generation failed:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: The operation might not be supported in the selected SQL dialect");
         }
         Err(TranspileError::IoError(e)) => {
             eprintln!("💾 I/O operation failed:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check file permissions and paths");
         }
         Err(TranspileError::ValidationError(e)) => {
             eprintln!("✅ Validation failed:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check dplyr syntax and function usage");
         }
         Err(TranspileError::ConfigurationError(e)) => {
             eprintln!("⚙️  Configuration error:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check configuration settings and options");
         }
         Err(TranspileError::SystemError(e)) => {
             eprintln!("🔧 System error:");
-            eprintln!("   Error: {}", e);
+            eprintln!("   Error: {e}");
             eprintln!("   Hint: Check system resources and permissions");
         }
     }
@@ -186,7 +186,7 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Separate parsing and generation
     println!("1. Separate Parsing and SQL Generation:");
     let dplyr_code = "select(name, age) %>% filter(age > 18)";
-    println!("   Input: {}", dplyr_code);
+    println!("   Input: {dplyr_code}");
 
     // Parse to AST
     let ast = transpiler.parse_dplyr(dplyr_code)?;
@@ -194,7 +194,7 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate SQL from AST
     let sql = transpiler.generate_sql(&ast)?;
-    println!("   ✅ Generated SQL: {}\n", sql);
+    println!("   ✅ Generated SQL: {sql}\n");
 
     // Example 2: AST inspection
     println!("2. AST Inspection:");
@@ -205,18 +205,18 @@ fn advanced_usage_examples() -> Result<(), Box<dyn std::error::Error>> {
     println!("3. Complex Aggregation Pipeline:");
     let complex_code = "select(department, employee_id, salary, performance_score) %>% filter(performance_score >= 3.0) %>% group_by(department) %>% summarise(employee_count = n(), avg_salary = mean(salary), total_payroll = sum(salary), top_performer = max(performance_score)) %>% arrange(desc(total_payroll))";
 
-    println!("   Input: {}", complex_code);
+    println!("   Input: {complex_code}");
     let complex_sql = transpiler.transpile(complex_code)?;
-    println!("   Output: {}\n", complex_sql);
+    println!("   Output: {complex_sql}\n");
 
     // Example 4: Window functions (if supported)
     println!("4. Window Functions (DuckDB):");
     let duckdb_transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
     let window_code = "select(employee_id, department, salary) %>% mutate(salary_rank = row_number(), dept_avg_salary = avg(salary)) %>% filter(salary_rank <= 3)";
 
-    println!("   Input: {}", window_code);
+    println!("   Input: {window_code}");
     let window_sql = duckdb_transpiler.transpile(window_code)?;
-    println!("   Output: {}\n", window_sql);
+    println!("   Output: {window_sql}\n");
 
     Ok(())
 }
@@ -264,7 +264,7 @@ fn inspect_ast(ast: &DplyrNode) {
         }
         DplyrNode::DataSource { name, location } => {
             println!("   AST Type: DataSource");
-            println!("   Name: {}", name);
+            println!("   Name: {name}");
             println!(
                 "   Location: line {}, column {}",
                 location.line, location.column
@@ -309,7 +309,7 @@ fn performance_comparison_examples() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             Err(e) => {
-                println!("❌ {}: {:?} - Error: {}", name, duration, e);
+                println!("❌ {name}: {duration:?} - Error: {e}");
             }
         }
     }

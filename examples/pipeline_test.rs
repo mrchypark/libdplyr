@@ -31,7 +31,7 @@ fn test_data_analysis_pipeline() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", analysis_pipeline.trim());
     println!("\nGenerated SQL:");
     let sql = transpiler.transpile(analysis_pipeline)?;
-    println!("{}\n", sql);
+    println!("{sql}\n");
 
     Ok(())
 }
@@ -49,7 +49,7 @@ fn test_business_intelligence_pipeline() -> Result<(), Box<dyn std::error::Error
     println!("{}", bi_pipeline.trim());
     println!("\nGenerated SQL (MySQL):");
     let sql = transpiler.transpile(bi_pipeline)?;
-    println!("{}\n", sql);
+    println!("{sql}\n");
 
     Ok(())
 }
@@ -67,7 +67,7 @@ fn test_data_cleaning_pipeline() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", cleaning_pipeline.trim());
     println!("\nGenerated SQL (SQLite):");
     let sql = transpiler.transpile(cleaning_pipeline)?;
-    println!("{}\n", sql);
+    println!("{sql}\n");
 
     Ok(())
 }
@@ -85,7 +85,7 @@ fn test_reporting_pipeline() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", reporting_pipeline.trim());
     println!("\nGenerated SQL (DuckDB):");
     let sql = transpiler.transpile(reporting_pipeline)?;
-    println!("{}\n", sql);
+    println!("{sql}\n");
 
     Ok(())
 }

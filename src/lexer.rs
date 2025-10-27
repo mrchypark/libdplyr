@@ -104,10 +104,10 @@ impl std::fmt::Display for Token {
             Token::Minus => write!(f, "-"),
             Token::Multiply => write!(f, "*"),
             Token::Divide => write!(f, "/"),
-            Token::Identifier(name) => write!(f, "{}", name),
-            Token::String(s) => write!(f, "\"{}\"", s),
-            Token::Number(n) => write!(f, "{}", n),
-            Token::Boolean(b) => write!(f, "{}", b),
+            Token::Identifier(name) => write!(f, "{name}"),
+            Token::String(s) => write!(f, "\"{s}\""),
+            Token::Number(n) => write!(f, "{n}"),
+            Token::Boolean(b) => write!(f, "{b}"),
             Token::Null => write!(f, "NULL"),
             Token::LeftParen => write!(f, "("),
             Token::RightParen => write!(f, ")"),
@@ -409,8 +409,7 @@ mod tests {
         let tokens = tokenize_all(input).expect("Tokenization should succeed");
         assert_eq!(
             tokens, expected,
-            "Token sequence mismatch for input: '{}'",
-            input
+            "Token sequence mismatch for input: '{input}'"
         );
     }
 
@@ -826,7 +825,7 @@ mod tests {
             let mut lexer = Lexer::new("\"unterminated".to_string());
             match lexer.next_token() {
                 Err(LexError::UnterminatedString(_)) => {}
-                other => panic!("Expected UnterminatedString error, got: {:?}", other),
+                other => panic!("Expected UnterminatedString error, got: {other:?}"),
             }
         }
 
@@ -835,7 +834,7 @@ mod tests {
             let mut lexer = Lexer::new("'unterminated".to_string());
             match lexer.next_token() {
                 Err(LexError::UnterminatedString(_)) => {}
-                other => panic!("Expected UnterminatedString error, got: {:?}", other),
+                other => panic!("Expected UnterminatedString error, got: {other:?}"),
             }
         }
 
@@ -844,7 +843,7 @@ mod tests {
             let mut lexer = Lexer::new("\"test\\".to_string());
             match lexer.next_token() {
                 Err(LexError::UnterminatedString(_)) => {}
-                other => panic!("Expected UnterminatedString error, got: {:?}", other),
+                other => panic!("Expected UnterminatedString error, got: {other:?}"),
             }
         }
 
@@ -855,7 +854,7 @@ mod tests {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%>");
                 }
-                other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
+                other => panic!("Expected InvalidPipeOperator error, got: {other:?}"),
             }
         }
 
@@ -866,7 +865,7 @@ mod tests {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%<");
                 }
-                other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
+                other => panic!("Expected InvalidPipeOperator error, got: {other:?}"),
             }
         }
 
@@ -877,7 +876,7 @@ mod tests {
                 Err(LexError::InvalidPipeOperator(op, _)) => {
                     assert_eq!(op, "%");
                 }
-                other => panic!("Expected InvalidPipeOperator error, got: {:?}", other),
+                other => panic!("Expected InvalidPipeOperator error, got: {other:?}"),
             }
         }
 
@@ -888,7 +887,7 @@ mod tests {
                 Err(LexError::InvalidNumber(num, _)) => {
                     assert_eq!(num, "123.45.67");
                 }
-                other => panic!("Expected InvalidNumber error, got: {:?}", other),
+                other => panic!("Expected InvalidNumber error, got: {other:?}"),
             }
         }
 
@@ -907,12 +906,11 @@ mod tests {
                 let mut lexer = Lexer::new(ch.to_string());
                 match lexer.next_token() {
                     Err(LexError::UnexpectedCharacter(found_ch, _)) => {
-                        assert_eq!(found_ch, ch, "Expected character '{}' in error", ch);
+                        assert_eq!(found_ch, ch, "Expected character '{ch}' in error");
                     }
-                    other => panic!(
-                        "Expected UnexpectedCharacter error for '{}', got: {:?}",
-                        ch, other
-                    ),
+                    other => {
+                        panic!("Expected UnexpectedCharacter error for '{ch}', got: {other:?}")
+                    }
                 }
             }
         }
@@ -922,10 +920,7 @@ mod tests {
             let mut lexer = Lexer::new("한글".to_string());
             match lexer.next_token() {
                 Err(LexError::UnexpectedCharacter('한', _)) => {}
-                other => panic!(
-                    "Expected UnexpectedCharacter error for Unicode, got: {:?}",
-                    other
-                ),
+                other => panic!("Expected UnexpectedCharacter error for Unicode, got: {other:?}"),
             }
         }
 
@@ -934,10 +929,7 @@ mod tests {
             let mut lexer = Lexer::new("!".to_string());
             match lexer.next_token() {
                 Err(LexError::UnexpectedCharacter('!', _)) => {}
-                other => panic!(
-                    "Expected UnexpectedCharacter error for '!', got: {:?}",
-                    other
-                ),
+                other => panic!("Expected UnexpectedCharacter error for '!', got: {other:?}"),
             }
         }
 
@@ -953,7 +945,7 @@ mod tests {
                 Err(LexError::UnexpectedCharacter('@', pos)) => {
                     assert_eq!(pos, 7, "Error position should be 7");
                 }
-                other => panic!("Expected UnexpectedCharacter error, got: {:?}", other),
+                other => panic!("Expected UnexpectedCharacter error, got: {other:?}"),
             }
         }
     }

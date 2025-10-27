@@ -35,7 +35,7 @@ impl SignalHandler {
         // Set up signal monitoring
         let signal_thread = thread::spawn(move || {
             if let Err(e) = Self::monitor_signals(shutdown_clone, sigpipe_clone) {
-                eprintln!("Signal monitoring error: {}", e);
+                eprintln!("Signal monitoring error: {e}");
             }
         });
 
@@ -52,9 +52,8 @@ impl SignalHandler {
         shutdown_flag: Arc<AtomicBool>,
         sigpipe_flag: Arc<AtomicBool>,
     ) -> Result<(), SignalError> {
-        let mut signals = Signals::new([SIGINT, SIGTERM, SIGPIPE]).map_err(|e| {
-            SignalError::SetupError(format!("Failed to setup signal handler: {}", e))
-        })?;
+        let mut signals = Signals::new([SIGINT, SIGTERM, SIGPIPE])
+            .map_err(|e| SignalError::SetupError(format!("Failed to setup signal handler: {e}")))?;
 
         for signal in signals.forever() {
             match signal {

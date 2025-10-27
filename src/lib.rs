@@ -13,6 +13,7 @@
 //! - **Complete dplyr Function Support**: `select()`, `filter()`, `mutate()`, `arrange()`, `group_by()`, `summarise()`
 //! - **Pipeline Operations**: Chain operations using the `%>%` pipe operator
 //! - **Multiple SQL Dialects**: PostgreSQL, MySQL, SQLite, DuckDB support with dialect-specific optimizations
+
 //! - **Performance Optimized**: Efficient parsing and SQL generation with minimal memory allocation
 //! - **Comprehensive Error Handling**: Detailed error messages with position information and helpful hints
 //! - **CLI Tool**: Full-featured command-line interface with pretty-printing and file I/O
@@ -514,7 +515,7 @@ mod tests {
         let dplyr_code = "select(name, age)";
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+        assert!(result.is_ok(), "Conversion should succeed: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -528,7 +529,7 @@ mod tests {
         let dplyr_code = "select(name, age) %>% filter(age > 18)";
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -546,7 +547,7 @@ mod tests {
         "#;
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -561,7 +562,7 @@ mod tests {
         let dplyr_code = "select(name, salary) %>% mutate(bonus = salary * 0.1)";
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -574,7 +575,7 @@ mod tests {
         let dplyr_code = "group_by(department) %>% summarise(avg_salary = mean(salary))";
 
         let result = transpiler.transpile(dplyr_code);
-        assert!(result.is_ok(), "변환이 성공해야 합니다: {:?}", result);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -588,7 +589,7 @@ mod tests {
         let dplyr_code = "select(name, age)";
 
         let result = transpiler.parse_dplyr(dplyr_code);
-        assert!(result.is_ok(), "Parsing should succeed: {:?}", result);
+        assert!(result.is_ok(), "Parsing should succeed: {result:?}");
 
         let ast = result.unwrap();
         assert!(ast.is_pipeline());
@@ -604,11 +605,7 @@ mod tests {
 
         // Then generate SQL from AST
         let result = transpiler.generate_sql(&ast);
-        assert!(
-            result.is_ok(),
-            "SQL generation should succeed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "SQL generation should succeed: {result:?}");
 
         let sql = result.unwrap();
         assert!(sql.contains("SELECT"));
@@ -626,7 +623,7 @@ mod tests {
 
         match result.unwrap_err() {
             TranspileError::ParseError(_) => {} // Expected error type
-            other => panic!("Unexpected error type: {:?}", other),
+            other => panic!("Unexpected error type: {other:?}"),
         }
     }
 
@@ -659,21 +656,17 @@ mod tests {
 
             assert!(
                 result.is_ok(),
-                "Conversion should succeed in {} dialect: {:?}",
-                dialect_name,
-                result
+                "Conversion should succeed in {dialect_name} dialect: {result:?}"
             );
 
             let sql = result.unwrap();
             assert!(
                 sql.contains("SELECT"),
-                "The result for {} dialect should include SELECT",
-                dialect_name
+                "The result for {dialect_name} dialect should include SELECT"
             );
             assert!(
                 sql.contains("WHERE"),
-                "The result for {} dialect should include WHERE",
-                dialect_name
+                "The result for {dialect_name} dialect should include WHERE"
             );
         }
     }

@@ -145,7 +145,7 @@ impl StdinReader {
         *buffer = String::from_utf8(temp_buffer).map_err(|e| {
             StdinError::ReadError(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid UTF-8 input: {}", e),
+                format!("Invalid UTF-8 input: {e}"),
             ))
         })?;
 
@@ -188,8 +188,7 @@ impl StdinReader {
                             return Err(StdinError::ReadError(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 format!(
-                                    "Input size ({} bytes) exceeds maximum allowed size ({} bytes)",
-                                    total_size, max_size
+                                    "Input size ({total_size} bytes) exceeds maximum allowed size ({max_size} bytes)"
                                 ),
                             )));
                         }
@@ -204,7 +203,7 @@ impl StdinReader {
         *buffer = String::from_utf8(temp_buffer).map_err(|e| {
             StdinError::ReadError(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Invalid UTF-8 input: {}", e),
+                format!("Invalid UTF-8 input: {e}"),
             ))
         })?;
 
@@ -256,8 +255,7 @@ impl StdinReader {
                     return Err(StdinError::ReadError(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!(
-                            "Input size ({} bytes) exceeds maximum allowed size ({} bytes)",
-                            total_size, max_size
+                            "Input size ({total_size} bytes) exceeds maximum allowed size ({max_size} bytes)"
                         ),
                     )));
                 }
