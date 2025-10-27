@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-10-27
+
+### Fixed
+- Fixed CLI build errors by correcting format string syntax in error messages
+- Updated Rust format strings to use positional arguments instead of field access
+
 ### Added
 - GitHub Actions CI/CD pipeline with comprehensive testing
 - Cross-platform installation scripts (Linux, macOS, Windows)

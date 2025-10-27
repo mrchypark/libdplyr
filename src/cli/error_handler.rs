@@ -416,12 +416,12 @@ impl ErrorHandler {
         let (message, description, suggestions) = if self.use_korean {
             match error.error_type.as_str() {
                 "input" => (
-                    format!("Input error: {error.message}"),
+                    format!("Input error: {}", error.message),
                     Some("Please provide valid dplyr code.".to_string()),
                     vec!["Example: data %>% select(name, age)".to_string()],
                 ),
                 "lex" => (
-                    format!("Tokenization error: {error.message}"),
+                    format!("Tokenization error: {}", error.message),
                     Some("Please check the syntax of the input code.".to_string()),
                     vec![
                         "Check the string quotes".to_string(),
@@ -429,7 +429,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "parse" => (
-                    format!("Parsing error: {error.message}"),
+                    format!("Parsing error: {}", error.message),
                     Some("Please check the dplyr function usage.".to_string()),
                     vec![
                         "Check the function names".to_string(),
@@ -437,7 +437,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "complexity" => (
-                    format!("Complexity error: {error.message}"),
+                    format!("Complexity error: {}", error.message),
                     Some("The query is too complex.".to_string()),
                     vec![
                         "Break the query into simpler parts".to_string(),
@@ -445,7 +445,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "semantic" => (
-                    format!("Semantic error: {error.message}"),
+                    format!("Semantic error: {}", error.message),
                     Some("Please check the logical structure of the query.".to_string()),
                     vec![
                         "Consider using group_by() with aggregate functions".to_string(),
@@ -453,7 +453,7 @@ impl ErrorHandler {
                     ],
                 ),
                 _ => (
-                    format!("Validation error: {error.message}"),
+                    format!("Validation error: {}", error.message),
                     None,
                     vec!["Please check the syntax again".to_string()],
                 ),
@@ -461,12 +461,12 @@ impl ErrorHandler {
         } else {
             match error.error_type.as_str() {
                 "input" => (
-                    format!("Input error: {error.message}"),
+                    format!("Input error: {}", error.message),
                     Some("Please provide valid dplyr code.".to_string()),
                     vec!["Example: data %>% select(name, age)".to_string()],
                 ),
                 "lex" => (
-                    format!("Lexical error: {error.message}"),
+                    format!("Lexical error: {}", error.message),
                     Some("Please check the syntax of your input code.".to_string()),
                     vec![
                         "Check string quotes".to_string(),
@@ -474,7 +474,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "parse" => (
-                    format!("Parse error: {error.message}"),
+                    format!("Parse error: {}", error.message),
                     Some("Please check dplyr function usage.".to_string()),
                     vec![
                         "Check function names".to_string(),
@@ -482,7 +482,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "complexity" => (
-                    format!("Complexity error: {error.message}"),
+                    format!("Complexity error: {}", error.message),
                     Some("The query is too complex.".to_string()),
                     vec![
                         "Break the query into simpler parts".to_string(),
@@ -490,7 +490,7 @@ impl ErrorHandler {
                     ],
                 ),
                 "semantic" => (
-                    format!("Semantic error: {error.message}"),
+                    format!("Semantic error: {}", error.message),
                     Some("Please check the logical structure of the query.".to_string()),
                     vec![
                         "Consider using group_by() with aggregation functions".to_string(),
@@ -498,7 +498,7 @@ impl ErrorHandler {
                     ],
                 ),
                 _ => (
-                    format!("Validation error: {error.message}"),
+                    format!("Validation error: {}", error.message),
                     None,
                     vec!["Please check the syntax again".to_string()],
                 ),
