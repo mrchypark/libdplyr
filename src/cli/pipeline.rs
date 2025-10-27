@@ -68,7 +68,7 @@ impl std::str::FromStr for SqlDialectType {
 /// Parses CLI arguments.
 pub fn parse_args() -> CliArgs {
     let matches = Command::new("libdplyr")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("libdplyr contributors")
         .about("A transpiler that converts R dplyr syntax to SQL")
         .long_about("libdplyr is a Rust-based transpiler that converts R dplyr syntax to SQL queries.\n\
