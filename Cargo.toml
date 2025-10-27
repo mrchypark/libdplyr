@@ -43,6 +43,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 pretty_assertions = "1.4"
 tempfile = "3.20.0"
 
+# C binding generation
+cbindgen = "0.26"
+
 [features]
 default = []
 
@@ -69,3 +72,4 @@ harness = false
 [lib]
 name = "libdplyr"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]

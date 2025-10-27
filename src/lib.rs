@@ -272,6 +272,7 @@
 //! This project is licensed under the MIT License - see the LICENSE file for details.
 
 pub mod error;
+pub mod ffi;
 pub mod lexer;
 pub mod parser;
 pub mod performance;
