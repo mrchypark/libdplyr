@@ -72,4 +72,4 @@ harness = false
 [lib]
 name = "libdplyr"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["staticlib", "rlib", "cdylib"]
