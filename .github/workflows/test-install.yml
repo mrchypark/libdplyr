@@ -29,6 +29,32 @@ jobs:
     - name: Test script syntax
       run: |
         bash -n install.sh
+        echo "✓ Bash syntax check passed"
+
+    - name: Test help option
+      run: |
+        ./install.sh --help
+        echo "✓ Help option works"
+
+    - name: Test dry run mode (if available)
+      run: |
+        # Test that script doesn't fail with invalid options
+        if ./install.sh --invalid-option 2>&1 | grep -q "Unknown option"; then
+          echo "✓ Error handling works correctly"
+        else
+          echo "✗ Error handling needs improvement"
+          exit 1
+        fi
+
+    - name: Test version parsing
+      run: |
+        # Test version parameter parsing
+        if ./install.sh --version 0.1.0 --help | grep -q "libdplyr installation script"; then
+          echo "✓ Version parameter parsing works"
+        else
+          echo "✗ Version parameter parsing failed"
+          exit 1
+        fi
 
   test-windows-install:
     name: Test Windows Installation Script
@@ -41,6 +67,23 @@ jobs:
     - name: Test PowerShell syntax
       run: |
         Get-Command -Syntax .\install.ps1
+        Write-Host "✓ PowerShell syntax check passed"
+
+    - name: Test help option
+      run: |
+        .\install.ps1 -Help
+        Write-Host "✓ Help option works"
+
+    - name: Test parameter validation
+      run: |
+        # Test that script handles invalid parameters gracefully
+        try {
+          .\install.ps1 -InvalidParameter "test" -ErrorAction Stop
+          Write-Host "✗ Should have failed with invalid parameter"
+          exit 1
+        } catch {
+          Write-Host "✓ Parameter validation works correctly"
+        }
 
   test-script-security:
     name: Test Script Security
@@ -58,3 +101,69 @@ jobs:
     - name: Run shellcheck on install.sh
       run: |
         shellcheck install.sh
+        echo "✓ Shellcheck passed"
+
+    - name: Check for security issues
+      run: |
+        # Check for common security issues
+        if grep -q "curl.*|.*bash" install.sh; then
+          echo "⚠️  Script contains pipe to bash pattern - ensure this is intentional"
+        fi
+        
+        if grep -q "sudo" install.sh; then
+          echo "⚠️  Script contains sudo usage - ensure this is necessary"
+        fi
+        
+        # Check for proper error handling
+        if grep -q "set -e" install.sh; then
+          echo "✓ Script uses proper error handling (set -e)"
+        else
+          echo "⚠️  Consider adding 'set -e' for better error handling"
+        fi
+        
+        echo "✓ Security check completed"
+
+  test-cross-platform:
+    name: Test Cross-Platform Compatibility
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, macos-11, macos-12, windows-2019, windows-2022]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test script availability (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        if [ -f "install.sh" ] && [ -x "install.sh" ]; then
+          echo "✓ install.sh is present and executable"
+        else
+          echo "✗ install.sh is not executable"
+          exit 1
+        fi
+
+    - name: Test script availability (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        if (Test-Path "install.ps1") {
+          Write-Host "✓ install.ps1 is present"
+        } else {
+          Write-Host "✗ install.ps1 is missing"
+          exit 1
+        }
+
+    - name: Test basic functionality (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        # Test that script can parse basic options without network calls
+        ./install.sh --help > /dev/null
+        echo "✓ Basic functionality test passed"
+
+    - name: Test basic functionality (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        # Test that script can parse basic options
+        .\install.ps1 -Help | Out-Null
+        Write-Host "✓ Basic functionality test passed"
