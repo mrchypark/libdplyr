@@ -10,7 +10,7 @@
 //! - R6-AC2: Caching effectiveness measurement
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
+use crate::{dplyr_compile, dplyr_free_string, DplyrOptions};
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
@@ -475,7 +475,6 @@ mod performance_tests {
         println!("Complex query P95: {:?}", p95_duration);
 
         // R6-AC1: Complex queries should be under 15ms P95
-        const COMPLEX_QUERY_TARGET_MS: f64 = 15.0;
         assert!(
             p95_duration.as_millis() as f64 <= COMPLEX_QUERY_TARGET_MS,
             "Complex query P95 ({:?}) exceeds target ({}ms)",

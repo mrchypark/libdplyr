@@ -9,8 +9,6 @@ build = "build.rs"
 
 # R3-AC1: C ABI 호환성을 위한 정적/동적 라이브러리 생성
 [lib]
-name = "libdplyr_c"
-path = "src/lib.rs"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
@@ -45,17 +43,12 @@ glob = "0.3"
 # 벤치마크 설정
 [[bench]]
 name = "transpile_benchmark"
+harness = false
 
 [[bench]]
 name = "extension_loading_benchmark"
+harness = false
 
 [[bench]]
 name = "simple_benchmark"
-
-# R9-AC1: FFI 경계에서 panic 처리를 위한 설정
-# panic = "unwind"로 설정하여 panic을 catch_unwind로 잡을 수 있도록 함
-[profile.release]
-panic = "unwind"
-
-[profile.dev]
-panic = "unwind"
+harness = false
