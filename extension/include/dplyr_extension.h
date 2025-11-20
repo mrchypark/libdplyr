@@ -664,4 +664,19 @@ static inline bool dplyr_is_api_compatible(int required_version) {
 }
 #endif
 
+#ifdef __cplusplus
+#include "duckdb.hpp"
+
+namespace dplyr_extension {
+
+class DplyrExtension : public duckdb::Extension {
+public:
+    void Load(duckdb::ExtensionLoader &loader) override;
+    std::string Name() override;
+    std::string Version() const override { return dplyr_version(); }
+};
+
+} // namespace dplyr_extension
+#endif
+
 #endif /* DPLYR_EXTENSION_H */

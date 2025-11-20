@@ -4,7 +4,7 @@
 # It fulfills requirements R8-AC1 (version management) and R4-AC1 (build configuration).
 
 # R8-AC1: Extension metadata and semver policy
-set(EXTENSION_NAME "dplyr")
+set(EXTENSION_NAME "dplyr_extension")
 set(EXTENSION_DESCRIPTION "R dplyr syntax support for DuckDB")
 set(EXTENSION_VERSION "0.1.0")
 set(EXTENSION_VERSION_MAJOR 0)
@@ -22,8 +22,8 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 # Extension is designed to be compatible with a wide range of DuckDB versions
 # by using stable APIs and avoiding version-specific features
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "VERSION_AGNOSTIC")
-set(DUCKDB_EXTENSION_MIN_SUPPORTED "0.8.0")  # Minimum for basic extension API
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "0.9.0;0.9.1;0.9.2;0.10.0;0.10.1")
+set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.2")  # Minimum for extension metadata support
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.2")
 
 # R8-AC1: Extension compatibility strategy
 # - Use only stable DuckDB APIs that are unlikely to change
@@ -160,10 +160,14 @@ if(NOT WIN32)
         -D_FORTIFY_SOURCE=2
         -fPIE
     )
-    set(EXTENSION_SECURITY_LINK_FLAGS
-        -Wl,-z,relro,-z,now
-        -pie
-    )
+    if(APPLE)
+        set(EXTENSION_SECURITY_LINK_FLAGS "")
+    else()
+        set(EXTENSION_SECURITY_LINK_FLAGS
+            -Wl,-z,relro,-z,now
+            -pie
+        )
+    endif()
 endif()
 
 # R8-AC1: Extension capabilities and features

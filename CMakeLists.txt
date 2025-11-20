@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.15)
 project(duckdb_dplyr_extension VERSION 0.1.0)
 
 # R8-AC1: DuckDB extension configuration
-set(DUCKDB_EXTENSION_NAME "dplyr")
+set(DUCKDB_EXTENSION_NAME "dplyr_extension")
 # Note: No strict version requirements - extension uses runtime feature detection
 
 # Set C++ standard
@@ -42,7 +42,7 @@ if(BUILD_DUCKDB)
     FetchContent_Declare(
         duckdb
         GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-        GIT_TAG v0.10.0
+        GIT_TAG v1.4.2
         GIT_SHALLOW TRUE
     )
     
@@ -62,7 +62,7 @@ if(BUILD_DUCKDB)
     
     set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
     set(DUCKDB_LIBRARIES duckdb)
-    set(DUCKDB_VERSION "0.10.0")  # Known version when building from source
+    set(DUCKDB_VERSION "1.4.2")  # Known version when building from source
     
 else()
     # Try to find installed DuckDB
@@ -109,13 +109,13 @@ else()
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-            GIT_TAG v0.10.0
+            GIT_TAG v1.4.2
             GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(duckdb)
         set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
         set(DUCKDB_LIBRARIES duckdb)
-        set(DUCKDB_VERSION "0.10.0")
+        set(DUCKDB_VERSION "1.4.2")
     endif()
 endif()
 
@@ -437,9 +437,15 @@ if(NOT WIN32)
         -fstack-protector-strong
         -D_FORTIFY_SOURCE=2
     )
-    target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-        -Wl,-z,relro,-z,now
-    )
+    if(APPLE)
+        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE
+            "-Wl,-dead_strip_dylibs"
+        )
+    else()
+        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE
+            -Wl,-z,relro,-z,now
+        )
+    endif()
 endif()
 
 # R8-AC1: Version information with build timestamp
@@ -592,6 +598,7 @@ if(BUILD_CPP_TESTS)
         gtest
         ${DUCKDB_LIBRARIES}
         libdplyr_c
+        ${DUCKDB_EXTENSION_NAME}
     )
     
     # Platform-specific test linking

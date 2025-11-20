@@ -1,3 +1,4 @@
+#define DUCKDB_EXTENSION_MAIN
 /**
  * @file dplyr_extension.cpp
  * @brief DuckDB extension implementation for dplyr transpilation
@@ -10,9 +11,10 @@
 #include "duckdb.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 #include "duckdb/parser/parser.hpp"
-#include "duckdb/parser/statement/select_statement.hpp"
-#include "duckdb/function/table_function.hpp"
-#include "duckdb/main/extension_util.hpp"
+#include "duckdb/parser/statement/extension_statement.hpp"
+#include "duckdb/planner/binder.hpp"
+#include "duckdb/common/exception.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "../include/dplyr_extension.h"
 #include <memory>
@@ -713,7 +715,8 @@ public:
         // Look for pattern: DPLYR 'code'
         
         // Trim whitespace and convert to uppercase for comparison
-        string trimmed = StringUtil::Trim(sql_string);
+        string trimmed = sql_string;
+        StringUtil::Trim(trimmed);
         string upper_sql = StringUtil::Upper(trimmed);
         
         // Check if it starts with DPLYR
@@ -883,214 +886,207 @@ private:
     }
 };
 
-/**
- * @brief Parser extension for DPLYR keyword-based entry point
- * 
- * Implements R5-AC1: DPLYR keyword-based syntax detection
- * Implements R5-AC2: Prevents false positives outside DPLYR context
- * Implements R5-AC3: Clear error on parsing failure (no fallback)
- */
-class DplyrParserExtension : public ParserExtension {
-public:
-    void ParseStatement(ParserExtensionParseData *parse_data) override {
-        // R5-AC1: Check for DPLYR keyword in the SQL string
-        string sql_string = parse_data->parser.query;
-        string trimmed = StringUtil::Trim(sql_string);
-        string upper_sql = StringUtil::Upper(trimmed);
-        
-        if (!StringUtil::StartsWith(upper_sql, "DPLYR")) {
-            return; // Let other extensions or standard SQL handle this
-        }
-        
-        try {
-            // R5-AC2: Validate keyword and extract dplyr code
-            string dplyr_code = DplyrKeywordProcessor::validate_and_extract_from_string(sql_string);
-            
-            // R9-AC2: Additional security validation
-            DplyrInputValidator::validate_input_security(dplyr_code);
-            
-            // Convert dplyr code to SQL using C API with timeout checking
-            string sql = transpile_dplyr_code_with_timeout(dplyr_code);
-            
-            // Parse the generated SQL and inject into current parser
-            inject_generated_sql(parse_data, sql);
-            
-        } catch (const ParserException& e) {
-            // Re-throw parser exceptions as-is (already properly formatted)
-            throw;
-        } catch (const InvalidInputException& e) {
-            // Re-throw input validation exceptions as parser exceptions
-            throw ParserException("DPLYR input validation failed: " + string(e.what()));
-        } catch (const NotImplementedException& e) {
-            // Re-throw unsupported operation exceptions as parser exceptions
-            throw ParserException("DPLYR unsupported operation: " + string(e.what()));
-        } catch (const InternalException& e) {
-            // R7-AC3: Internal errors should not crash DuckDB
-            throw ParserException("DPLYR internal error: " + string(e.what()));
-        } catch (const std::exception& e) {
-            // R5-AC3: Clear error on parsing failure (no fallback to standard SQL)
-            throw ParserException("DPLYR transpilation failed: " + string(e.what()));
-        }
+struct DplyrParseData : ParserExtensionParseData {
+    explicit DplyrParseData(unique_ptr<SQLStatement> statement_p) : statement(std::move(statement_p)) {}
+
+    unique_ptr<ParserExtensionParseData> Copy() const override {
+        return make_uniq_base<ParserExtensionParseData, DplyrParseData>(statement->Copy());
     }
 
-private:
-    /**
-     * @brief Transpile dplyr code to SQL using the C API
-     * 
-     * @param dplyr_code The dplyr pipeline code
-     * @return Generated SQL string
-     * @throws std::runtime_error on transpilation failure
-     */
-    string transpile_dplyr_code(const string& dplyr_code) {
-        char* sql_output = nullptr;
-        char* error_output = nullptr;
-        
-        // Use default options with debug mode if available
-        DplyrOptions options = dplyr_options_default();
-        
-        // Enable debug mode if environment variable is set
-        if (DplyrDebugLogger::is_debug_enabled()) {
-            options.debug_mode = true;
-            DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::TRANSPILER, 
-                "Starting transpilation with debug mode enabled");
-        }
-        
-        // Measure transpilation performance
-        auto start_time = std::chrono::high_resolution_clock::now();
-        
-        int result = dplyr_compile(dplyr_code.c_str(), &options, &sql_output, &error_output);
-        
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-        double duration_ms = duration.count() / 1000.0;
-        
-        if (!dplyr_is_success(result)) {
-            string error_msg = error_output ? string(error_output) : "Unknown dplyr compilation error";
-            
-            // Log transpilation failure
-            DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::TRANSPILER, 
-                "Transpilation failed: " + error_msg, 
-                "Code length: " + std::to_string(dplyr_code.length()));
-            
-            if (error_output) dplyr_free_string(error_output);
-            
-            // R7-AC3: Use error handler to convert to appropriate DuckDB exception
-            DplyrErrorHandler::handle_error(result, error_msg, dplyr_code);
-        }
-        
-        // Log successful transpilation performance
-        DplyrDebugLogger::log_performance("transpilation", duration_ms, 
-            "Input: " + std::to_string(dplyr_code.length()) + " chars");
-        
-        if (DplyrDebugLogger::is_debug_enabled()) {
-            DplyrDebugLogger::log_cache_stats();
-        }
-        
-        string sql = sql_output ? string(sql_output) : "";
-        if (sql_output) dplyr_free_string(sql_output);
-        
-        if (sql.empty()) {
-            throw std::runtime_error("DPLYR generated empty SQL");
-        }
-        
-        return sql;
+    string ToString() const override {
+        return "DplyrParseData";
     }
-    
-    /**
-     * @brief Inject generated SQL into the current parser
-     * 
-     * @param parse_data Parser extension data
-     * @param sql Generated SQL to parse and inject
-     */
-    void inject_generated_sql(ParserExtensionParseData *parse_data, const string& sql) {
-        // Create a new parser for the generated SQL
-        Parser sql_parser(parse_data->parser.context);
-        
-        try {
-            auto statements = sql_parser.ParseQuery(sql);
-            
-            if (statements.empty()) {
-                throw ParserException("DPLYR generated SQL could not be parsed");
-            }
-            
-            // Add parsed statements to the current parser result
-            for (auto &stmt : statements) {
-                parse_data->result.push_back(std::move(stmt));
-            }
-        } catch (const std::exception& e) {
-            throw ParserException("Failed to parse generated SQL: " + string(e.what()));
+
+    unique_ptr<SQLStatement> statement;
+};
+
+class DplyrState : public ClientContextState {
+public:
+    explicit DplyrState(unique_ptr<ParserExtensionParseData> parse_data_p)
+        : parse_data(std::move(parse_data_p)) {}
+
+    void QueryEnd() override {
+        parse_data.reset();
+    }
+
+    unique_ptr<ParserExtensionParseData> parse_data;
+};
+
+static string TranspileDplyrCode(const string& dplyr_code) {
+    char* sql_output = nullptr;
+    char* error_output = nullptr;
+
+    DplyrOptions options = dplyr_options_default();
+    if (DplyrDebugLogger::is_debug_enabled()) {
+        options.debug_mode = true;
+    }
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    int result = dplyr_compile(dplyr_code.c_str(), &options, &sql_output, &error_output);
+
+    DplyrInputValidator::check_processing_timeout(start_time);
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    double duration_ms = duration.count() / 1000.0;
+
+    if (!dplyr_is_success(result)) {
+        string error_msg = error_output ? string(error_output) : "Unknown dplyr compilation error";
+        if (error_output) {
+            dplyr_free_string(error_output);
         }
+        DplyrErrorHandler::handle_error(result, error_msg, dplyr_code);
+    }
+
+    string sql = sql_output ? string(sql_output) : "";
+    if (sql_output) {
+        dplyr_free_string(sql_output);
+    }
+
+    if (sql.empty()) {
+        throw ParserException("DPLYR generated empty SQL");
+    }
+
+    if (DplyrDebugLogger::is_debug_enabled()) {
+        DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::TRANSPILER,
+            "Generated SQL: " + sql);
+    }
+
+    DplyrDebugLogger::log_performance("transpilation", duration_ms,
+        "Input: " + std::to_string(dplyr_code.length()) + " chars");
+
+    return sql;
+}
+
+static string ExtractLeadingTableName(const string& dplyr_code) {
+    auto pipe_pos = dplyr_code.find("%>%");
+    string prefix = pipe_pos == string::npos ? dplyr_code : dplyr_code.substr(0, pipe_pos);
+    StringUtil::Trim(prefix);
+
+    if (prefix.empty()) {
+        return "";
+    }
+
+    bool valid = std::all_of(prefix.begin(), prefix.end(), [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '.';
+    });
+
+    return valid ? prefix : "";
+}
+
+ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& query) {
+    string trimmed = query;
+    StringUtil::Trim(trimmed);
+    string upper_sql = StringUtil::Upper(trimmed);
+
+    bool has_keyword = StringUtil::StartsWith(upper_sql, "DPLYR");
+    bool looks_like_pipeline = trimmed.find("%>%") != string::npos;
+    if (!has_keyword && !looks_like_pipeline) {
+        return ParserExtensionParseResult(); // Not for this extension
+    }
+
+    try {
+        string dplyr_code;
+        if (has_keyword) {
+            dplyr_code = DplyrKeywordProcessor::validate_and_extract_from_string(trimmed);
+        } else {
+            if (trimmed.empty()) {
+                return ParserExtensionParseResult("DPLYR pipeline cannot be empty");
+            }
+            dplyr_code = trimmed;
+        }
+
+        DplyrInputValidator::validate_input_security(dplyr_code);
+        string table_hint = ExtractLeadingTableName(dplyr_code);
+        string sql = TranspileDplyrCode(dplyr_code);
+        if (!table_hint.empty()) {
+            string quoted = "\"" + table_hint + "\"";
+            sql = StringUtil::Replace(sql, "\"data\"", quoted);
+        }
+
+        Parser parser;
+        parser.ParseQuery(sql);
+
+        if (parser.statements.empty()) {
+            return ParserExtensionParseResult("DPLYR generated SQL could not be parsed");
+        }
+
+        return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(
+            std::move(parser.statements[0])));
+    } catch (const Exception& ex) {
+        return ParserExtensionParseResult(ex.what());
+    } catch (const std::exception& ex) {
+        return ParserExtensionParseResult("DPLYR transpilation failed: " + string(ex.what()));
+    }
+}
+
+ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& context,
+                                     unique_ptr<ParserExtensionParseData> parse_data) {
+    auto state = make_shared_ptr<DplyrState>(std::move(parse_data));
+    context.registered_state->Remove("dplyr_extension");
+    context.registered_state->Insert("dplyr_extension", state);
+    throw BinderException("Use dplyr_bind instead");
+}
+
+BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtensionInfo *,
+                          SQLStatement& statement) {
+    if (statement.type == StatementType::EXTENSION_STATEMENT) {
+        auto& extension_statement = dynamic_cast<ExtensionStatement&>(statement);
+        if (extension_statement.extension.parse_function == dplyr_parse) {
+            auto lookup = context.registered_state->Get<DplyrState>("dplyr_extension");
+            if (lookup) {
+                auto dplyr_state = (DplyrState*)lookup.get();
+                auto dplyr_binder = Binder::CreateBinder(context, &binder);
+                auto dplyr_parse_data =
+                    dynamic_cast<DplyrParseData*>(dplyr_state->parse_data.get());
+                if (!dplyr_parse_data) {
+                    throw BinderException("Invalid DPLYR parse data");
+                }
+                return dplyr_binder->Bind(*dplyr_parse_data->statement);
+            }
+            throw BinderException("Registered DPLYR state not found");
+        }
+    }
+    return {};
+}
+
+struct DplyrOperatorExtension : public OperatorExtension {
+    DplyrOperatorExtension() : OperatorExtension() {
+        Bind = dplyr_bind;
+    }
+
+    string GetName() override {
+        return "dplyr_extension";
+    }
+
+    unique_ptr<LogicalExtensionOperator> Deserialize(Deserializer &) override {
+        throw InternalException("dplyr operator should not be serialized");
     }
 };
 
+struct DplyrParserExtension : public ParserExtension {
+    DplyrParserExtension() : ParserExtension() {
+        parse_function = dplyr_parse;
+        plan_function = dplyr_plan;
+    }
+};
 
+void DplyrExtension::Load(ExtensionLoader& loader) {
+    loader.SetDescription("libdplyr transpilation extension");
+
+    auto& instance = loader.GetDatabaseInstance();
+    auto& config = DBConfig::GetConfig(instance);
+    config.parser_extensions.push_back(DplyrParserExtension());
+    config.operator_extensions.push_back(make_uniq<DplyrOperatorExtension>());
+}
+
+string DplyrExtension::Name() {
+    return "dplyr_extension";
+}
 
 } // namespace dplyr_extension
 
-/**
- * @brief Extension loading function
- * 
- * This function is called when the extension is loaded into DuckDB.
- * It registers the parser extension entry point.
- * 
- * Requirements fulfilled:
- * - R2-AC1: Register parser extension entry point
- * - R4-AC2: Enable successful LOAD 'dplyr_extension'
- */
-extern "C" void dplyr_init(duckdb::DatabaseInstance &db) {
-    try {
-        // Validate system requirements before registering extensions
-        int system_check = dplyr_check_system();
-        if (system_check != 0) {
-            string error_msg = "DPLYR extension system check failed with code " + std::to_string(system_check);
-            
-            // Log system check failure
-            DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::GENERAL, 
-                "System check failed", "Error code: " + std::to_string(system_check));
-            
-            throw std::runtime_error(error_msg);
-        }
-        
-        // R2-AC1: Register parser extension (primary and only entry point)
-        auto parser_extension = make_unique<dplyr_extension::DplyrParserExtension>();
-        ExtensionUtil::RegisterParserExtension(db, std::move(parser_extension));
-        
-        // Log successful initialization
-        DplyrDebugLogger::log_info(DplyrDebugLogger::LogCategory::GENERAL, 
-            "DPLYR extension initialized successfully");
-        
-        if (DplyrDebugLogger::is_debug_enabled()) {
-            DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::GENERAL, 
-                "Debug mode enabled via environment variable");
-            DplyrDebugLogger::log_cache_stats();
-        }
-        
-    } catch (const std::exception& e) {
-        // R7-AC3: Ensure extension loading failures don't crash DuckDB
-        string detailed_error = "Failed to initialize DPLYR extension: " + std::string(e.what());
-        detailed_error += "\n\nTroubleshooting:";
-        detailed_error += "\n  - Check if libdplyr_c library is properly linked";
-        detailed_error += "\n  - Verify system has sufficient memory";
-        detailed_error += "\n  - Enable debug mode with DPLYR_DEBUG=1 for more details";
-        
-        throw std::runtime_error(detailed_error);
-    }
-}
-
-/**
- * @brief Extension version function
- * 
- * @return Extension version string
- */
-extern "C" const char* dplyr_extension_version() {
-    return dplyr_version(); // Delegate to the C API version function
-}
-
-/**
- * @brief Extension information function
- * 
- * @return Detailed extension information
- */
-extern "C" const char* dplyr_extension_info() {
-    return dplyr_version_detailed(); // Delegate to the C API detailed version
+extern "C" DUCKDB_EXTENSION_API void dplyr_extension_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+    dplyr_extension::DplyrExtension ext;
+    ext.Load(loader);
 }
