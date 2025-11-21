@@ -30,83 +30,23 @@ include(extension_config.cmake)
 # R8-AC1: Validate extension compatibility
 validate_extension_compatibility()
 
-# R4-AC1: Find DuckDB installation or build from source
-option(BUILD_DUCKDB "Build DuckDB from source" OFF)
 option(DUCKDB_VERSION_CHECK "Enable DuckDB version compatibility checking" ON)
 option(DUCKDB_STRICT_VERSION_CHECK "Enable strict DuckDB version checking" OFF)
 
-if(BUILD_DUCKDB)
-    # Build DuckDB from source
-    message(STATUS "Building DuckDB from source...")
-    include(FetchContent)
-    FetchContent_Declare(
-        duckdb
-        GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-        GIT_TAG v1.4.2
-        GIT_SHALLOW TRUE
-    )
-    
-    # Check if fetch was successful
-    FetchContent_GetProperties(duckdb)
-    if(NOT duckdb_POPULATED)
-        message(STATUS "Downloading DuckDB source...")
-        FetchContent_Populate(duckdb)
-        
-        # Verify source was downloaded
-        if(NOT EXISTS "${duckdb_SOURCE_DIR}/CMakeLists.txt")
-            message(FATAL_ERROR "Failed to download DuckDB source code")
-        endif()
-        
-        add_subdirectory(${duckdb_SOURCE_DIR} ${duckdb_BINARY_DIR})
-    endif()
-    
-    set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
-    set(DUCKDB_LIBRARIES duckdb)
-    set(DUCKDB_VERSION "v1.4.2")  # Known version when building from source
-    
-else()
-    # Try to find installed DuckDB
-    message(STATUS "Looking for installed DuckDB...")
-    
-    find_path(DUCKDB_INCLUDE_DIR 
-        NAMES duckdb.hpp duckdb.h
-        PATHS 
-            /usr/local/include
-            /usr/include
-            /opt/homebrew/include
-            ${CMAKE_PREFIX_PATH}/include
-        DOC "DuckDB include directory"
-    )
-    
-    find_library(DUCKDB_LIBRARIES
-        NAMES duckdb libduckdb
-        PATHS
-            /usr/local/lib
-            /usr/lib
-            /opt/homebrew/lib
-            ${CMAKE_PREFIX_PATH}/lib
-        DOC "DuckDB library"
-    )
-    
-    # Try to determine DuckDB version from installed headers
-    if(DUCKDB_INCLUDE_DIR AND EXISTS "${DUCKDB_INCLUDE_DIR}/duckdb.hpp")
-        file(READ "${DUCKDB_INCLUDE_DIR}/duckdb.hpp" DUCKDB_HEADER_CONTENT)
-        string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" 
-               DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
-        if(DUCKDB_VERSION_MATCH)
-            set(DUCKDB_VERSION ${CMAKE_MATCH_1})
-        else()
-            set(DUCKDB_VERSION "unknown")
-        endif()
-    endif()
-    
-    if(NOT DUCKDB_INCLUDE_DIR OR NOT DUCKDB_LIBRARIES)
-        message(STATUS "DuckDB not found in system, building from source...")
-        set(BUILD_DUCKDB ON CACHE BOOL "Build DuckDB from source" FORCE)
-        
-        # Recursively configure with BUILD_DUCKDB=ON
+# Detect standalone configuration to optionally fetch DuckDB ourselves.
+set(STANDALONE_BUILD FALSE)
+if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
+    set(STANDALONE_BUILD TRUE)
+endif()
+
+if(STANDALONE_BUILD)
+    set(DUCKDB_LOCAL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/duckdb")
+    if(EXISTS "${DUCKDB_LOCAL_SOURCE}/CMakeLists.txt")
+        add_subdirectory(${DUCKDB_LOCAL_SOURCE} ${CMAKE_BINARY_DIR}/duckdb)
+        set(DUCKDB_INCLUDE_DIR ${DUCKDB_LOCAL_SOURCE}/src/include)
+        set(DUCKDB_LIBRARIES duckdb)
+    else()
         include(FetchContent)
-        set(OVERRIDE_GIT_DESCRIBE "v1.4.2")
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
@@ -116,18 +56,46 @@ else()
         FetchContent_MakeAvailable(duckdb)
         set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
         set(DUCKDB_LIBRARIES duckdb)
-        set(DUCKDB_VERSION "v1.4.2")
+    endif()
+else()
+    if(NOT DUCKDB_INCLUDE_DIR)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/src/include/duckdb.hpp")
+            set(DUCKDB_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/src/include")
+        endif()
+    endif()
+
+    if(NOT DUCKDB_LIBRARIES)
+        set(DUCKDB_LIBRARIES duckdb)
+    endif()
+
+    if(NOT DUCKDB_INCLUDE_DIR OR NOT DUCKDB_LIBRARIES)
+        find_package(DuckDB QUIET)
+        if(DuckDB_FOUND)
+            if(NOT DUCKDB_INCLUDE_DIR)
+                set(DUCKDB_INCLUDE_DIR ${DuckDB_INCLUDE_DIRS})
+            endif()
+            if(NOT DUCKDB_LIBRARIES)
+                set(DUCKDB_LIBRARIES ${DuckDB_LIBRARIES})
+            endif()
+        endif()
     endif()
 endif()
 
-# R8-AC1: Verify DuckDB installation
-if(NOT EXISTS "${DUCKDB_INCLUDE_DIR}/duckdb.hpp")
-    message(FATAL_ERROR 
-        "DuckDB headers not found at ${DUCKDB_INCLUDE_DIR}. "
-        "Please install DuckDB or set BUILD_DUCKDB=ON")
+if(NOT DUCKDB_INCLUDE_DIR OR NOT DUCKDB_LIBRARIES)
+    message(FATAL_ERROR "DuckDB headers/libs not provided. Set DUCKDB_INCLUDE_DIR and DUCKDB_LIBRARIES or build standalone.")
 endif()
 
-# R8-AC1: Flexible version compatibility check
+if(NOT DEFINED DUCKDB_VERSION AND EXISTS "${DUCKDB_INCLUDE_DIR}/duckdb.hpp")
+    file(READ "${DUCKDB_INCLUDE_DIR}/duckdb.hpp" DUCKDB_HEADER_CONTENT)
+    string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" 
+           DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
+    if(DUCKDB_VERSION_MATCH)
+        set(DUCKDB_VERSION ${CMAKE_MATCH_1})
+    else()
+        set(DUCKDB_VERSION "unknown")
+    endif()
+endif()
+
 if(DUCKDB_VERSION_CHECK AND NOT DUCKDB_VERSION STREQUAL "unknown")
     check_duckdb_version(${DUCKDB_VERSION})
 else()
@@ -335,121 +303,110 @@ set(EXTENSION_SOURCES
     extension/src/dplyr_extension.cpp
 )
 
-# R4-AC1: Build loadable extension
-add_library(${DUCKDB_EXTENSION_NAME} SHARED ${EXTENSION_SOURCES})
+# R4-AC1: Build loadable extension with DuckDB helper macro
+build_loadable_extension(${DUCKDB_EXTENSION_NAME} " " ${EXTENSION_SOURCES})
+build_static_extension(${DUCKDB_EXTENSION_NAME} ${EXTENSION_SOURCES})
+set(DUCKDB_EXTENSION_TARGET ${DUCKDB_EXTENSION_NAME}_loadable_extension)
+set(DUCKDB_EXTENSION_STATIC_TARGET ${DUCKDB_EXTENSION_NAME}_extension)
+set(EXTENSION_TARGETS ${DUCKDB_EXTENSION_TARGET} ${DUCKDB_EXTENSION_STATIC_TARGET})
 
-# Set extension properties
-set_target_properties(${DUCKDB_EXTENSION_NAME} PROPERTIES
-    PREFIX ""
-    SUFFIX ".duckdb_extension"
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-)
+foreach(EXT_TARGET ${EXTENSION_TARGETS})
+    set_target_properties(${EXT_TARGET} PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
 
-# R4-AC1: Include directories
-target_include_directories(${DUCKDB_EXTENSION_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/extension/include
-    ${DUCKDB_INCLUDE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}  # For generated headers
-)
+    target_include_directories(${EXT_TARGET} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/extension/include
+        ${DUCKDB_INCLUDE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}  # For generated headers
+    )
 
+    target_link_libraries(${EXT_TARGET} libdplyr_c)
 
-
-# R3-AC1: Link libraries
-target_link_libraries(${DUCKDB_EXTENSION_NAME} 
-    PRIVATE 
-    libdplyr_c
-    ${DUCKDB_LIBRARIES}
-)
-
-# R4-AC1: Platform-specific linking
-if(WIN32)
-    # Windows-specific libraries for Rust std and system APIs
-    target_link_libraries(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        ws2_32 userenv bcrypt ntdll advapi32 shell32 ole32
-    )
-    
-    # Windows-specific compile definitions
-    target_compile_definitions(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        WIN32_LEAN_AND_MEAN NOMINMAX
-        DUCKDB_EXTENSION_MAIN
-        DUCKDB_VERSION="v1.4.2"
-    )
-    
-elseif(APPLE)
-    # macOS-specific frameworks and libraries
-    target_link_libraries(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        "-framework Security"
-        "-framework CoreFoundation"
-        "-framework SystemConfiguration"
-    )
-    
-    # macOS-specific compile options
-    target_compile_options(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        -mmacosx-version-min=10.14
-    )
-    
-elseif(UNIX)
-    # Linux-specific libraries
-    target_link_libraries(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        pthread dl m rt
-    )
-    
-    # Linux-specific compile options
-    target_compile_options(${DUCKDB_EXTENSION_NAME} 
-        PRIVATE 
-        -fPIC
-    )
-endif()
-
-# R4-AC1: Compiler-specific optimizations and warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-unused-parameter
-        $<$<CONFIG:Release>:-O3 -DNDEBUG>
-        $<$<CONFIG:Debug>:-g -O0>
-    )
-    
-    # Link-time optimization for release builds
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_compile_options(${DUCKDB_EXTENSION_NAME} PRIVATE -flto)
-        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE -flto)
-    endif()
-    
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    target_compile_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-        /W4 /wd4100 /wd4996  # Disable unused parameter and deprecated warnings
-        $<$<CONFIG:Release>:/O2 /DNDEBUG /GL>
-        $<$<CONFIG:Debug>:/Od /Zi /RTC1>
-    )
-    
-    # Whole program optimization for release builds
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE /LTCG)
-    endif()
-endif()
-
-# R4-AC1: Security hardening flags
-if(NOT WIN32)
-    target_compile_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-        -fstack-protector-strong
-        -D_FORTIFY_SOURCE=2
-    )
-    if(APPLE)
-        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-            "-Wl,-dead_strip_dylibs"
+    if(WIN32)
+        target_link_libraries(${EXT_TARGET} 
+            ws2_32 userenv bcrypt ntdll advapi32 shell32 ole32
         )
-    else()
-        target_link_options(${DUCKDB_EXTENSION_NAME} PRIVATE
-            -Wl,-z,relro,-z,now
+        
+        target_compile_definitions(${EXT_TARGET} 
+            PRIVATE 
+            WIN32_LEAN_AND_MEAN NOMINMAX
+            DUCKDB_EXTENSION_MAIN
+            DUCKDB_VERSION="v1.4.2"
+        )
+        
+    elseif(APPLE)
+        target_link_libraries(${EXT_TARGET} 
+            "-framework Security"
+            "-framework CoreFoundation"
+            "-framework SystemConfiguration"
+        )
+        
+        target_compile_options(${EXT_TARGET} 
+            PRIVATE 
+            -mmacosx-version-min=10.14
+        )
+        
+    elseif(UNIX)
+        target_link_libraries(${EXT_TARGET} 
+            pthread dl m rt
+        )
+        
+        target_compile_options(${EXT_TARGET} 
+            PRIVATE 
+            -fPIC
         )
     endif()
+
+    # R4-AC1: Compiler-specific optimizations and warnings
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${EXT_TARGET} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter
+            $<$<CONFIG:Release>:-O3 -DNDEBUG>
+            $<$<CONFIG:Debug>:-g -O0>
+        )
+        
+        # Link-time optimization for release builds
+        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+            target_compile_options(${EXT_TARGET} PRIVATE -flto)
+            target_link_options(${EXT_TARGET} PRIVATE -flto)
+        endif()
+        
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        target_compile_options(${EXT_TARGET} PRIVATE
+            /W4 /wd4100 /wd4996  # Disable unused parameter and deprecated warnings
+            $<$<CONFIG:Release>:/O2 /DNDEBUG /GL>
+            $<$<CONFIG:Debug>:/Od /Zi /RTC1>
+        )
+        
+        # Whole program optimization for release builds
+        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+            target_link_options(${EXT_TARGET} PRIVATE /LTCG)
+        endif()
+    endif()
+
+    # R4-AC1: Security hardening flags
+    if(NOT WIN32)
+        target_compile_options(${EXT_TARGET} PRIVATE
+            -fstack-protector-strong
+            -D_FORTIFY_SOURCE=2
+        )
+        if(APPLE)
+            target_link_options(${EXT_TARGET} PRIVATE
+                "-Wl,-dead_strip_dylibs"
+            )
+        else()
+            target_link_options(${EXT_TARGET} PRIVATE
+                -Wl,-z,relro,-z,now
+            )
+        endif()
+    endif()
+endforeach()
+
+if(COMMAND install_duckdb_extension)
+    install_duckdb_extension(${DUCKDB_EXTENSION_NAME})
 endif()
 
 # R8-AC1: Version information with build timestamp
@@ -474,7 +431,7 @@ configure_file(
 enable_testing()
 
 # R4-AC2: Test configuration
-set(EXTENSION_BINARY_PATH "${CMAKE_BINARY_DIR}/${DUCKDB_EXTENSION_NAME}.duckdb_extension")
+set(EXTENSION_BINARY_PATH "${CMAKE_BINARY_DIR}/extension/${DUCKDB_EXTENSION_NAME}/${DUCKDB_EXTENSION_NAME}.duckdb_extension")
 set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
 
 # R4-AC2: Smoke test - basic extension loading
@@ -602,7 +559,7 @@ if(BUILD_CPP_TESTS)
         gtest
         ${DUCKDB_LIBRARIES}
         libdplyr_c
-        ${DUCKDB_EXTENSION_NAME}
+        ${DUCKDB_EXTENSION_STATIC_TARGET}
     )
     
     # Platform-specific test linking
@@ -700,7 +657,7 @@ if(BUILD_CPP_TESTS)
     )
     
     # Make tests depend on extension build
-    add_dependencies(duckdb_extension_integration_test ${DUCKDB_EXTENSION_NAME})
+    add_dependencies(duckdb_extension_integration_test ${DUCKDB_EXTENSION_STATIC_TARGET})
     
     message(STATUS "C++ integration tests configured successfully")
 else()
@@ -716,7 +673,7 @@ add_custom_target(dev-build
 add_custom_target(dev-test
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target test
     COMMENT "Running all tests"
-    DEPENDS ${DUCKDB_EXTENSION_NAME}
+    DEPENDS ${EXTENSION_TARGETS}
 )
 
 add_custom_target(dev-clean
@@ -777,16 +734,16 @@ add_custom_target(smoke-test
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_smoke_tests.sh
     COMMENT "Running comprehensive smoke tests"
-    DEPENDS ${DUCKDB_EXTENSION_NAME}
+    DEPENDS ${DUCKDB_EXTENSION_TARGET}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 add_custom_target(smoke-test-quick
     COMMAND ${CMAKE_COMMAND} -E env 
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-        duckdb ":memory:" -c "LOAD '${CMAKE_BINARY_DIR}/${DUCKDB_EXTENSION_NAME}.duckdb_extension'; SELECT 'Extension loaded successfully' as status;"
+        duckdb ":memory:" -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as status;"
     COMMENT "Running quick smoke test (extension loading only)"
-    DEPENDS ${DUCKDB_EXTENSION_NAME}
+    DEPENDS ${DUCKDB_EXTENSION_TARGET}
 )
 
 # Update quality-check to include smoke tests

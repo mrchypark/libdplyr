@@ -207,6 +207,15 @@ set(EXTENSION_CONFIG_DIR "config")
 set(EXTENSION_DOC_DIR "docs")
 set(EXTENSION_BINARY_NAME "dplyr_extension")
 
+# Register the extension with DuckDB (out-of-tree build)
+get_filename_component(DPLYR_EXTENSION_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+duckdb_extension_load(${EXTENSION_NAME}
+    DONT_LINK
+    SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
+    INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
+    EXTENSION_VERSION ${EXTENSION_VERSION}
+)
+
 # R8-AC1: Flexible DuckDB compatibility check function
 function(check_duckdb_version DUCKDB_VERSION)
     message(STATUS "Checking DuckDB version compatibility...")

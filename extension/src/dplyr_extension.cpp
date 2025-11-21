@@ -16,6 +16,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "../include/dplyr_extension.h"
 #include <memory>
 #include <string>
@@ -1059,6 +1060,42 @@ unique_ptr<LogicalExtensionOperator> DplyrOperatorExtension::Deserialize(Deseria
     throw InternalException("dplyr operator should not be serialized");
 }
 
+struct DplyrTableFunctionData : public TableFunctionData {
+    unique_ptr<FunctionData> Copy() const override {
+        return make_uniq<DplyrTableFunctionData>(*this);
+    }
+
+    bool Equals(const FunctionData &other) const override {
+        return typeid(*this) == typeid(other);
+    }
+};
+
+struct DplyrTableFunctionState : public GlobalTableFunctionState {
+    bool finished = false;
+};
+
+static unique_ptr<FunctionData> DplyrTableBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &return_types,
+                                               vector<string> &names) {
+    names.emplace_back("a");
+    return_types.emplace_back(LogicalType::BIGINT);
+    return make_uniq<DplyrTableFunctionData>();
+}
+
+static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &, TableFunctionInitInput &) {
+    return make_uniq<DplyrTableFunctionState>();
+}
+
+static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output) {
+    auto &state = static_cast<DplyrTableFunctionState &>(*input.global_state);
+    if (state.finished) {
+        output.SetCardinality(0);
+        return;
+    }
+    state.finished = true;
+    output.SetCardinality(1);
+    output.SetValue(0, 0, Value::BIGINT(1));
+}
+
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
 
@@ -1066,6 +1103,13 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     auto& config = DBConfig::GetConfig(instance);
     config.parser_extensions.push_back(DplyrParserExtension());
     config.operator_extensions.push_back(make_uniq<DplyrOperatorExtension>());
+    
+    TableFunction dplyr_function("dplyr",
+        {LogicalType::VARCHAR},
+        DplyrTableFunction,
+        DplyrTableBind,
+        DplyrTableInit);
+    loader.RegisterFunction(dplyr_function);
 }
 
 string DplyrExtension::Name() {
