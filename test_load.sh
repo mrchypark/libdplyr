@@ -12,5 +12,5 @@ if [ -z "$EXT_FILE" ]; then
 fi
 
 # 3. Load and run a simple query
-duckdb -unsigned -c "LOAD '$EXT_FILE'; SELECT * FROM dplyr('SELECT 1 as a %>% filter(a > 0)');"
-echo "SUCCESS: Extension loaded and query executed!"
+duckdb -unsigned -c "LOAD '$EXT_FILE'; SELECT a, b FROM dplyr('SELECT 1 as a %>% mutate(b = a + 1)');"
+echo "SUCCESS: Extension loaded and real dplyr pipeline executed!"

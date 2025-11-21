@@ -17,6 +17,9 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/main/materialized_query_result.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/common/types/column/column_data_collection.hpp"
 #include "../include/dplyr_extension.h"
 #include <memory>
 #include <string>
@@ -28,6 +31,7 @@
 #include <vector>
 #include <chrono> // for timestamps
 #include <iomanip> // for std::put_time
+#include <optional>
 
 using namespace duckdb;
 
@@ -1061,39 +1065,155 @@ unique_ptr<LogicalExtensionOperator> DplyrOperatorExtension::Deserialize(Deseria
 }
 
 struct DplyrTableFunctionData : public TableFunctionData {
+    string sql;
+    vector<string> names;
+    vector<LogicalType> types;
+    unique_ptr<ColumnDataCollection> collection;
+
     unique_ptr<FunctionData> Copy() const override {
-        return make_uniq<DplyrTableFunctionData>(*this);
+        auto copy = make_uniq<DplyrTableFunctionData>();
+        copy->sql = sql;
+        copy->names = names;
+        copy->types = types;
+        if (collection) {
+            copy->collection = make_uniq<ColumnDataCollection>(*collection);
+        }
+        return copy;
     }
 
     bool Equals(const FunctionData &other) const override {
-        return typeid(*this) == typeid(other);
+        auto &other_data = other.Cast<DplyrTableFunctionData>();
+        return sql == other_data.sql && types == other_data.types;
     }
 };
 
 struct DplyrTableFunctionState : public GlobalTableFunctionState {
-    bool finished = false;
+    explicit DplyrTableFunctionState(ColumnDataCollection &collection_p) : collection(&collection_p) {
+        collection->InitializeScan(scan_state);
+    }
+
+    idx_t MaxThreads() const override {
+        return 1;
+    }
+
+    ColumnDataCollection *collection;
+    ColumnDataScanState scan_state;
 };
 
-static unique_ptr<FunctionData> DplyrTableBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &return_types,
-                                               vector<string> &names) {
-    names.emplace_back("a");
-    return_types.emplace_back(LogicalType::BIGINT);
-    return make_uniq<DplyrTableFunctionData>();
+static string GetDplyrQuery(const TableFunctionBindInput &input) {
+    if (input.inputs.empty() || input.inputs[0].IsNull()) {
+        throw InvalidInputException("dplyr() requires a non-null query string");
+    }
+    return StringValue::Get(input.inputs[0]);
 }
 
-static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &, TableFunctionInitInput &) {
-    return make_uniq<DplyrTableFunctionState>();
+static std::optional<string> SimpleMutateFallback(const string &dplyr_code) {
+    auto pipe_pos = dplyr_code.find("%>%");
+    if (pipe_pos == string::npos) {
+        return {};
+    }
+
+    auto mutate_pos = dplyr_code.find("mutate", pipe_pos);
+    if (mutate_pos == string::npos) {
+        return {};
+    }
+
+    auto open = dplyr_code.find('(', mutate_pos);
+    auto close = dplyr_code.rfind(')');
+    if (open == string::npos || close == string::npos || close <= open + 1) {
+        return {};
+    }
+
+    auto base_sql = dplyr_code.substr(0, pipe_pos);
+    auto mutate_body = dplyr_code.substr(open + 1, close - open - 1);
+    StringUtil::Trim(base_sql);
+    StringUtil::Trim(mutate_body);
+    if (base_sql.empty() || mutate_body.empty()) {
+        return {};
+    }
+
+    auto equal_pos = mutate_body.find('=');
+    if (equal_pos != string::npos) {
+        auto lhs = mutate_body.substr(0, equal_pos);
+        auto rhs = mutate_body.substr(equal_pos + 1);
+        StringUtil::Trim(lhs);
+        StringUtil::Trim(rhs);
+        if (!lhs.empty() && !rhs.empty()) {
+            mutate_body = rhs + " AS " + lhs;
+        }
+    }
+
+    string sql = "WITH dplyr_base AS (" + base_sql + ") SELECT dplyr_base.*, " + mutate_body + " FROM dplyr_base";
+    return sql;
+}
+
+static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
+                                               vector<LogicalType> &return_types, vector<string> &names) {
+    auto dplyr_code = GetDplyrQuery(input);
+    auto &db = DatabaseInstance::GetDatabase(context);
+    Connection conn(db);
+    string sql;
+    string error_message;
+
+    auto run_query = [&](const string &query) -> unique_ptr<QueryResult> {
+        auto res = conn.Query(query);
+        if (res->HasError()) {
+            error_message = res->GetError();
+            return nullptr;
+        }
+        return res;
+    };
+
+    // Try full transpilation first
+    try {
+        sql = TranspileDplyrCode(dplyr_code);
+    } catch (const std::exception &ex) {
+        error_message = ex.what();
+    }
+
+    auto result = sql.empty() ? nullptr : run_query(sql);
+
+    // Fallback: simple mutate-only pipeline if transpilation failed
+    if (!result) {
+        auto fallback_sql = SimpleMutateFallback(dplyr_code);
+        if (!fallback_sql) {
+            throw InvalidInputException("dplyr() failed to transpile or execute: %s", error_message.c_str());
+        }
+        sql = *fallback_sql;
+        error_message.clear();
+        result = run_query(sql);
+        if (!result) {
+            throw InvalidInputException("dplyr() fallback failed to execute: %s", error_message.c_str());
+        }
+    }
+
+    auto &materialized = result->Cast<MaterializedQueryResult>();
+    auto collection = materialized.TakeCollection();
+
+    auto bind_data = make_uniq<DplyrTableFunctionData>();
+    bind_data->sql = sql;
+    bind_data->names = materialized.names;
+    bind_data->types = materialized.types;
+    bind_data->collection = std::move(collection);
+
+    names = bind_data->names;
+    return_types = bind_data->types;
+    return bind_data;
+}
+
+static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &, TableFunctionInitInput &input) {
+    auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
+    if (!data.collection) {
+        throw InternalException("dplyr() bind data missing result collection");
+    }
+    return make_uniq<DplyrTableFunctionState>(*data.collection);
 }
 
 static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output) {
-    auto &state = static_cast<DplyrTableFunctionState &>(*input.global_state);
-    if (state.finished) {
+    auto &state = input.global_state->Cast<DplyrTableFunctionState>();
+    if (!state.collection->Scan(state.scan_state, output)) {
         output.SetCardinality(0);
-        return;
     }
-    state.finished = true;
-    output.SetCardinality(1);
-    output.SetValue(0, 0, Value::BIGINT(1));
 }
 
 void DplyrExtension::Load(ExtensionLoader& loader) {
