@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.2] - 2025-10-27
+### Added
+- Automated GitHub Releases deployment (R4-AC3)
+- Comprehensive release notes with compatibility information (R8-AC3)
+- Community repository submission preparation
+- Multi-platform binary packaging and distribution
+- Universal installation script with platform detection
+- Release verification and quality assurance automation
+
+### Changed
+- Enhanced release workflow with comprehensive metadata
+- Improved release notes generation with changelog integration
+- Standardized release asset naming and organization
+
+### Fixed
+- Release deployment reliability and error handling
+- Platform-specific binary verification and testing
+
+## [0.2.0] - DuckDB Extension Release
+
+### Added
+- Automated binary releases for multiple platforms
+- Installation scripts for Linux, macOS, and Windows
+- Comprehensive CI/CD pipeline with testing and benchmarks
+
+### Changed
+- Improved error handling and user experience
+- Enhanced CLI with better help messages and options
 
 ### Fixed
 - Fixed CLI version display to dynamically read from Cargo.toml instead of hardcoded value

@@ -72,4 +72,9 @@ harness = false
 [lib]
 name = "libdplyr"
 path = "src/lib.rs"
-crate-type = ["staticlib", "rlib", "cdylib"]
+
+[workspace]
+members = [
+    ".",
+    "libdplyr_c"
+]

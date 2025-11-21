@@ -32,3 +32,11 @@ go.work.sum
 # .vscode/
 
 target*
+build/*
+# DuckDB extension build artifacts
+*.duckdb_extension
+*.db
+
+# Test artifacts
+tests/check_version
+tests/check_version.cpp
