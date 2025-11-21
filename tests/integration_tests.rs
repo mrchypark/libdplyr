@@ -7,6 +7,8 @@
 //! - CLI interface integration testing
 //! - Error handling and edge cases
 
+#![allow(clippy::unnecessary_unwrap)]
+
 use libdplyr::{DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqliteDialect, Transpiler};
 use std::fs;
 use std::path::Path;
@@ -26,9 +28,9 @@ fn test_simple_select_postgresql() {
     let dplyr_code = "select(name, age)";
 
     let result = transpiler.transpile(dplyr_code);
-    assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+    assert!(result.is_ok(), "Conversion should succeed: {result:?}");
 
-    let sql = result.unwrap();
+    let sql = result.expect("Result should be Ok after assertion");
     let normalized = normalize_sql(&sql);
 
     assert!(normalized.contains("SELECT"));
@@ -705,7 +707,9 @@ fn test_dialect_aggregation_function_comparison() {
 
     // All dialects should produce similar aggregation functions
     for result in [&pg_result, &mysql_result, &sqlite_result, &duckdb_result] {
-        let sql = result.as_ref().unwrap();
+        let sql = result
+            .as_ref()
+            .expect("Result should be Ok after assertion");
         let normalized = normalize_sql(sql);
         assert!(normalized.contains("AVG"));
         assert!(normalized.contains("SUM"));

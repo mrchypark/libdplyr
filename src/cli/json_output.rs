@@ -547,7 +547,7 @@ impl TranspileMetadata {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            dialect: format!("{:?}", dialect).to_lowercase(),
+            dialect: format!("{dialect:?}").to_lowercase(),
             stats: ProcessingStats {
                 lex_time_us: 0,
                 parse_time_us: 0,

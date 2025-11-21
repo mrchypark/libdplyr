@@ -201,19 +201,20 @@ impl Default for PostgreSqlDialect {
 
 impl SqlDialect for PostgreSqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{}\"", name)
+        format!("\"{name}\"")
     }
 
     fn quote_string(&self, value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
+        let escaped = value.replace('\'', "''");
+        format!("'{escaped}'")
     }
 
     fn limit_clause(&self, limit: usize) -> String {
-        format!("LIMIT {}", limit)
+        format!("LIMIT {limit}")
     }
 
     fn string_concat(&self, left: &str, right: &str) -> String {
-        format!("{} || {}", left, right)
+        format!("{left} || {right}")
     }
 
     fn aggregate_function(&self, function: &str) -> String {
@@ -292,19 +293,20 @@ impl Default for MySqlDialect {
 
 impl SqlDialect for MySqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("`{}`", name)
+        format!("`{name}`")
     }
 
     fn quote_string(&self, value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
+        let escaped = value.replace('\'', "''");
+        format!("'{escaped}'")
     }
 
     fn limit_clause(&self, limit: usize) -> String {
-        format!("LIMIT {}", limit)
+        format!("LIMIT {limit}")
     }
 
     fn string_concat(&self, left: &str, right: &str) -> String {
-        format!("CONCAT({}, {})", left, right)
+        format!("CONCAT({left}, {right})")
     }
 
     fn aggregate_function(&self, function: &str) -> String {
@@ -442,19 +444,20 @@ impl Default for DuckDbDialect {
 
 impl SqlDialect for DuckDbDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{}\"", name)
+        format!("\"{name}\"")
     }
 
     fn quote_string(&self, value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
+        let escaped = value.replace('\'', "''");
+        format!("'{escaped}'")
     }
 
     fn limit_clause(&self, limit: usize) -> String {
-        format!("LIMIT {}", limit)
+        format!("LIMIT {limit}")
     }
 
     fn string_concat(&self, left: &str, right: &str) -> String {
-        format!("{} || {}", left, right)
+        format!("{left} || {right}")
     }
 
     fn aggregate_function(&self, function: &str) -> String {
@@ -492,19 +495,20 @@ pub struct DialectConfig {
 
 impl SqlDialect for SqliteDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{}\"", name)
+        format!("\"{name}\"")
     }
 
     fn quote_string(&self, value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
+        let escaped = value.replace('\'', "''");
+        format!("'{escaped}'")
     }
 
     fn limit_clause(&self, limit: usize) -> String {
-        format!("LIMIT {}", limit)
+        format!("LIMIT {limit}")
     }
 
     fn string_concat(&self, left: &str, right: &str) -> String {
-        format!("{} || {}", left, right)
+        format!("{left} || {right}")
     }
 
     fn aggregate_function(&self, function: &str) -> String {
@@ -598,7 +602,7 @@ impl SqlGenerator {
                 } else {
                     query_parts
                         .where_clauses
-                        .push(format!("AND ({})", where_clause));
+                        .push(format!("AND ({where_clause})"));
                 }
             }
             DplyrOperation::Mutate { assignments, .. } => {
@@ -676,7 +680,7 @@ impl SqlGenerator {
                 let expr = if column_ref.is_empty() {
                     func_name
                 } else {
-                    format!("{}({})", func_name, column_ref)
+                    format!("{func_name}({column_ref})")
                 };
 
                 if let Some(alias) = &agg.alias {
@@ -705,7 +709,7 @@ impl SqlGenerator {
                 let left_sql = self.generate_expression(left)?;
                 let right_sql = self.generate_expression(right)?;
                 let op_sql = self.generate_binary_operator(operator);
-                Ok(format!("({} {} {})", left_sql, op_sql, right_sql))
+                Ok(format!("({left_sql} {op_sql} {right_sql})"))
             }
             Expr::Function { name, args } => {
                 let args_sql: Result<Vec<_>, _> = args
@@ -713,7 +717,8 @@ impl SqlGenerator {
                     .map(|arg| self.generate_expression(arg))
                     .collect();
                 let args_str = args_sql?.join(", ");
-                Ok(format!("{}({})", name.to_uppercase(), args_str))
+                let func_name = name.to_uppercase();
+                Ok(format!("{func_name}({args_str})"))
             }
         }
     }
@@ -1346,8 +1351,7 @@ mod tests {
                     let result = dialect.aggregate_function(func);
                     assert!(
                         !result.is_empty(),
-                        "Function {} should map to something",
-                        func
+                        "Function {func} should map to something"
                     );
 
                     // Common mappings should be consistent
@@ -1621,11 +1625,7 @@ mod tests {
 
             for (op, expected) in operators {
                 let result = generator.generate_binary_operator(&op);
-                assert_eq!(
-                    result, expected,
-                    "Operator {:?} should map to {}",
-                    op, expected
-                );
+                assert_eq!(result, expected, "Operator {op:?} should map to {expected}");
             }
         }
 
@@ -1646,8 +1646,7 @@ mod tests {
                 let result = generator.generate_literal(&literal).unwrap();
                 assert_eq!(
                     result, expected,
-                    "String '{}' should be quoted as {}",
-                    input, expected
+                    "String '{input}' should be quoted as {expected}"
                 );
             }
         }
@@ -1669,8 +1668,7 @@ mod tests {
                 let result = generator.generate_literal(&literal).unwrap();
                 assert_eq!(
                     result, expected,
-                    "Number {} should be formatted as {}",
-                    input, expected
+                    "Number {input} should be formatted as {expected}"
                 );
             }
         }
@@ -1743,8 +1741,7 @@ mod tests {
             let result = generator.generate_mutate_subquery(base_query, &assignments);
             assert!(
                 result.is_ok(),
-                "Subquery generation should succeed: {:?}",
-                result
+                "Subquery generation should succeed: {result:?}"
             );
 
             let sql = result.unwrap();
@@ -1782,11 +1779,7 @@ mod tests {
             ];
 
             let result = generator.generate_nested_pipeline(&operations);
-            assert!(
-                result.is_ok(),
-                "Nested pipeline should succeed: {:?}",
-                result
-            );
+            assert!(result.is_ok(), "Nested pipeline should succeed: {result:?}");
 
             let sql = result.unwrap();
             assert!(sql.contains("WHERE"));

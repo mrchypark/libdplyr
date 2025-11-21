@@ -60,7 +60,7 @@ impl std::str::FromStr for SqlDialectType {
             "mysql" => Ok(SqlDialectType::MySql),
             "sqlite" => Ok(SqlDialectType::Sqlite),
             "duckdb" | "duck" => Ok(SqlDialectType::DuckDb),
-            _ => Err(format!("Unsupported SQL dialect: {}", s)),
+            _ => Err(format!("Unsupported SQL dialect: {s}")),
         }
     }
 }
@@ -68,7 +68,7 @@ impl std::str::FromStr for SqlDialectType {
 /// Parses CLI arguments.
 pub fn parse_args() -> CliArgs {
     let matches = Command::new("libdplyr")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("libdplyr contributors")
         .about("A transpiler that converts R dplyr syntax to SQL")
         .long_about("libdplyr is a Rust-based transpiler that converts R dplyr syntax to SQL queries.\n\
@@ -316,15 +316,15 @@ impl ProcessingPipeline {
         {
             // Enable signal handling for stdin mode on Unix-like systems
             let handler = SignalHandler::new().map_err(|e| {
-                TranspileError::SystemError(format!("Failed to initialize signal handler: {}", e))
+                TranspileError::SystemError(format!("Failed to initialize signal handler: {e}"))
             })?;
             let processor = SignalAwareProcessor::new().map_err(|e| {
-                TranspileError::SystemError(format!("Failed to initialize signal processor: {}", e))
+                TranspileError::SystemError(format!("Failed to initialize signal processor: {e}"))
             })?;
 
             // Ignore SIGPIPE to handle broken pipes gracefully
             if let Err(e) = utils::ignore_sigpipe() {
-                eprintln!("Warning: Failed to ignore SIGPIPE: {}", e);
+                eprintln!("Warning: Failed to ignore SIGPIPE: {e}");
             }
 
             (Some(handler), Some(processor))
@@ -382,8 +382,7 @@ impl ProcessingPipeline {
                     self.debug_logger.debug("Using signal-aware stdin reader");
                     StdinReader::with_signal_handling().map_err(|e| {
                         TranspileError::SystemError(format!(
-                            "Failed to create signal-aware stdin reader: {}",
-                            e
+                            "Failed to create signal-aware stdin reader: {e}"
                         ))
                     })?
                 } else {
@@ -395,7 +394,7 @@ impl ProcessingPipeline {
                     self.read_stdin_with_signals(&reader, signal_processor)?
                 } else {
                     reader.read_all().map_err(|e| {
-                        TranspileError::IoError(format!("Failed to read from stdin: {}", e))
+                        TranspileError::IoError(format!("Failed to read from stdin: {e}"))
                     })?
                 };
 
@@ -413,12 +412,11 @@ impl ProcessingPipeline {
             }
             CliMode::FileMode { input_file, .. } => {
                 self.debug_logger
-                    .verbose(&format!("Reading from file: {}", input_file));
-                self.debug_logger
-                    .debug(&format!("File path: {}", input_file));
+                    .verbose(&format!("Reading from file: {input_file}"));
+                self.debug_logger.debug(&format!("File path: {input_file}"));
 
                 let result = std::fs::read_to_string(input_file).map_err(|e| {
-                    TranspileError::IoError(format!("Failed to read file '{}': {}", input_file, e))
+                    TranspileError::IoError(format!("Failed to read file '{input_file}': {e}"))
                 })?;
 
                 self.debug_logger
@@ -440,7 +438,7 @@ impl ProcessingPipeline {
             match result {
                 ValidateResult::Valid { summary } => {
                     self.debug_logger
-                        .debug(&format!("Validation successful: {:?}", summary));
+                        .debug(&format!("Validation successful: {summary:?}"));
                     self.debug_logger.verbose("Syntax validation passed");
 
                     match self.config.output_format {
@@ -455,7 +453,7 @@ impl ProcessingPipeline {
                 }
                 ValidateResult::Invalid { error, suggestions } => {
                     self.debug_logger
-                        .debug(&format!("Validation failed: {:?}", error));
+                        .debug(&format!("Validation failed: {error:?}"));
                     self.debug_logger
                         .verbose(&format!("Validation error: {}", error.message));
 
@@ -468,7 +466,7 @@ impl ProcessingPipeline {
                             if !suggestions.is_empty() {
                                 error_msg.push_str("\nSuggestions:");
                                 for suggestion in suggestions {
-                                    error_msg.push_str(&format!("\n  • {}", suggestion));
+                                    error_msg.push_str(&format!("\n  • {suggestion}"));
                                 }
                             }
                             Err(TranspileError::ValidationError(error_msg))
@@ -536,18 +534,18 @@ impl ProcessingPipeline {
                 ..
             } => {
                 if self.config.verbose {
-                    eprintln!("Writing output to file: {}", file);
+                    eprintln!("Writing output to file: {file}");
                 }
                 std::fs::write(file, output).map_err(|e| {
-                    TranspileError::IoError(format!("Failed to write to file '{}': {}", file, e))
+                    TranspileError::IoError(format!("Failed to write to file '{file}': {e}"))
                 })
             }
             _ => {
                 // Write to stdout
-                print!("{}", output);
+                print!("{output}");
                 io::stdout()
                     .flush()
-                    .map_err(|e| TranspileError::IoError(format!("Failed to flush stdout: {}", e)))
+                    .map_err(|e| TranspileError::IoError(format!("Failed to flush stdout: {e}")))
             }
         }
     }
@@ -567,7 +565,7 @@ impl ProcessingPipeline {
             let json_output = self.json_formatter.format_error(error_info, metadata);
             match json_output {
                 Ok(json) => {
-                    println!("{}", json);
+                    println!("{json}");
                 }
                 Err(_) => {
                     // Fallback to regular error handling if JSON formatting fails
@@ -613,7 +611,7 @@ impl ProcessingPipeline {
                 }
 
                 reader.read_all().map_err(|e| {
-                    ProcessingError::ProcessingError(format!("Failed to read from stdin: {}", e))
+                    ProcessingError::ProcessingError(format!("Failed to read from stdin: {e}"))
                 })
             })
             .map_err(|e| match e {
@@ -625,7 +623,7 @@ impl ProcessingPipeline {
                 }
                 ProcessingError::ProcessingError(msg) => TranspileError::IoError(msg),
                 ProcessingError::SignalError(sig_err) => {
-                    TranspileError::SystemError(format!("Signal error: {}", sig_err))
+                    TranspileError::SystemError(format!("Signal error: {sig_err}"))
                 }
             })
     }

@@ -225,7 +225,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
     });
 
     // Test very large single query
-    let large_columns: Vec<String> = (0..100).map(|i| format!("col_{}", i)).collect();
+    let large_columns: Vec<String> = (0..100).map(|i| format!("col_{i}")).collect();
     let large_query = format!("select({})", large_columns.join(", "));
 
     group.bench_function("single_large_query", |b| {
@@ -248,7 +248,7 @@ fn benchmark_stress_tests(c: &mut Criterion) {
     });
 
     // Wide operations test (many columns)
-    let wide_columns: Vec<String> = (0..50).map(|i| format!("column_{}", i)).collect();
+    let wide_columns: Vec<String> = (0..50).map(|i| format!("column_{i}")).collect();
     let wide_select = format!("select({})", wide_columns.join(", "));
     group.bench_function("wide_operations", |b| {
         b.iter(|| transpiler.transpile(black_box(wide_select.as_str())))

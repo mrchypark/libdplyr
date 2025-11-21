@@ -288,7 +288,7 @@ impl Parser {
             self.advance()
         } else {
             Err(ParseError::UnexpectedToken {
-                expected: format!("{}", expected),
+                expected: format!("{expected}"),
                 found: format!("{}", self.current_token),
                 position: self.position,
             })
@@ -372,7 +372,7 @@ impl Parser {
                 // and parsing it as a function call
                 return Err(ParseError::UnexpectedToken {
                     expected: "dplyr function or pipe operator".to_string(),
-                    found: format!("{}(", name),
+                    found: format!("{name}("),
                     position: self.position,
                 });
             } else {
@@ -1234,7 +1234,7 @@ mod tests {
                 assert_eq!(expected, "dplyr function or pipe operator");
                 assert!(found.contains("invalid_function"));
             }
-            other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+            other => panic!("Expected UnexpectedToken error, got: {other:?}"),
         }
     }
 
@@ -1268,7 +1268,7 @@ mod tests {
                 assert_eq!(expected, "(");
                 assert!(found.contains("name"));
             }
-            other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+            other => panic!("Expected UnexpectedToken error, got: {other:?}"),
         }
     }
 
@@ -1947,15 +1947,15 @@ mod tests {
                     assert_eq!(operations.len(), 1);
                     if let DplyrOperation::Filter { condition, .. } = &operations[0] {
                         if let Expr::Binary { operator, .. } = condition {
-                            assert_eq!(*operator, expected_op, "Failed for input: {}", input);
+                            assert_eq!(*operator, expected_op, "Failed for input: {input}");
                         } else {
-                            panic!("Expected binary expression for input: {}", input);
+                            panic!("Expected binary expression for input: {input}");
                         }
                     } else {
-                        panic!("Expected Filter operation for input: {}", input);
+                        panic!("Expected Filter operation for input: {input}");
                     }
                 } else {
-                    panic!("Expected Pipeline node for input: {}", input);
+                    panic!("Expected Pipeline node for input: {input}");
                 }
             }
         }
@@ -2274,15 +2274,15 @@ mod tests {
                         assert_eq!(assignments[0].column, "result");
 
                         if let Expr::Binary { operator, .. } = &assignments[0].expr {
-                            assert_eq!(*operator, expected_op, "Failed for input: {}", input);
+                            assert_eq!(*operator, expected_op, "Failed for input: {input}");
                         } else {
-                            panic!("Expected binary expression for input: {}", input);
+                            panic!("Expected binary expression for input: {input}");
                         }
                     } else {
-                        panic!("Expected Mutate operation for input: {}", input);
+                        panic!("Expected Mutate operation for input: {input}");
                     }
                 } else {
-                    panic!("Expected Pipeline node for input: {}", input);
+                    panic!("Expected Pipeline node for input: {input}");
                 }
             }
         }
@@ -2790,22 +2790,19 @@ mod tests {
                         assert_eq!(aggregations.len(), 1);
                         assert_eq!(
                             aggregations[0].function, expected_func,
-                            "Failed for input: {}",
-                            input
+                            "Failed for input: {input}"
                         );
                         assert_eq!(
                             aggregations[0].column, expected_col,
-                            "Failed for input: {}",
-                            input
+                            "Failed for input: {input}"
                         );
                         assert_eq!(
                             aggregations[0].alias,
                             Some("result".to_string()),
-                            "Failed for input: {}",
-                            input
+                            "Failed for input: {input}"
                         );
                     } else {
-                        panic!("Expected Summarise operation for input: {}", input);
+                        panic!("Expected Summarise operation for input: {input}");
                     }
                 } else {
                     panic!("Expected Pipeline node for input: {}", input);
@@ -3193,7 +3190,7 @@ mod tests {
                 Err(ParseError::InvalidOperation { operation, .. }) => {
                     assert_eq!(operation, "empty pipeline");
                 }
-                other => panic!("Expected InvalidOperation error, got: {:?}", other),
+                other => panic!("Expected InvalidOperation error, got: {other:?}"),
             }
         }
 
@@ -3206,7 +3203,7 @@ mod tests {
                 Err(ParseError::InvalidOperation { operation, .. }) => {
                     assert_eq!(operation, "empty pipeline");
                 }
-                other => panic!("Expected InvalidOperation error, got: {:?}", other),
+                other => panic!("Expected InvalidOperation error, got: {other:?}"),
             }
         }
 
@@ -3219,7 +3216,7 @@ mod tests {
                 Err(ParseError::UnexpectedToken { .. }) => {
                     // Should get an error about unexpected token after pipe
                 }
-                other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                other => panic!("Expected UnexpectedToken error, got: {other:?}"),
             }
         }
 
@@ -4001,7 +3998,7 @@ mod tests {
                             assert!(expected.contains("dplyr function"));
                             assert!(found.contains("invalid_function"));
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4017,7 +4014,7 @@ mod tests {
                             assert!(expected.contains("("));
                             assert_eq!(found, "name");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4033,7 +4030,7 @@ mod tests {
                             assert!(expected.contains(")"));
                             assert_eq!(found, "EOF");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4049,7 +4046,7 @@ mod tests {
                             assert!(expected.contains(",") || expected.contains(")"));
                             assert_eq!(found, "age");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4065,7 +4062,7 @@ mod tests {
                             assert!(expected.contains("="));
                             assert_eq!(found, "age");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4083,7 +4080,7 @@ mod tests {
                             );
                             assert_eq!(found, ")");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4097,7 +4094,7 @@ mod tests {
                         Err(_) => {
                             // Should fail because @ is not a valid token
                         }
-                        other => panic!("Expected error, got: {:?}", other),
+                        other => panic!("Expected error, got: {other:?}"),
                     }
                 }
 
@@ -4115,7 +4112,7 @@ mod tests {
                             );
                             assert_eq!(found, ")");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4131,7 +4128,7 @@ mod tests {
                             assert!(expected.contains("column identifier"));
                             assert_eq!(found, ")");
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
 
@@ -4163,7 +4160,7 @@ mod tests {
                             assert!(expected.contains("dplyr function"));
                             assert!(found.contains("%>%"));
                         }
-                        other => panic!("Expected UnexpectedToken error, got: {:?}", other),
+                        other => panic!("Expected UnexpectedToken error, got: {other:?}"),
                     }
                 }
             }

@@ -73,7 +73,7 @@ pub enum GenerationError {
     #[error("Unsupported operation in '{dialect}' dialect: '{operation}'")]
     UnsupportedOperation { operation: String, dialect: String },
 
-    #[error("Invalid column reference: '{column}'{}", match table.as_ref() { Some(t) => format!(" (table: {})", t), None => String::new() })]
+    #[error("Invalid column reference: '{column}'{}", match table.as_ref() { Some(t) => format!(" (table: {t})"), None => String::new() })]
     InvalidColumnReference {
         column: String,
         table: Option<String>,
@@ -141,7 +141,7 @@ impl From<ValidationError> for TranspileError {
 
 impl From<FormatError> for TranspileError {
     fn from(error: FormatError) -> Self {
-        TranspileError::IoError(format!("Output formatting error: {}", error))
+        TranspileError::IoError(format!("Output formatting error: {error}"))
     }
 }
 

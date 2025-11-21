@@ -28,10 +28,10 @@ fn get_libdplyr_path() -> String {
 
     // Try different possible paths for the binary
     let possible_paths = [
-        format!("./target/debug/{}", binary_name),
-        format!("target/debug/{}", binary_name),
-        format!("./target/llvm-cov-target/debug/{}", binary_name),
-        format!("target/llvm-cov-target/debug/{}", binary_name),
+        format!("./target/debug/{binary_name}"),
+        format!("target/debug/{binary_name}"),
+        format!("./target/llvm-cov-target/debug/{binary_name}"),
+        format!("target/llvm-cov-target/debug/{binary_name}"),
     ];
 
     for path in &possible_paths {
@@ -41,7 +41,7 @@ fn get_libdplyr_path() -> String {
     }
 
     // Fallback to default path
-    format!("./target/debug/{}", binary_name)
+    format!("./target/debug/{binary_name}")
 }
 
 #[test]

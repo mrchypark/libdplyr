@@ -215,7 +215,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Tokenization error: {}", e),
+                        format!("Tokenization error: {e}"),
                     )
                     .with_description(
                         "There is an error in the syntax of the input code.".to_string(),
@@ -229,7 +229,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Lexical error: {}", e),
+                        format!("Lexical error: {e}"),
                     )
                     .with_description("There is a syntax error in the input code.".to_string())
                     .with_suggestions(vec![
@@ -244,7 +244,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Parsing error: {}", e),
+                        format!("Parsing error: {e}"),
                     )
                     .with_description("The usage of the dplyr function is incorrect.".to_string())
                     .with_suggestions(vec![
@@ -258,7 +258,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Parse error: {}", e),
+                        format!("Parse error: {e}"),
                     )
                     .with_description("The dplyr function usage is incorrect.".to_string())
                     .with_suggestions(vec![
@@ -275,7 +275,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Application,
                         ExitCode::TRANSPILATION_ERROR,
-                        format!("SQL generation error: {}", e),
+                        format!("SQL generation error: {e}"),
                     )
                     .with_description(
                         "Unsupported feature or complex expression in the selected SQL dialect."
@@ -290,7 +290,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Application,
                         ExitCode::TRANSPILATION_ERROR,
-                        format!("SQL generation error: {}", e),
+                        format!("SQL generation error: {e}"),
                     )
                     .with_description("The feature is not supported in the selected SQL dialect or the expression is too complex.".to_string())
                     .with_suggestions(vec![
@@ -305,7 +305,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::IO_ERROR,
-                        format!("I/O error: {}", e),
+                        format!("I/O error: {e}"),
                     )
                     .with_description(
                         "An error occurred during file or I/O operations.".to_string(),
@@ -318,7 +318,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::IO_ERROR,
-                        format!("I/O error: {}", e),
+                        format!("I/O error: {e}"),
                     )
                     .with_description(
                         "An error occurred during file or I/O operations.".to_string(),
@@ -334,7 +334,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Validation error: {}", e),
+                        format!("Validation error: {e}"),
                     )
                     .with_description("dplyr code validation failed.".to_string())
                     .with_suggestions(vec![
@@ -345,7 +345,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
-                        format!("Validation error: {}", e),
+                        format!("Validation error: {e}"),
                     )
                     .with_description("dplyr code validation failed.".to_string())
                     .with_suggestions(vec![
@@ -359,7 +359,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Configuration,
                         ExitCode::CONFIG_ERROR,
-                        format!("Configuration error: {}", e),
+                        format!("Configuration error: {e}"),
                     )
                     .with_description(
                         "There is a problem with the settings or configuration.".to_string(),
@@ -372,7 +372,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::Configuration,
                         ExitCode::CONFIG_ERROR,
-                        format!("Configuration error: {}", e),
+                        format!("Configuration error: {e}"),
                     )
                     .with_description(
                         "There is a problem with configuration or settings.".to_string(),
@@ -388,7 +388,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::SYSTEM_ERROR,
-                        format!("System error: {}", e),
+                        format!("System error: {e}"),
                     )
                     .with_description("A system-level error occurred.".to_string())
                     .with_suggestions(vec![
@@ -399,7 +399,7 @@ impl ErrorHandler {
                     ErrorInfo::new(
                         ErrorCategory::System,
                         ExitCode::SYSTEM_ERROR,
-                        format!("System error: {}", e),
+                        format!("System error: {e}"),
                     )
                     .with_description("A system-level error occurred.".to_string())
                     .with_suggestions(vec![
@@ -549,7 +549,7 @@ impl ErrorHandler {
                     ],
                 ),
                 _ => (
-                    format!("I/O error: {}", error),
+                    format!("I/O error: {error}"),
                     None,
                     vec!["Check the system status".to_string()],
                 ),
@@ -581,7 +581,7 @@ impl ErrorHandler {
                     ],
                 ),
                 _ => (
-                    format!("I/O error: {}", error),
+                    format!("I/O error: {error}"),
                     None,
                     vec!["Check system status".to_string()],
                 ),
@@ -625,15 +625,15 @@ impl ErrorHandler {
 
         // Print description if available
         if let Some(description) = &error_info.description {
-            let _ = writeln!(stderr, "{}", description);
+            let _ = writeln!(stderr, "{description}");
         }
 
         // Print context if available
         if let Some(context) = &error_info.context {
             if self.use_korean {
-                let _ = writeln!(stderr, "상황: {}", context);
+                let _ = writeln!(stderr, "상황: {context}");
             } else {
-                let _ = writeln!(stderr, "Context: {}", context);
+                let _ = writeln!(stderr, "Context: {context}");
             }
         }
 
@@ -647,7 +647,7 @@ impl ErrorHandler {
             }
 
             for suggestion in &error_info.suggestions {
-                let _ = writeln!(stderr, "  • {}", suggestion);
+                let _ = writeln!(stderr, "  • {suggestion}");
             }
         }
 
@@ -669,9 +669,9 @@ impl ErrorHandler {
     /// Prints a success message
     pub fn print_success(&self, message: &str) {
         if self.use_korean {
-            println!("성공: {}", message);
+            println!("성공: {message}");
         } else {
-            println!("Success: {}", message);
+            println!("Success: {message}");
         }
     }
 
@@ -679,9 +679,9 @@ impl ErrorHandler {
     pub fn print_warning(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "경고: {}", message);
+            let _ = writeln!(stderr, "경고: {message}");
         } else {
-            let _ = writeln!(stderr, "Warning: {}", message);
+            let _ = writeln!(stderr, "Warning: {message}");
         }
         let _ = stderr.flush();
     }
@@ -690,9 +690,9 @@ impl ErrorHandler {
     pub fn print_info(&self, message: &str) {
         let mut stderr = io::stderr();
         if self.use_korean {
-            let _ = writeln!(stderr, "정보: {}", message);
+            let _ = writeln!(stderr, "정보: {message}");
         } else {
-            let _ = writeln!(stderr, "Info: {}", message);
+            let _ = writeln!(stderr, "Info: {message}");
         }
         let _ = stderr.flush();
     }

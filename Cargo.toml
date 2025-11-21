@@ -1,6 +1,6 @@
 [package]
 name = "libdplyr"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 authors = ["libdplyr contributors"]
 description = "A Rust-based transpiler that converts R dplyr syntax to SQL queries"
@@ -42,6 +42,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Additional dependencies for testing
 pretty_assertions = "1.4"
 tempfile = "3.20.0"
+
+# C binding generation
+cbindgen = "0.26"
 
 [features]
 default = []
