@@ -62,7 +62,7 @@ if(BUILD_DUCKDB)
     
     set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
     set(DUCKDB_LIBRARIES duckdb)
-    set(DUCKDB_VERSION "1.4.2")  # Known version when building from source
+    set(DUCKDB_VERSION "v1.4.2")  # Known version when building from source
     
 else()
     # Try to find installed DuckDB
@@ -106,6 +106,7 @@ else()
         
         # Recursively configure with BUILD_DUCKDB=ON
         include(FetchContent)
+        set(OVERRIDE_GIT_DESCRIBE "v1.4.2")
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
@@ -115,7 +116,7 @@ else()
         FetchContent_MakeAvailable(duckdb)
         set(DUCKDB_INCLUDE_DIR ${duckdb_SOURCE_DIR}/src/include)
         set(DUCKDB_LIBRARIES duckdb)
-        set(DUCKDB_VERSION "1.4.2")
+        set(DUCKDB_VERSION "v1.4.2")
     endif()
 endif()
 
@@ -353,6 +354,8 @@ target_include_directories(${DUCKDB_EXTENSION_NAME} PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}  # For generated headers
 )
 
+
+
 # R3-AC1: Link libraries
 target_link_libraries(${DUCKDB_EXTENSION_NAME} 
     PRIVATE 
@@ -373,6 +376,7 @@ if(WIN32)
         PRIVATE 
         WIN32_LEAN_AND_MEAN NOMINMAX
         DUCKDB_EXTENSION_MAIN
+        DUCKDB_VERSION="v1.4.2"
     )
     
 elseif(APPLE)
