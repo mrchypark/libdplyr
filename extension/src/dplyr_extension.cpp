@@ -886,31 +886,7 @@ private:
     }
 };
 
-struct DplyrParseData : ParserExtensionParseData {
-    explicit DplyrParseData(unique_ptr<SQLStatement> statement_p) : statement(std::move(statement_p)) {}
-
-    unique_ptr<ParserExtensionParseData> Copy() const override {
-        return make_uniq_base<ParserExtensionParseData, DplyrParseData>(statement->Copy());
-    }
-
-    string ToString() const override {
-        return "DplyrParseData";
-    }
-
-    unique_ptr<SQLStatement> statement;
-};
-
-class DplyrState : public ClientContextState {
-public:
-    explicit DplyrState(unique_ptr<ParserExtensionParseData> parse_data_p)
-        : parse_data(std::move(parse_data_p)) {}
-
-    void QueryEnd() override {
-        parse_data.reset();
-    }
-
-    unique_ptr<ParserExtensionParseData> parse_data;
-};
+// DplyrParseData and DplyrState are defined in the header
 
 static string TranspileDplyrCode(const string& dplyr_code) {
     char* sql_output = nullptr;
@@ -975,12 +951,14 @@ static string ExtractLeadingTableName(const string& dplyr_code) {
 }
 
 ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& query) {
+    
     string trimmed = query;
     StringUtil::Trim(trimmed);
     string upper_sql = StringUtil::Upper(trimmed);
 
     bool has_keyword = StringUtil::StartsWith(upper_sql, "DPLYR");
     bool looks_like_pipeline = trimmed.find("%>%") != string::npos;
+    
     if (!has_keyword && !looks_like_pipeline) {
         return ParserExtensionParseResult(); // Not for this extension
     }
@@ -999,6 +977,7 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& quer
         DplyrInputValidator::validate_input_security(dplyr_code);
         string table_hint = ExtractLeadingTableName(dplyr_code);
         string sql = TranspileDplyrCode(dplyr_code);
+        
         if (!table_hint.empty()) {
             string quoted = "\"" + table_hint + "\"";
             sql = StringUtil::Replace(sql, "\"data\"", quoted);
@@ -1020,6 +999,10 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& quer
     }
 }
 
+// ...
+
+// (Removed duplicate Load implementation)
+
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& context,
                                      unique_ptr<ParserExtensionParseData> parse_data) {
     auto state = make_shared_ptr<DplyrState>(std::move(parse_data));
@@ -1030,15 +1013,21 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& conte
 
 BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtensionInfo *,
                           SQLStatement& statement) {
+    
     if (statement.type == StatementType::EXTENSION_STATEMENT) {
-        auto& extension_statement = dynamic_cast<ExtensionStatement&>(statement);
+        // Use static_cast instead of dynamic_cast to avoid ABI issues
+        // Type is already verified by statement.type check
+        auto& extension_statement = static_cast<ExtensionStatement&>(statement);
+        
         if (extension_statement.extension.parse_function == dplyr_parse) {
+            
             auto lookup = context.registered_state->Get<DplyrState>("dplyr_extension");
             if (lookup) {
                 auto dplyr_state = (DplyrState*)lookup.get();
                 auto dplyr_binder = Binder::CreateBinder(context, &binder);
                 auto dplyr_parse_data =
                     dynamic_cast<DplyrParseData*>(dplyr_state->parse_data.get());
+                    
                 if (!dplyr_parse_data) {
                     throw BinderException("Invalid DPLYR parse data");
                 }
@@ -1050,26 +1039,25 @@ BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtens
     return {};
 }
 
-struct DplyrOperatorExtension : public OperatorExtension {
-    DplyrOperatorExtension() : OperatorExtension() {
-        Bind = dplyr_bind;
-    }
+// Implementations for DplyrState
+// (Already defined in header, so we don't need to redefine the class here)
+// But wait, DplyrState is a class, so we can implement its methods if they are not inline.
+// In the header, I defined it inline. So I should remove the redefinition here.
 
-    string GetName() override {
-        return "dplyr_extension";
-    }
+// Implementations for DplyrParserExtension
+DplyrParserExtension::DplyrParserExtension() : ParserExtension() {
+    parse_function = dplyr_parse;
+    plan_function = dplyr_plan;
+}
 
-    unique_ptr<LogicalExtensionOperator> Deserialize(Deserializer &) override {
-        throw InternalException("dplyr operator should not be serialized");
-    }
-};
+// Implementations for DplyrOperatorExtension
+DplyrOperatorExtension::DplyrOperatorExtension() : OperatorExtension() {
+    Bind = dplyr_bind;
+}
 
-struct DplyrParserExtension : public ParserExtension {
-    DplyrParserExtension() : ParserExtension() {
-        parse_function = dplyr_parse;
-        plan_function = dplyr_plan;
-    }
-};
+unique_ptr<LogicalExtensionOperator> DplyrOperatorExtension::Deserialize(Deserializer &) {
+    throw InternalException("dplyr operator should not be serialized");
+}
 
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
@@ -1089,4 +1077,8 @@ string DplyrExtension::Name() {
 extern "C" DUCKDB_EXTENSION_API void dplyr_extension_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
     dplyr_extension::DplyrExtension ext;
     ext.Load(loader);
+}
+
+extern "C" DUCKDB_EXTENSION_API const char* dplyr_extension_version() {
+    return ::dplyr_version();
 }
