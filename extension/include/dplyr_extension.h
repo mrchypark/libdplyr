@@ -676,6 +676,48 @@ public:
     std::string Version() const override { return dplyr_version(); }
 };
 
+// Parser Extension
+struct DplyrParserExtension : public duckdb::ParserExtension {
+    DplyrParserExtension();
+};
+
+// Operator Extension
+struct DplyrOperatorExtension : public duckdb::OperatorExtension {
+    DplyrOperatorExtension();
+    std::string GetName() override { return "dplyr"; }
+    duckdb::unique_ptr<duckdb::LogicalExtensionOperator> Deserialize(duckdb::Deserializer &deserializer) override;
+};
+
+// Parse Data
+struct DplyrParseData : duckdb::ParserExtensionParseData {
+    duckdb::unique_ptr<duckdb::SQLStatement> statement;
+
+    DplyrParseData(duckdb::unique_ptr<duckdb::SQLStatement> statement)
+        : statement(std::move(statement)) {}
+
+    duckdb::unique_ptr<duckdb::ParserExtensionParseData> Copy() const override {
+        return duckdb::make_uniq_base<duckdb::ParserExtensionParseData, DplyrParseData>(statement->Copy());
+    }
+
+    std::string ToString() const override { return "DplyrParseData"; }
+};
+
+// Client Context State
+class DplyrState : public duckdb::ClientContextState {
+public:
+    explicit DplyrState(duckdb::unique_ptr<duckdb::ParserExtensionParseData> parse_data)
+        : parse_data(std::move(parse_data)) {}
+
+    void QueryEnd() override { parse_data.reset(); }
+
+    duckdb::unique_ptr<duckdb::ParserExtensionParseData> parse_data;
+};
+
+// Function declarations
+duckdb::ParserExtensionParseResult dplyr_parse(duckdb::ParserExtensionInfo *info, const std::string &query);
+duckdb::ParserExtensionPlanResult dplyr_plan(duckdb::ParserExtensionInfo *info, duckdb::ClientContext &context, duckdb::unique_ptr<duckdb::ParserExtensionParseData> parse_data);
+duckdb::BoundStatement dplyr_bind(duckdb::ClientContext &context, duckdb::Binder &binder, duckdb::OperatorExtensionInfo *info, duckdb::SQLStatement &statement);
+
 } // namespace dplyr_extension
 #endif
 
