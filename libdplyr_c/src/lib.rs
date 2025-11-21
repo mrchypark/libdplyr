@@ -2322,3 +2322,9 @@ mod tests {
         }
     }
 }
+
+// DuckDB C Extension API init function
+// This function is required for C API-based DuckDB extensions
+// (Removed dplyr_extension_init_c_api to avoid conflict with C++ extension init)
+// Initialization for C API extension
+// (Removed dangling code)
