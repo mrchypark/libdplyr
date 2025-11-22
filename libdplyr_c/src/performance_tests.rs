@@ -211,10 +211,10 @@ mod tests {
     fn test_error_handling_performance() {
         let options = DplyrOptions::default();
         let invalid_queries = [
-            "", // Empty query
+            "",                       // Empty query
             "invalid_function(test)", // Invalid function
-            "select(col1 col2)", // Syntax error
-            "filter()", // Empty filter
+            "select(col1 col2)",      // Syntax error
+            "filter()",               // Empty filter
         ];
 
         for query in &invalid_queries {
@@ -227,8 +227,8 @@ mod tests {
 
                 // Should either succeed or fail gracefully, but not panic
                 match result {
-                    Ok(_) => {}, // Some queries might actually be valid
-                    Err(_) => {}, // Expected for most invalid queries
+                    Ok(_) => {}  // Some queries might actually be valid
+                    Err(_) => {} // Expected for most invalid queries
                 }
             }
 

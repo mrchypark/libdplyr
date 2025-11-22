@@ -558,7 +558,9 @@ impl SqlGenerator {
     /// Returns SQL query string on success, GenerationError on failure.
     pub fn generate(&self, ast: &DplyrNode) -> GenerationResult<String> {
         match ast {
-            DplyrNode::Pipeline { source, operations, .. } => self.generate_pipeline(source, operations),
+            DplyrNode::Pipeline {
+                source, operations, ..
+            } => self.generate_pipeline(source, operations),
             DplyrNode::DataSource { name, .. } => Ok(format!(
                 "SELECT * FROM {}",
                 self.dialect.quote_identifier(name)
@@ -567,7 +569,11 @@ impl SqlGenerator {
     }
 
     /// Converts pipeline to SQL.
-    fn generate_pipeline(&self, source: &Option<String>, operations: &[DplyrOperation]) -> GenerationResult<String> {
+    fn generate_pipeline(
+        &self,
+        source: &Option<String>,
+        operations: &[DplyrOperation],
+    ) -> GenerationResult<String> {
         if operations.is_empty() {
             return Err(GenerationError::InvalidAst {
                 reason: "Empty pipeline: at least one operation is required".to_string(),
@@ -947,7 +953,11 @@ impl SqlGenerator {
     }
 
     /// Assembles the final SQL query.
-    fn assemble_query(&self, source: &Option<String>, parts: &QueryParts) -> GenerationResult<String> {
+    fn assemble_query(
+        &self,
+        source: &Option<String>,
+        parts: &QueryParts,
+    ) -> GenerationResult<String> {
         let mut query = String::new();
 
         // SELECT clause

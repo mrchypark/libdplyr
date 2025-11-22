@@ -1792,7 +1792,8 @@ mod tests {
             .map(|thread_id| {
                 thread::spawn(move || {
                     // These functions should be safe to call from multiple threads
-                    let version_str = unsafe { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
+                    let version_str =
+                        unsafe { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
                     assert!(!version_str.to_string_lossy().is_empty());
 
                     let detailed_version =

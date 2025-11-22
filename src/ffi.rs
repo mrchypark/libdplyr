@@ -67,29 +67,34 @@ pub unsafe extern "C" fn dplyr_to_sql(
 
     // Perform transpilation
     match transpiler.transpile(dplyr_str) {
-        Ok(sql) => {
-            match CString::new(sql) {
-                Ok(cstr) => DplyrTranspileResult {
-                    output_sql: cstr.into_raw(),
-                    error_msg: std::ptr::null_mut(),
-                },
-                Err(_) => {
-                    let error_msg = CString::new("Failed to create null-terminated SQL string").unwrap();
-                    DplyrTranspileResult {
-                        output_sql: std::ptr::null_mut(),
-                        error_msg: error_msg.into_raw(),
-                    }
+        Ok(sql) => match CString::new(sql) {
+            Ok(cstr) => DplyrTranspileResult {
+                output_sql: cstr.into_raw(),
+                error_msg: std::ptr::null_mut(),
+            },
+            Err(_) => {
+                let error_msg =
+                    CString::new("Failed to create null-terminated SQL string").unwrap();
+                DplyrTranspileResult {
+                    output_sql: std::ptr::null_mut(),
+                    error_msg: error_msg.into_raw(),
                 }
             }
-        }
+        },
         Err(err) => {
             let error_msg = match err {
                 TranspileError::LexError(e) => format!("DPLYR-TRANSPILE: Lexical error: {}", e),
                 TranspileError::ParseError(e) => format!("DPLYR-TRANSPILE: Parse error: {}", e),
-                TranspileError::GenerationError(e) => format!("DPLYR-TRANSPILE: Generation error: {}", e),
+                TranspileError::GenerationError(e) => {
+                    format!("DPLYR-TRANSPILE: Generation error: {}", e)
+                }
                 TranspileError::IoError(e) => format!("DPLYR-TRANSPILE: I/O error: {}", e),
-                TranspileError::ValidationError(e) => format!("DPLYR-TRANSPILE: Validation error: {}", e),
-                TranspileError::ConfigurationError(e) => format!("DPLYR-TRANSPILE: Configuration error: {}", e),
+                TranspileError::ValidationError(e) => {
+                    format!("DPLYR-TRANSPILE: Validation error: {}", e)
+                }
+                TranspileError::ConfigurationError(e) => {
+                    format!("DPLYR-TRANSPILE: Configuration error: {}", e)
+                }
                 TranspileError::SystemError(e) => format!("DPLYR-TRANSPILE: System error: {}", e),
             };
 
@@ -99,7 +104,8 @@ pub unsafe extern "C" fn dplyr_to_sql(
                     error_msg: cstr.into_raw(),
                 },
                 Err(_) => {
-                    let fallback_msg = CString::new("DPLYR-TRANSPILE: Unknown error occurred").unwrap();
+                    let fallback_msg =
+                        CString::new("DPLYR-TRANSPILE: Unknown error occurred").unwrap();
                     DplyrTranspileResult {
                         output_sql: std::ptr::null_mut(),
                         error_msg: fallback_msg.into_raw(),
@@ -158,8 +164,8 @@ mod tests {
 
     #[test]
     fn test_dplyr_to_sql_error() {
-    let invalid_code = "@#$%invalid";
-    let dialect = "duckdb";
+        let invalid_code = "@#$%invalid";
+        let dialect = "duckdb";
 
         let code_cstr = CString::new(invalid_code).unwrap();
         let dialect_cstr = CString::new(dialect).unwrap();
