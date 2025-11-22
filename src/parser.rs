@@ -1285,6 +1285,7 @@ mod tests {
         if let DplyrNode::Pipeline {
             operations,
             location,
+            ..
         } = ast
         {
             // Verify location information is present (start_location from current_location())

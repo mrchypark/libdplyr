@@ -227,6 +227,7 @@ fn inspect_ast(ast: &DplyrNode) {
         DplyrNode::Pipeline {
             operations,
             location,
+            ..
         } => {
             println!("   AST Type: Pipeline");
             println!(
