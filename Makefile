@@ -1,6 +1,6 @@
 PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-EXT_NAME = dplyr_extension
+EXT_NAME = dplyr
 EXT_CONFIG = ${PROJ_DIR}extension_config.cmake
 
 # Keep Rust artifacts in a deterministic place for repeated builds.

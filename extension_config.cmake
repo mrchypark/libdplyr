@@ -4,7 +4,7 @@
 # It fulfills requirements R8-AC1 (version management) and R4-AC1 (build configuration).
 
 # R8-AC1: Extension metadata and semver policy
-set(EXTENSION_NAME "dplyr_extension")
+set(EXTENSION_NAME "dplyr")
 set(EXTENSION_DESCRIPTION "R dplyr syntax support for DuckDB")
 set(EXTENSION_VERSION "0.1.0")
 set(EXTENSION_VERSION_MAJOR 0)
@@ -205,7 +205,7 @@ set(EXTENSION_INTEGRATION_TEST_DIR "tests")
 set(EXTENSION_INSTALL_DIR "extensions")
 set(EXTENSION_CONFIG_DIR "config")
 set(EXTENSION_DOC_DIR "docs")
-set(EXTENSION_BINARY_NAME "dplyr_extension")
+set(EXTENSION_BINARY_NAME "dplyr")
 
 # Register the extension with DuckDB (out-of-tree build)
 get_filename_component(DPLYR_EXTENSION_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)

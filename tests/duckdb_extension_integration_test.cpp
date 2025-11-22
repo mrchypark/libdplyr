@@ -45,7 +45,7 @@ protected:
         ASSERT_FALSE(conn->Query("INSERT INTO mtcars VALUES (21), (19), (30)")->HasError());
 
         // R7-AC1: Test extension loading via SQL after static registration
-        auto result = conn->Query("LOAD 'dplyr_extension'");
+        auto result = conn->Query("LOAD 'dplyr'");
         ASSERT_FALSE(result->HasError()) 
             << "Extension loading failed: " << result->GetError();
     }

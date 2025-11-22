@@ -5,7 +5,7 @@ set -e
 make release
 
 # 2. Locate built extension
-EXT_FILE=$(find build/release/extension -name "dplyr_extension.duckdb_extension" | head -n 1)
+EXT_FILE=$(find build/release/extension -name "dplyr.duckdb_extension" | head -n 1)
 if [ -z "$EXT_FILE" ]; then
   echo "Extension binary not found!"
   exit 1

@@ -1011,8 +1011,8 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& quer
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& context,
                                      unique_ptr<ParserExtensionParseData> parse_data) {
     auto state = make_shared_ptr<DplyrState>(std::move(parse_data));
-    context.registered_state->Remove("dplyr_extension");
-    context.registered_state->Insert("dplyr_extension", state);
+    context.registered_state->Remove("dplyr");
+    context.registered_state->Insert("dplyr", state);
     throw BinderException("Use dplyr_bind instead");
 }
 
@@ -1026,7 +1026,7 @@ BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtens
         
         if (extension_statement.extension.parse_function == dplyr_parse) {
             
-            auto lookup = context.registered_state->Get<DplyrState>("dplyr_extension");
+            auto lookup = context.registered_state->Get<DplyrState>("dplyr");
             if (lookup) {
                 auto dplyr_state = (DplyrState*)lookup.get();
                 auto dplyr_binder = Binder::CreateBinder(context, &binder);
@@ -1233,16 +1233,16 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
 }
 
 string DplyrExtension::Name() {
-    return "dplyr_extension";
+    return "dplyr";
 }
 
 } // namespace dplyr_extension
 
-extern "C" DUCKDB_EXTENSION_API void dplyr_extension_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+extern "C" DUCKDB_EXTENSION_API void dplyr_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
     dplyr_extension::DplyrExtension ext;
     ext.Load(loader);
 }
 
-extern "C" DUCKDB_EXTENSION_API const char* dplyr_extension_version() {
-    return ::dplyr_version();
+extern "C" DUCKDB_EXTENSION_API const char* dplyr_version() {
+    return ::dplyr_version_detailed();
 }

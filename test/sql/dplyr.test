@@ -1,0 +1,24 @@
+# name: test/sql/dplyr.test
+# description: Test dplyr extension
+# group: [dplyr]
+
+# Require the extension to be loaded
+require dplyr
+
+# Test basic functionality
+query I
+SELECT 1
+----
+1
+
+# Test dplyr function with simple query
+query II
+SELECT * FROM dplyr('SELECT 1 as a')
+----
+1
+
+# Test dplyr function with mutate
+query II
+SELECT * FROM dplyr('SELECT 1 as a %>% mutate(b = a + 1)')
+----
+1	2

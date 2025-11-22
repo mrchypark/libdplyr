@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.15)
 project(duckdb_dplyr_extension VERSION 0.1.0)
 
 # R8-AC1: DuckDB extension configuration
-set(DUCKDB_EXTENSION_NAME "dplyr_extension")
+set(DUCKDB_EXTENSION_NAME "dplyr")
 # Note: No strict version requirements - extension uses runtime feature detection
 
 # Set C++ standard

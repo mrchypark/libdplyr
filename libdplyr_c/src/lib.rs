@@ -493,7 +493,7 @@ pub extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool {
 /// # Returns
 /// Static version string (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_version() -> *const c_char {
+pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management
     b"0.1.0\0".as_ptr() as *const c_char
 }
@@ -1379,7 +1379,7 @@ mod tests {
     #[test]
     fn test_utility_functions() {
         // Test version functions
-        let version = unsafe { CStr::from_ptr(dplyr_version()) };
+        let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
         assert_eq!(version.to_string_lossy(), "0.1.0");
 
         let detailed_version = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
@@ -1792,8 +1792,8 @@ mod tests {
             .map(|thread_id| {
                 thread::spawn(move || {
                     // These functions should be safe to call from multiple threads
-                    let version = unsafe { std::ffi::CStr::from_ptr(dplyr_version()) };
-                    assert!(!version.to_string_lossy().is_empty());
+                    let version_str = unsafe { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
+                    assert!(!version_str.to_string_lossy().is_empty());
 
                     let detailed_version =
                         unsafe { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
@@ -2008,7 +2008,7 @@ mod tests {
     #[test]
     fn test_version_and_capabilities() {
         // Test version functions
-        let version = unsafe { CStr::from_ptr(dplyr_version()) };
+        let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
         assert_eq!(version.to_str().unwrap(), "0.1.0");
 
         let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
