@@ -22,8 +22,8 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 # Extension is designed to be compatible with a wide range of DuckDB versions
 # by using stable APIs and avoiding version-specific features
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "VERSION_AGNOSTIC")
-set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.2")  # Minimum for extension metadata support
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.2")
+set(DUCKDB_EXTENSION_MIN_SUPPORTED "2.0.0")  # Minimum for extension metadata support
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "2.0.0")
 
 # R8-AC1: Extension compatibility strategy
 # - Use only stable DuckDB APIs that are unlikely to change
@@ -52,11 +52,11 @@ set(EXTENSION_TAGS "dplyr;r;sql;transpiler;data-analysis")
 
 # R4-AC1: Build configuration - Source files
 set(EXTENSION_SOURCES
-    extension/src/dplyr_extension.cpp
+    extension/src/dplyr.cpp
 )
 
 set(EXTENSION_HEADERS
-    extension/include/dplyr_extension.h
+    extension/include/dplyr.h
 )
 
 # R4-AC1: Extension dependencies and requirements

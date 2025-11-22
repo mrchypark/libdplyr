@@ -50,7 +50,7 @@ if(STANDALONE_BUILD)
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-            GIT_TAG v1.4.2
+            GIT_TAG v2.0.0
             GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(duckdb)
@@ -300,7 +300,7 @@ endif()
 
 # Extension source files
 set(EXTENSION_SOURCES
-    extension/src/dplyr_extension.cpp
+    extension/src/dplyr.cpp
 )
 
 # R4-AC1: Build loadable extension with DuckDB helper macro
@@ -334,7 +334,7 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
             PRIVATE 
             WIN32_LEAN_AND_MEAN NOMINMAX
             DUCKDB_EXTENSION_MAIN
-            DUCKDB_VERSION="v1.4.2"
+            DUCKDB_VERSION="v2.0.0"
         )
         
     elseif(APPLE)
