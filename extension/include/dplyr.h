@@ -17,8 +17,8 @@
  * - R10-AC2: Cache metadata exposure
  */
 
-#ifndef DPLYR_EXTENSION_H
-#define DPLYR_EXTENSION_H
+#ifndef DPLYR_H
+#define DPLYR_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -339,6 +339,8 @@ bool dplyr_cache_is_effective(void);
  * @brief Clear cache and reset all metrics
  * 
  * @return 0 on success, negative error code on failure
+ * 
+ * @note This function is thread-safe but only affects the current thread's cache
  */
 int dplyr_cache_clear(void);
 
@@ -638,12 +640,12 @@ bool dplyr_cache_should_clear(void);
 /**
  * @brief Minimum supported DuckDB version
  */
-#define DPLYR_MIN_DUCKDB_VERSION "0.9.0"
+#define DPLYR_MIN_DUCKDB_VERSION "2.0.0"
 
 /**
  * @brief Maximum supported DuckDB version
  */
-#define DPLYR_MAX_DUCKDB_VERSION "1.0.0"
+#define DPLYR_MAX_DUCKDB_VERSION "2.1.0"
 
 /**
  * @brief API version for compatibility checking
@@ -667,7 +669,7 @@ static inline bool dplyr_is_api_compatible(int required_version) {
 #ifdef __cplusplus
 #include "duckdb.hpp"
 
-namespace dplyr_extension {
+namespace dplyr {
 
 class DplyrExtension : public duckdb::Extension {
 public:
@@ -718,7 +720,7 @@ duckdb::ParserExtensionParseResult dplyr_parse(duckdb::ParserExtensionInfo *info
 duckdb::ParserExtensionPlanResult dplyr_plan(duckdb::ParserExtensionInfo *info, duckdb::ClientContext &context, duckdb::unique_ptr<duckdb::ParserExtensionParseData> parse_data);
 duckdb::BoundStatement dplyr_bind(duckdb::ClientContext &context, duckdb::Binder &binder, duckdb::OperatorExtensionInfo *info, duckdb::SQLStatement &statement);
 
-} // namespace dplyr_extension
+} // namespace dplyr
 #endif
 
 #endif /* DPLYR_EXTENSION_H */

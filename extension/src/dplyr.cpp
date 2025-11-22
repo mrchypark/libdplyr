@@ -20,7 +20,7 @@
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
-#include "../include/dplyr_extension.h"
+#include "../include/dplyr.h"
 #include <memory>
 #include <string>
 #include <sstream>
@@ -35,7 +35,7 @@
 
 using namespace duckdb;
 
-namespace dplyr_extension {
+namespace dplyr {
 
 /**
  * @brief Error handler for converting C API errors to DuckDB exceptions
@@ -1236,10 +1236,10 @@ string DplyrExtension::Name() {
     return "dplyr";
 }
 
-} // namespace dplyr_extension
+} // namespace dplyr
 
 extern "C" DUCKDB_EXTENSION_API void dplyr_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
-    dplyr_extension::DplyrExtension ext;
+    dplyr::DplyrExtension ext;
     ext.Load(loader);
 }
 

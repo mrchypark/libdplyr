@@ -18,12 +18,14 @@
 
 // DuckDB includes
 #include "duckdb.hpp"
-#include "duckdb/main/extension_helper.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parser_extension.hpp"
 
 // Extension includes
-#include "../extension/include/dplyr_extension.h"
+#include "../extension/include/dplyr.h"
 
 using namespace duckdb;
+using namespace dplyr;
 
 using std::cout;
 using std::endl;
@@ -36,7 +38,7 @@ protected:
     void SetUp() override {
         // Create in-memory DuckDB instance
         db = make_uniq<DuckDB>(nullptr);
-        db->LoadStaticExtension<dplyr_extension::DplyrExtension>();
+        db->LoadStaticExtension<dplyr::DplyrExtension>();
         conn = make_uniq<Connection>(*db);
 
         // Provide simple data fixture for smoke tests
