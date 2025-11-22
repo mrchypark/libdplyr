@@ -8,8 +8,9 @@ authors = ["libdplyr contributors"]
 build = "build.rs"
 
 # R3-AC1: C ABI 호환성을 위한 정적/동적 라이브러리 생성
+# rlib 추가: 벤치마크 및 Rust 테스트에서 crate import 가능하도록
 [lib]
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 # 기존 libdplyr 크레이트 의존성
