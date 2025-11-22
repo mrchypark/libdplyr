@@ -3,22 +3,55 @@
 # group: [dplyr]
 
 # Require the extension to be loaded
-require dplyr
+# require dplyr
+statement ok
+LOAD 'build/release/extension/dplyr/dplyr.duckdb_extension'
 
-# Test basic functionality
-query I
-SELECT 1
-----
-1
+# Create a table for testing
+statement ok
+CREATE TABLE items(id INTEGER, val INTEGER);
+
+statement ok
+INSERT INTO items VALUES (1, 10), (2, 20);
 
 # Test dplyr function with simple query
-query II
-SELECT * FROM dplyr('SELECT 1 as a')
+query I
+SELECT * FROM dplyr('items %>% select(id)');
 ----
 1
+2
 
 # Test dplyr function with mutate
-query II
-SELECT * FROM dplyr('SELECT 1 as a %>% mutate(b = a + 1)')
+query III
+SELECT * FROM dplyr('items %>% mutate(val2 = val + 1)');
 ----
-1	2
+1	10	11
+2	20	21
+
+# Test DPLYR keyword with select (no dplyr() wrapper)
+query I
+DPLYR 'items %>% select(id)';
+----
+1
+2
+
+# Test DPLYR keyword with mutate (no dplyr() wrapper)
+query III
+DPLYR 'items %>% mutate(val2 = val + 1)';
+----
+1	10	11
+2	20	21
+
+# Test implicit dplyr syntax with select (no keyword, no wrapper)
+query I
+items %>% select(id);
+----
+1
+2
+
+# Test implicit dplyr syntax with mutate (no keyword, no wrapper)
+query III
+items %>% mutate(val2 = val + 1);
+----
+1	10	11
+2	20	21
