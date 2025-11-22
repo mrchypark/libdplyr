@@ -558,7 +558,7 @@ impl SqlGenerator {
     /// Returns SQL query string on success, GenerationError on failure.
     pub fn generate(&self, ast: &DplyrNode) -> GenerationResult<String> {
         match ast {
-            DplyrNode::Pipeline { operations, .. } => self.generate_pipeline(operations),
+            DplyrNode::Pipeline { source, operations, .. } => self.generate_pipeline(source, operations),
             DplyrNode::DataSource { name, .. } => Ok(format!(
                 "SELECT * FROM {}",
                 self.dialect.quote_identifier(name)
@@ -567,7 +567,7 @@ impl SqlGenerator {
     }
 
     /// Converts pipeline to SQL.
-    fn generate_pipeline(&self, operations: &[DplyrOperation]) -> GenerationResult<String> {
+    fn generate_pipeline(&self, source: &Option<String>, operations: &[DplyrOperation]) -> GenerationResult<String> {
         if operations.is_empty() {
             return Err(GenerationError::InvalidAst {
                 reason: "Empty pipeline: at least one operation is required".to_string(),
@@ -582,7 +582,7 @@ impl SqlGenerator {
         }
 
         // Assemble final SQL query
-        self.assemble_query(&query_parts)
+        self.assemble_query(source, &query_parts)
     }
 
     /// Processes individual operations.
@@ -823,6 +823,11 @@ impl SqlGenerator {
         assignments: &[crate::parser::Assignment],
         query_parts: &mut QueryParts,
     ) -> GenerationResult<()> {
+        // If no columns selected yet, implies all columns (*) are included
+        if query_parts.select_columns.is_empty() {
+            query_parts.select_columns.push("*".to_string());
+        }
+
         for assignment in assignments {
             let column_expr = format!(
                 "{} AS {}",
@@ -938,11 +943,11 @@ impl SqlGenerator {
             self.process_operation(operation, &mut nested_parts)?;
         }
 
-        self.assemble_query(&nested_parts)
+        self.assemble_query(&None, &nested_parts)
     }
 
     /// Assembles the final SQL query.
-    fn assemble_query(&self, parts: &QueryParts) -> GenerationResult<String> {
+    fn assemble_query(&self, source: &Option<String>, parts: &QueryParts) -> GenerationResult<String> {
         let mut query = String::new();
 
         // SELECT clause
@@ -955,7 +960,8 @@ impl SqlGenerator {
 
         // FROM clause (using default table name)
         query.push_str("\nFROM ");
-        query.push_str(&self.dialect.quote_identifier("data"));
+        let table_name = source.as_deref().unwrap_or("data");
+        query.push_str(&self.dialect.quote_identifier(table_name));
 
         // WHERE clause
         if !parts.where_clauses.is_empty() {
@@ -1301,6 +1307,7 @@ mod tests {
             let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![create_test_select_operation(vec!["name", "age"])],
                 location: SourceLocation::unknown(),
             };
@@ -1403,6 +1410,7 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![
                     create_test_select_operation(vec!["name", "age", "salary"]),
                     create_test_filter_operation("age", 25.0),
@@ -1435,6 +1443,7 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![
                     DplyrOperation::GroupBy {
                         columns: vec!["department".to_string()],
@@ -1474,6 +1483,7 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![
                     create_test_select_operation(vec!["name"]),
                     DplyrOperation::Filter {
@@ -1512,6 +1522,7 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![DplyrOperation::Mutate {
                     assignments: vec![
                         Assignment {
@@ -1557,6 +1568,7 @@ mod tests {
             let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
             let ast = DplyrNode::Pipeline {
+                source: None,
                 operations: vec![],
                 location: SourceLocation::unknown(),
             };

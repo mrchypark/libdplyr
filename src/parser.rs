@@ -36,6 +36,7 @@ impl SourceLocation {
 pub enum DplyrNode {
     /// Chain of pipeline operations
     Pipeline {
+        source: Option<String>,
         operations: Vec<DplyrOperation>,
         location: SourceLocation,
     },
@@ -363,6 +364,7 @@ impl Parser {
                 }
 
                 return Ok(DplyrNode::Pipeline {
+                    source: Some(name),
                     operations,
                     location: start_location,
                 });
@@ -399,6 +401,7 @@ impl Parser {
         self.skip_newlines()?;
 
         Ok(DplyrNode::Pipeline {
+            source: None,
             operations,
             location: start_location,
         })
