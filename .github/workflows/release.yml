@@ -146,14 +146,14 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=OFF \
+            -DBUILD_DUCKDB=ON \
             -G "Visual Studio 17 2022" \
             -A x64
         else
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=OFF
+            -DBUILD_DUCKDB=ON
         fi
 
     - name: Build extension (Release)
