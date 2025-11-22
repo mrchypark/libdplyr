@@ -170,7 +170,7 @@ jobs:
         cmake .. \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_CPP_TESTS=ON \
-          -DBUILD_DUCKDB=OFF \
+          -DBUILD_DUCKDB=ON \
           -G "${{ matrix.cmake-generator }}"
 
     - name: Configure CMake (Windows)
@@ -181,7 +181,7 @@ jobs:
         cmake .. `
           -DCMAKE_BUILD_TYPE=Release `
           -DBUILD_CPP_TESTS=ON `
-          -DBUILD_DUCKDB=OFF `
+          -DBUILD_DUCKDB=ON `
           -G "${{ matrix.cmake-generator }}" `
           -A x64
 
