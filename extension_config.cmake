@@ -22,8 +22,8 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 # Extension is designed to be compatible with a wide range of DuckDB versions
 # by using stable APIs and avoiding version-specific features
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "VERSION_AGNOSTIC")
-set(DUCKDB_EXTENSION_MIN_SUPPORTED "2.0.0")  # Minimum for extension metadata support
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "2.0.0")
+set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.2")  # Baseline we validate against
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.2")
 
 # R8-AC1: Extension compatibility strategy
 # - Use only stable DuckDB APIs that are unlikely to change

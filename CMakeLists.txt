@@ -187,11 +187,12 @@ if(RUSTUP_RESULT EQUAL 0)
         ERROR_QUIET
     )
 
-    # Parse available toolchains and select the best one
+    # Parse available toolchains and select the best one (prefer plain "stable")
+    set(Rust_TOOLCHAIN "stable")
     if(RUSTUP_TOOLCHAINS MATCHES "1\\.85[^\\n]*-${RUST_HOST_TARGET}")
         string(REGEX MATCH "1\\.85[^\\n]*-${RUST_HOST_TARGET}" Rust_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
-    elseif(RUSTUP_TOOLCHAINS MATCHES "stable-${RUST_HOST_TARGET}")
-        set(Rust_TOOLCHAIN "stable-${RUST_HOST_TARGET}")
+    elseif(RUSTUP_TOOLCHAINS MATCHES "stable")
+        set(Rust_TOOLCHAIN "stable")
     elseif(RUSTUP_TOOLCHAINS MATCHES "nightly-${RUST_HOST_TARGET}")
         set(Rust_TOOLCHAIN "nightly-${RUST_HOST_TARGET}")
     else()

@@ -640,7 +640,7 @@ bool dplyr_cache_should_clear(void);
 /**
  * @brief Minimum supported DuckDB version
  */
-#define DPLYR_MIN_DUCKDB_VERSION "2.0.0"
+#define DPLYR_MIN_DUCKDB_VERSION "1.4.2"
 
 /**
  * @brief Maximum supported DuckDB version
