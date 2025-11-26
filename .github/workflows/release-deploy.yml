@@ -185,11 +185,11 @@ jobs:
 
           $(if [[ "${{ needs.validate.outputs.is_prerelease }}" == "true" ]]; then echo "⚠️ **This is a pre-release version**"; fi)
 
-        ## 📋 Release Information
-        - **Version**: ${{ needs.validate.outputs.version }}
-        - **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-        - **Git Commit**: ${{ github.sha }}
-        - **DuckDB Compatibility**: >=1.4.2
+          ## 📋 Release Information
+          - **Version**: ${{ needs.validate.outputs.version }}
+          - **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Git Commit**: ${{ github.sha }}
+          - **DuckDB Compatibility**: >=1.4.2
 
           ## 🎯 What's New
           EOF
