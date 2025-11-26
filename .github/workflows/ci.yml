@@ -2,11 +2,11 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
   release:
-    types: [ published ]
+    types: [published]
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,7 +19,7 @@ jobs:
   build-and-test:
     name: Build and Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       fail-fast: false
       matrix:
@@ -31,15 +31,15 @@ jobs:
             cmake-generator: "Unix Makefiles"
             artifact-name: dplyr-linux-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
-            
+
           # macOS x86_64
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
             artifact-name: dplyr-macos-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-            
+
           # macOS ARM64
           - os: macos-latest
             target: aarch64-apple-darwin
@@ -47,267 +47,272 @@ jobs:
             cmake-generator: "Unix Makefiles"
             artifact-name: dplyr-macos-arm64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-            
+
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
-            cmake-generator: "Visual Studio 17 2022"
+            cmake-generator: "Visual Studio 16 2019"
             artifact-name: dplyr-windows-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
 
     steps:
-    # -------------------------------------------------------------------------
-    # Environment Setup
-    # -------------------------------------------------------------------------
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Full history for version detection
+      # -------------------------------------------------------------------------
+      # Environment Setup
+      # -------------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for version detection
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: ${{ matrix.rust-toolchain }}
-        targets: ${{ matrix.target }}
-        components: rustfmt, clippy
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust-toolchain }}
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: ${{ matrix.target }}
-        cache-on-failure: true
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
 
-    - name: Install CMake
-      uses: jwlawson/actions-setup-cmake@v1.14
-      with:
-        cmake-version: '3.20'
+      - name: Install CMake
+        uses: jwlawson/actions-setup-cmake@v1.14
+        with:
+          cmake-version: "3.20"
 
-    # -------------------------------------------------------------------------
-    # Platform-specific Dependencies
-    # -------------------------------------------------------------------------
-    - name: Install Linux dependencies
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          pkg-config \
-          libssl-dev \
-          unzip \
-          valgrind
-        echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+      # -------------------------------------------------------------------------
+      # Platform-specific Dependencies
+      # -------------------------------------------------------------------------
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            unzip \
+            valgrind
+          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
 
-    - name: Install macOS dependencies
-      if: runner.os == 'macOS'
-      run: |
-        brew install pkg-config openssl
-        echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config openssl
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
-    - name: Install Windows dependencies
-      if: runner.os == 'Windows'
-      run: |
-        # Windows dependencies are handled by vcpkg or pre-built libraries
-        echo "Windows dependencies configured"
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          # Windows dependencies are handled by vcpkg or pre-built libraries
+          echo "Windows dependencies configured"
 
-    # -------------------------------------------------------------------------
-    # DuckDB Installation
-    # -------------------------------------------------------------------------
-    - name: Download and install DuckDB CLI
-      shell: bash
-      run: |
-        mkdir -p duckdb-cli
-        cd duckdb-cli
-        
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-          unzip duckdb.zip
-          chmod +x duckdb.exe
-          echo "$(pwd)" >> $GITHUB_PATH
-        else
-          curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-          unzip duckdb.zip
-          chmod +x duckdb
-          echo "$(pwd)" >> $GITHUB_PATH
-        fi
+      # -------------------------------------------------------------------------
+      # DuckDB Installation
+      # -------------------------------------------------------------------------
+      - name: Download and install DuckDB CLI
+        shell: bash
+        run: |
+          mkdir -p duckdb-cli
+          cd duckdb-cli
 
-    - name: Verify DuckDB installation
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          duckdb.exe --version
-        else
-          duckdb --version
-        fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            unzip duckdb.zip
+            chmod +x duckdb.exe
+            echo "$(pwd)" >> $GITHUB_PATH
+          else
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            unzip duckdb.zip
+            chmod +x duckdb
+            echo "$(pwd)" >> $GITHUB_PATH
+          fi
 
-    # -------------------------------------------------------------------------
-    # R4-AC1: Rust Component Build and Test
-    # -------------------------------------------------------------------------
-    - name: Check Rust formatting
-      run: cargo fmt --all -- --check
+      - name: Verify DuckDB installation
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            duckdb.exe --version
+          else
+            duckdb --version
+          fi
 
-    - name: Run Rust clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      # -------------------------------------------------------------------------
+      # R4-AC1: Rust Component Build and Test
+      # -------------------------------------------------------------------------
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
 
-    - name: Build Rust components
-      run: |
-        cd libdplyr_c
-        cargo build --release --target ${{ matrix.target }}
+      - name: Run Rust clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-    - name: Run Rust unit tests
-      run: |
-        cd libdplyr_c
-        cargo test --release --target ${{ matrix.target }}
+      - name: Build Rust components
+        run: |
+          cd libdplyr_c
+          cargo build --release --target ${{ matrix.target }}
 
-    # -------------------------------------------------------------------------
-    # R4-AC1: CMake Build Configuration
-    # -------------------------------------------------------------------------
-    - name: Configure CMake (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        mkdir build
-        cd build
-        cmake .. \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBUILD_CPP_TESTS=ON \
-          -DBUILD_DUCKDB=ON \
-          -G "${{ matrix.cmake-generator }}"
+      - name: Run Rust unit tests
+        run: |
+          cd libdplyr_c
+          cargo test --release --target ${{ matrix.target }}
 
-    - name: Configure CMake (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        mkdir build
-        cd build
-        cmake .. `
-          -DCMAKE_BUILD_TYPE=Release `
-          -DBUILD_CPP_TESTS=ON `
-          -DBUILD_DUCKDB=ON `
-          -G "${{ matrix.cmake-generator }}" `
-          -A x64
+      # -------------------------------------------------------------------------
+      # R4-AC1: CMake Build Configuration
+      # -------------------------------------------------------------------------
+      - name: Set Rust compiler path for Unix
+        if: runner.os != 'Windows'
+        run: echo "RUSTC_PATH=$(which rustc)" >> $GITHUB_ENV
 
-    - name: Build extension
-      run: |
-        cd build
-        cmake --build . --config Release --parallel
+      - name: Configure CMake (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CPP_TESTS=ON \
+            -DBUILD_DUCKDB=ON \
+            -G "${{ matrix.cmake-generator }}" \
+            -DRUSTC_EXECUTABLE=${{ env.RUSTC_PATH }}
 
-    # -------------------------------------------------------------------------
-    # R4-AC2: Smoke Tests Execution
-    # -------------------------------------------------------------------------
-    - name: Run smoke tests (Unix)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        export BUILD_DIR=build
-        chmod +x tests/run_smoke_tests.sh
-        ./tests/run_smoke_tests.sh
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir build
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_CPP_TESTS=ON `
+            -DBUILD_DUCKDB=ON `
+            -G "${{ matrix.cmake-generator }}" `
+            -A x64
 
-    - name: Run smoke tests (Windows)
-      if: runner.os == 'Windows'
-      shell: cmd
-      run: |
-        set BUILD_DIR=build
-        tests\run_smoke_tests.bat
+      - name: Build extension
+        run: |
+          cd build
+          cmake --build . --config Release --parallel
 
-    # -------------------------------------------------------------------------
-    # R7-AC1, R7-AC3: C++ Integration Tests
-    # -------------------------------------------------------------------------
-    - name: Run C++ integration tests
-      shell: bash
-      run: |
-        cd build
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
+      # -------------------------------------------------------------------------
+      # R4-AC2: Smoke Tests Execution
+      # -------------------------------------------------------------------------
+      - name: Run smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export BUILD_DIR=build
+          chmod +x tests/run_smoke_tests.sh
+          ./tests/run_smoke_tests.sh
+
+      - name: Run smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set BUILD_DIR=build
+          tests\run_smoke_tests.bat
+
+      # -------------------------------------------------------------------------
+      # R7-AC1, R7-AC3: C++ Integration Tests
+      # -------------------------------------------------------------------------
+      - name: Run C++ integration tests
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            export DUCKDB_EXTENSION_PATH=$(pwd)
+            ./Release/duckdb_extension_integration_test.exe --gtest_color=yes
+          else
+            export DUCKDB_EXTENSION_PATH=$(pwd)
+            ./duckdb_extension_integration_test --gtest_color=yes
+          fi
+
+      # -------------------------------------------------------------------------
+      # Additional Quality Checks
+      # -------------------------------------------------------------------------
+      - name: Run CMake tests
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ctest -C Release --output-on-failure --timeout 300
+          else
+            ctest --output-on-failure --timeout 300
+          fi
+
+      - name: Memory leak check (Linux only)
+        if: runner.os == 'Linux' && env.VALGRIND_AVAILABLE == '1'
+        run: |
+          cd build
           export DUCKDB_EXTENSION_PATH=$(pwd)
-          ./Release/duckdb_extension_integration_test.exe --gtest_color=yes
-        else
-          export DUCKDB_EXTENSION_PATH=$(pwd)
-          ./duckdb_extension_integration_test --gtest_color=yes
-        fi
+          valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
+            duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
 
-    # -------------------------------------------------------------------------
-    # Additional Quality Checks
-    # -------------------------------------------------------------------------
-    - name: Run CMake tests
-      shell: bash
-      run: |
-        cd build
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          ctest -C Release --output-on-failure --timeout 300
-        else
-          ctest --output-on-failure --timeout 300
-        fi
+      # -------------------------------------------------------------------------
+      # Artifact Collection
+      # -------------------------------------------------------------------------
+      - name: Collect build artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          cp build/dplyr.duckdb_extension artifacts/
+          cp libdplyr_c/target/${{ matrix.target }}/release/libdplyr_c.a artifacts/ || true
 
-    - name: Memory leak check (Linux only)
-      if: runner.os == 'Linux' && env.VALGRIND_AVAILABLE == '1'
-      run: |
-        cd build
-        export DUCKDB_EXTENSION_PATH=$(pwd)
-        valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
-          duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
+          # Create metadata file
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
 
-    # -------------------------------------------------------------------------
-    # Artifact Collection
-    # -------------------------------------------------------------------------
-    - name: Collect build artifacts (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        mkdir -p artifacts
-        cp build/dplyr.duckdb_extension artifacts/
-        cp libdplyr_c/target/${{ matrix.target }}/release/libdplyr_c.a artifacts/ || true
-        
-        # Create metadata file
-        cat > artifacts/build-info.json << EOF
-        {
-          "platform": "${{ matrix.os }}",
-          "target": "${{ matrix.target }}",
-          "rust_version": "$(rustc --version)",
-          "cmake_version": "$(cmake --version | head -n1)",
-          "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "git_commit": "${{ github.sha }}",
-          "git_ref": "${{ github.ref }}"
-        }
-        EOF
+      - name: Collect build artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp build/Release/dplyr.duckdb_extension artifacts/
+          cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
 
-    - name: Collect build artifacts (Windows)
-      if: runner.os == 'Windows'
-      shell: bash
-      run: |
-        mkdir -p artifacts
-        cp build/Release/dplyr.duckdb_extension artifacts/
-        cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
-        
-        # Create metadata file
-        cat > artifacts/build-info.json << EOF
-        {
-          "platform": "${{ matrix.os }}",
-          "target": "${{ matrix.target }}",
-          "rust_version": "$(rustc --version)",
-          "cmake_version": "$(cmake --version | head -n1)",
-          "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "git_commit": "${{ github.sha }}",
-          "git_ref": "${{ github.ref }}"
-        }
-        EOF
+          # Create metadata file
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.artifact-name }}
-        path: artifacts/
-        retention-days: 30
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: artifacts/
+          retention-days: 30
 
-    # -------------------------------------------------------------------------
-    # Test Results Upload
-    # -------------------------------------------------------------------------
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results-${{ matrix.artifact-name }}
-        path: |
-          build/Testing/
-          *.log
-          test-*.xml
-        retention-days: 7
+      # -------------------------------------------------------------------------
+      # Test Results Upload
+      # -------------------------------------------------------------------------
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.artifact-name }}
+          path: |
+            build/Testing/
+            *.log
+            test-*.xml
+          retention-days: 7
 
   # =============================================================================
   # Code Quality and Security Checks
@@ -315,37 +320,37 @@ jobs:
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt, clippy
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
-    - name: Install additional tools
-      run: |
-        cargo install cargo-audit cargo-deny
+      - name: Install additional tools
+        run: |
+          cargo install cargo-audit cargo-deny
 
-    - name: Security audit
-      run: |
-        cd libdplyr_c
-        cargo audit
+      - name: Security audit
+        run: |
+          cd libdplyr_c
+          cargo audit
 
-    - name: License and dependency check
-      run: |
-        cd libdplyr_c
-        cargo deny check
+      - name: License and dependency check
+        run: |
+          cd libdplyr_c
+          cargo deny check
 
-    - name: Documentation check
-      run: |
-        cd libdplyr_c
-        cargo doc --no-deps --document-private-items
+      - name: Documentation check
+        run: |
+          cd libdplyr_c
+          cargo doc --no-deps --document-private-items
 
   # =============================================================================
   # Release Preparation (on tags)
@@ -355,55 +360,55 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-test, code-quality]
     if: github.event_name == 'release' && github.event.action == 'published'
-    
+
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: release-artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
 
-    - name: Create release package
-      run: |
-        mkdir -p release-package
-        
-        # Collect all extension binaries
-        find release-artifacts -name "*.duckdb_extension" -exec cp {} release-package/ \;
-        
-        # Rename with platform suffixes
-        cd release-package
-        for ext in *.duckdb_extension; do
-          if [[ -f "$ext" ]]; then
-            # Extract platform info from artifact structure
-            platform=$(echo "$ext" | sed 's/.*dplyr-\([^/]*\).*/\1/')
-            mv "$ext" "dplyr-${platform}.duckdb_extension"
-          fi
-        done
-        
-        # Create checksums
-        sha256sum *.duckdb_extension > checksums.sha256
-        
-        # Create release info
-        cat > release-info.json << EOF
-        {
-          "version": "${{ github.event.release.tag_name }}",
-          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "git_commit": "${{ github.sha }}",
-          "supported_platforms": [
-            "linux-x86_64",
-            "macos-x86_64", 
-            "macos-arm64",
-            "windows-x86_64"
-          ],
-          "duckdb_compatibility": ">=0.9.0",
-          "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
-        }
-        EOF
+      - name: Create release package
+        run: |
+          mkdir -p release-package
 
-    - name: Upload release assets
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-package
-        path: release-package/
+          # Collect all extension binaries
+          find release-artifacts -name "*.duckdb_extension" -exec cp {} release-package/ \;
+
+          # Rename with platform suffixes
+          cd release-package
+          for ext in *.duckdb_extension; do
+            if [[ -f "$ext" ]]; then
+              # Extract platform info from artifact structure
+              platform=$(echo "$ext" | sed 's/.*dplyr-\([^/]*\).*/\1/')
+              mv "$ext" "dplyr-${platform}.duckdb_extension"
+            fi
+          done
+
+          # Create checksums
+          sha256sum *.duckdb_extension > checksums.sha256
+
+          # Create release info
+          cat > release-info.json << EOF
+          {
+            "version": "${{ github.event.release.tag_name }}",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "supported_platforms": [
+              "linux-x86_64",
+              "macos-x86_64",
+              "macos-arm64",
+              "windows-x86_64"
+            ],
+            "duckdb_compatibility": ">=0.9.0",
+            "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
+          }
+          EOF
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: release-package/
 
   # =============================================================================
   # Deployment Status Summary
@@ -413,44 +418,44 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-test, code-quality]
     if: always()
-    
+
     steps:
-    - name: Generate summary
-      run: |
-        echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Build Results" >> $GITHUB_STEP_SUMMARY
-        
-        if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
-          echo "✅ **Multi-platform builds**: SUCCESS" >> $GITHUB_STEP_SUMMARY
-          echo "- Linux x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- macOS x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- macOS ARM64: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- Windows x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **Multi-platform builds**: FAILED" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Quality Checks" >> $GITHUB_STEP_SUMMARY
-        
-        if [[ "${{ needs.code-quality.result }}" == "success" ]]; then
-          echo "✅ **Code quality**: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- Security audit: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- License check: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- Documentation: ✅" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **Code quality**: FAILED" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Requirements Verification" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ R4-AC1: Multi-platform build support" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ R4-AC2: Automated smoke testing" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ R7-AC1: Integration testing" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ R7-AC3: Crash prevention testing" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "Build artifacts are available for download for 30 days." >> $GITHUB_STEP_SUMMARY
-        echo "Test results are available for 7 days." >> $GITHUB_STEP_SUMMARY
+      - name: Generate summary
+        run: |
+          echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Results" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
+            echo "✅ **Multi-platform builds**: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- Linux x86_64: ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- macOS x86_64: ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- macOS ARM64: ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- Windows x86_64: ✅" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Multi-platform builds**: FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Quality Checks" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.code-quality.result }}" == "success" ]]; then
+            echo "✅ **Code quality**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- Security audit: ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- License check: ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- Documentation: ✅" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Code quality**: FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Requirements Verification" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ R4-AC1: Multi-platform build support" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ R4-AC2: Automated smoke testing" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ R7-AC1: Integration testing" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ R7-AC3: Crash prevention testing" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Build artifacts are available for download for 30 days." >> $GITHUB_STEP_SUMMARY
+          echo "Test results are available for 7 days." >> $GITHUB_STEP_SUMMARY
