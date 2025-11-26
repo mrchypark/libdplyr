@@ -2,12 +2,12 @@ name: Security Checks
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
   schedule:
     # Run security checks daily at 2 AM UTC
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,33 +19,33 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-audit
-      run: cargo install cargo-audit
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
 
-    - name: Run security audit
-      run: |
-        cd libdplyr_c
-        cargo audit --json > audit-results.json || true
-        cargo audit
+      - name: Run security audit
+        run: |
+          cd libdplyr_c
+          cargo audit --json > audit-results.json || true
+          cargo audit
 
-    - name: Upload audit results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-audit-results
-        path: libdplyr_c/audit-results.json
-        retention-days: 30
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-results
+          path: libdplyr_c/audit-results.json
+          retention-days: 30
 
   # =============================================================================
   # License Compliance Check
@@ -53,36 +53,36 @@ jobs:
   license-check:
     name: License Compliance
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-deny
-      run: cargo install cargo-deny
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
 
-    - name: Check licenses and dependencies
-      run: |
-        cd libdplyr_c
-        cargo deny check --log-level error
+      - name: Check licenses and dependencies
+        run: |
+          cd libdplyr_c
+          cargo deny check
 
-    - name: Generate license report
-      run: |
-        cd libdplyr_c
-        cargo deny list --format json > license-report.json
+      - name: Generate license report
+        run: |
+          cd libdplyr_c
+          cargo deny list --format json > license-report.json
 
-    - name: Upload license report
-      uses: actions/upload-artifact@v4
-      with:
-        name: license-report
-        path: libdplyr_c/license-report.json
-        retention-days: 30
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: libdplyr_c/license-report.json
+          retention-days: 30
 
   # =============================================================================
   # Static Analysis
@@ -90,46 +90,46 @@ jobs:
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
-    - name: Run Clippy with security lints
-      run: |
-        cd libdplyr_c
-        cargo clippy --all-targets --all-features -- \
-          -D warnings \
-          -D clippy::all \
-          -D clippy::pedantic \
-          -D clippy::security \
-          -D clippy::suspicious
+      - name: Run Clippy with security lints
+        run: |
+          cd libdplyr_c
+          cargo clippy --all-targets --all-features -- \
+            -D warnings \
+            -D clippy::all \
+            -D clippy::pedantic \
+            -D clippy::security \
+            -D clippy::suspicious
 
-    - name: Install additional static analysis tools
-      run: |
-        cargo install cargo-geiger
+      - name: Install additional static analysis tools
+        run: |
+          cargo install cargo-geiger
 
-    - name: Run cargo-geiger (unsafe code analysis)
-      run: |
-        cd libdplyr_c
-        cargo geiger --format json > geiger-report.json || true
-        cargo geiger
+      - name: Run cargo-geiger (unsafe code analysis)
+        run: |
+          cd libdplyr_c
+          cargo geiger --format json > geiger-report.json || true
+          cargo geiger
 
-    - name: Upload static analysis results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: static-analysis-results
-        path: libdplyr_c/geiger-report.json
-        retention-days: 30
+      - name: Upload static analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-results
+          path: libdplyr_c/geiger-report.json
+          retention-days: 30
 
   # =============================================================================
   # CodeQL Analysis
@@ -145,45 +145,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'cpp', 'rust' ]
+        language: ["cpp", "rust"]
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: ${{ matrix.language }}
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
 
-    - name: Setup build environment
-      if: matrix.language == 'cpp'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake
+      - name: Setup build environment
+        if: matrix.language == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
 
-    - name: Setup Rust toolchain
-      if: matrix.language == 'rust'
-      uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Build for CodeQL (C++)
-      if: matrix.language == 'cpp'
-      run: |
-        mkdir build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON
-        cmake --build . --parallel
+      - name: Build for CodeQL (C++)
+        if: matrix.language == 'cpp'
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON
+          cmake --build . --parallel
 
-    - name: Build for CodeQL (Rust)
-      if: matrix.language == 'rust'
-      run: |
-        cd libdplyr_c
-        cargo build --all-targets
+      - name: Build for CodeQL (Rust)
+        if: matrix.language == 'rust'
+        run: |
+          cd libdplyr_c
+          cargo build --all-targets
 
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:${{matrix.language}}"
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
 
   # =============================================================================
   # Security Summary
@@ -193,54 +193,54 @@ jobs:
     runs-on: ubuntu-latest
     needs: [security-audit, license-check, static-analysis, codeql]
     if: always()
-    
+
     steps:
-    - name: Generate security summary
-      run: |
-        echo "## 🔒 Security Analysis Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "### Security Audit" >> $GITHUB_STEP_SUMMARY
-        if [[ "${{ needs.security-audit.result }}" == "success" ]]; then
-          echo "✅ **Dependency security audit**: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- No known security vulnerabilities found" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **Dependency security audit**: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "- Security vulnerabilities detected - review required" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### License Compliance" >> $GITHUB_STEP_SUMMARY
-        if [[ "${{ needs.license-check.result }}" == "success" ]]; then
-          echo "✅ **License compliance**: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- All dependencies have compatible licenses" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **License compliance**: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "- License compatibility issues detected" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Static Analysis" >> $GITHUB_STEP_SUMMARY
-        if [[ "${{ needs.static-analysis.result }}" == "success" ]]; then
-          echo "✅ **Static analysis**: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- No security-related code issues found" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **Static analysis**: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "- Code quality or security issues detected" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### CodeQL Analysis" >> $GITHUB_STEP_SUMMARY
-        if [[ "${{ needs.codeql.result }}" == "success" ]]; then
-          echo "✅ **CodeQL analysis**: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- No security vulnerabilities detected in code" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **CodeQL analysis**: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "- Potential security issues detected - review Security tab" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Recommendations" >> $GITHUB_STEP_SUMMARY
-        echo "- Review security reports in the Actions artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "- Check the Security tab for detailed CodeQL findings" >> $GITHUB_STEP_SUMMARY
-        echo "- Update dependencies regularly to address security issues" >> $GITHUB_STEP_SUMMARY
+      - name: Generate security summary
+        run: |
+          echo "## 🔒 Security Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Security Audit" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.security-audit.result }}" == "success" ]]; then
+            echo "✅ **Dependency security audit**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- No known security vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Dependency security audit**: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- Security vulnerabilities detected - review required" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### License Compliance" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.license-check.result }}" == "success" ]]; then
+            echo "✅ **License compliance**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- All dependencies have compatible licenses" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **License compliance**: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- License compatibility issues detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Static Analysis" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.static-analysis.result }}" == "success" ]]; then
+            echo "✅ **Static analysis**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- No security-related code issues found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Static analysis**: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- Code quality or security issues detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CodeQL Analysis" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.codeql.result }}" == "success" ]]; then
+            echo "✅ **CodeQL analysis**: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- No security vulnerabilities detected in code" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **CodeQL analysis**: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- Potential security issues detected - review Security tab" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommendations" >> $GITHUB_STEP_SUMMARY
+          echo "- Review security reports in the Actions artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Check the Security tab for detailed CodeQL findings" >> $GITHUB_STEP_SUMMARY
+          echo "- Update dependencies regularly to address security issues" >> $GITHUB_STEP_SUMMARY
