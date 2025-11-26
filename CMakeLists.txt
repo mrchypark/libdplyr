@@ -170,6 +170,7 @@ else()
 endif()
 
 # Check if rustup is available and find toolchains
+set(Rust_TOOLCHAIN_DISPLAY "rustc-${RUST_VERSION}")
 execute_process(
     COMMAND rustup --version
     OUTPUT_VARIABLE RUSTUP_VERSION_OUTPUT
@@ -187,30 +188,44 @@ if(RUSTUP_RESULT EQUAL 0)
         ERROR_QUIET
     )
 
-    # Parse available toolchains and select the best one (prefer plain "stable")
-    set(Rust_TOOLCHAIN "stable")
-    if(RUSTUP_TOOLCHAINS MATCHES "1\\.85[^\\n]*-${RUST_HOST_TARGET}")
-        string(REGEX MATCH "1\\.85[^\\n]*-${RUST_HOST_TARGET}" Rust_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
-    elseif(RUSTUP_TOOLCHAINS MATCHES "stable")
-        set(Rust_TOOLCHAIN "stable")
-    elseif(RUSTUP_TOOLCHAINS MATCHES "nightly-${RUST_HOST_TARGET}")
-        set(Rust_TOOLCHAIN "nightly-${RUST_HOST_TARGET}")
+    string(STRIP "${RUSTUP_TOOLCHAINS}" RUSTUP_TOOLCHAINS_STRIPPED)
+
+    if(RUSTUP_TOOLCHAINS_STRIPPED STREQUAL "")
+        message(WARNING "rustup toolchain list is empty; falling back to system rustc (no rustup toolchain hint)")
+        unset(Rust_TOOLCHAIN)
+        set(Rust_TOOLCHAIN_DISPLAY "system-rustc")
     else()
-        # Use the first available toolchain that matches our target
-        string(REGEX MATCH "([^\\n]*${RUST_HOST_TARGET}[^\\n]*)" MATCHING_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
-        if(MATCHING_TOOLCHAIN)
-            string(STRIP "${MATCHING_TOOLCHAIN}" Rust_TOOLCHAIN)
-            string(REGEX REPLACE " \\(default\\)" "" Rust_TOOLCHAIN "${Rust_TOOLCHAIN}")
-        else()
-            message(WARNING "No matching Rust toolchain found for target ${RUST_HOST_TARGET}")
+        # Parse available toolchains and select the best one (prefer plain "stable")
+        if(RUSTUP_TOOLCHAINS MATCHES "1\\.85[^\\n]*-${RUST_HOST_TARGET}")
+            string(REGEX MATCH "1\\.85[^\\n]*-${RUST_HOST_TARGET}" Rust_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
+        elseif(RUSTUP_TOOLCHAINS MATCHES "stable")
             set(Rust_TOOLCHAIN "stable")
+        elseif(RUSTUP_TOOLCHAINS MATCHES "nightly-${RUST_HOST_TARGET}")
+            set(Rust_TOOLCHAIN "nightly-${RUST_HOST_TARGET}")
+        else()
+            # Use the first available toolchain as a fallback
+            string(REGEX MATCH "([^\\n]+)" FIRST_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
+            if(FIRST_TOOLCHAIN)
+                string(STRIP "${FIRST_TOOLCHAIN}" Rust_TOOLCHAIN)
+                string(REGEX REPLACE " \\(default\\)" "" Rust_TOOLCHAIN "${Rust_TOOLCHAIN}")
+            else()
+                unset(Rust_TOOLCHAIN)
+            endif()
+        endif()
+
+        if(DEFINED Rust_TOOLCHAIN AND NOT Rust_TOOLCHAIN STREQUAL "")
+            set(Rust_TOOLCHAIN_DISPLAY "${Rust_TOOLCHAIN}")
+            message(STATUS "Using Rust toolchain: ${Rust_TOOLCHAIN_DISPLAY}")
+        else()
+            message(WARNING "No rustup toolchain selected; using system rustc")
+            unset(Rust_TOOLCHAIN)
+            set(Rust_TOOLCHAIN_DISPLAY "system-rustc")
         endif()
     endif()
-
-    message(STATUS "Using Rust toolchain: ${Rust_TOOLCHAIN}")
 else()
     message(STATUS "rustup not found, using system Rust")
-    set(Rust_TOOLCHAIN "system")
+    unset(Rust_TOOLCHAIN)
+    set(Rust_TOOLCHAIN_DISPLAY "system-rustc")
 endif()
 
 # Verify Cargo is available

@@ -19,7 +19,7 @@
 #define DPLYR_EXTENSION_COMPILER "@CMAKE_CXX_COMPILER_ID@"
 
 // Rust toolchain information
-#define DPLYR_EXTENSION_RUST_TOOLCHAIN "@Rust_TOOLCHAIN@"
+#define DPLYR_EXTENSION_RUST_TOOLCHAIN "@Rust_TOOLCHAIN_DISPLAY@"
 #define DPLYR_EXTENSION_RUST_TARGET "@RUST_HOST_TARGET@"
 
 // Build timestamp (set at configure time)
