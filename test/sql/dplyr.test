@@ -1,57 +1,45 @@
 # name: test/sql/dplyr.test
-# description: Test dplyr extension
+# description: Basic dplyr extension smoke test
 # group: [dplyr]
 
-# Require the extension to be loaded
-# require dplyr
-statement ok
-LOAD 'build/release/extension/dplyr/dplyr.duckdb_extension'
+require dplyr
 
-# Create a table for testing
 statement ok
 CREATE TABLE items(id INTEGER, val INTEGER);
 
 statement ok
 INSERT INTO items VALUES (1, 10), (2, 20);
 
-# Test dplyr function with simple query
 query I
-SELECT * FROM dplyr('items %>% select(id)');
+SELECT * FROM dplyr('items %>% select(id) %>% arrange(id)');
 ----
 1
 2
 
-# Test dplyr function with mutate
+# DPLYR keyword (no wrapper) with select
+query I
+DPLYR 'items %>% select(id) %>% arrange(id)';
+----
+1
+2
+
+# DPLYR keyword with mutate
 query III
-SELECT * FROM dplyr('items %>% mutate(val2 = val + 1)');
+DPLYR 'items %>% mutate(val2 = val + 1) %>% arrange(id)';
 ----
 1	10	11
 2	20	21
 
-# Test DPLYR keyword with select (no dplyr() wrapper)
+# Implicit pipeline (no keyword, no wrapper) with select
 query I
-DPLYR 'items %>% select(id)';
+items %>% select(id) %>% arrange(id);
 ----
 1
 2
 
-# Test DPLYR keyword with mutate (no dplyr() wrapper)
+# Implicit pipeline with mutate
 query III
-DPLYR 'items %>% mutate(val2 = val + 1)';
-----
-1	10	11
-2	20	21
-
-# Test implicit dplyr syntax with select (no keyword, no wrapper)
-query I
-items %>% select(id);
-----
-1
-2
-
-# Test implicit dplyr syntax with mutate (no keyword, no wrapper)
-query III
-items %>% mutate(val2 = val + 1);
+items %>% mutate(val2 = val + 1) %>% arrange(id);
 ----
 1	10	11
 2	20	21

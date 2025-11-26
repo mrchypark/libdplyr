@@ -5,7 +5,6 @@ Instructions:
 - Mark completed items with [x].
 
 Tasks/Tests:
-- [ ] Test: Add sqllogictest `test/sql/dplyr.test` that requires `dplyr` and runs a basic query.
-- [ ] Rename: Use extension name `dplyr` (was `dplyr_extension`) across `extension_config.cmake`, `CMakeLists.txt`, and scripts (`test_load.sh` expects `dplyr.duckdb_extension`).
-- [ ] Assets: Add `vcpkg.json` placeholder if missing for CI.
-- [ ] Verify: Run `make clean && make release`, `make test`, and `./test_load.sh` with the new name.
+- [x] Test: Extend `test/sql/dplyr.test` to cover DPLYR keyword and implicit pipeline syntax (require dplyr).
+- [x] Version: Keep DuckDB baseline at v1.4.2 (remove override to v2.0.0; metadata script back to v1.4.2).
+- [x] Verify: Run `make release`, `make test`, and `./test_load.sh` after the version adjustment.
