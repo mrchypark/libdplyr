@@ -252,7 +252,7 @@ if(NOT corrosion_FOUND)
     FetchContent_Declare(
         Corrosion
         GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-        GIT_TAG v0.4.7
+        GIT_TAG v0.5.1
         GIT_SHALLOW TRUE
     )
 
@@ -274,7 +274,6 @@ if(NOT corrosion_FOUND)
 else()
     message(STATUS "Found existing Corrosion installation")
 endif()
-
 # R4-AC1: Configure Rust build environment
 set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
 set(ENV{CARGO_TARGET_DIR} ${RUST_TARGET_DIR})

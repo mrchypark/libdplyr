@@ -115,22 +115,21 @@ jobs:
       # -------------------------------------------------------------------------
       - name: Download and install DuckDB CLI
         shell: bash
-        run: |
-          mkdir -p duckdb-cli
-          cd duckdb-cli
+              run: |
+                mkdir -p duckdb-cli
+                cd duckdb-cli
 
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-            unzip duckdb.zip
-            chmod +x duckdb.exe
-            echo "$(pwd)" >> $GITHUB_PATH
-          else
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-            unzip duckdb.zip
-            chmod +x duckdb
-            echo "$(pwd)" >> $GITHUB_PATH
-          fi
-
+                if [[ "${{ runner.os }}" == "Windows" ]]; then
+                  curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+                  unzip -o duckdb.zip
+                  chmod +x duckdb.exe
+                  echo "$(pwd)" >> $GITHUB_PATH
+                else
+                  curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+                  unzip -o duckdb.zip
+                  chmod +x duckdb
+                  echo "$(pwd)" >> $GITHUB_PATH
+                fi
       - name: Verify DuckDB installation
         shell: bash
         run: |
