@@ -388,9 +388,9 @@ jobs:
           - **macOS ARM64**: \`dplyr-macos-arm64.duckdb_extension\`
           - **Windows x86_64**: \`dplyr-windows-x86_64.duckdb_extension\`
 
-        ## 🔧 Requirements
-        - DuckDB 1.4.2 or later
-        - Compatible operating system (Linux, macOS, Windows)
+          ## 🔧 Requirements
+          - DuckDB 1.4.2 or later
+          - Compatible operating system (Linux, macOS, Windows)
 
           ## 📊 Usage Example
           \`\`\`sql
