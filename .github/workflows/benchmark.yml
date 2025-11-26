@@ -107,7 +107,7 @@ jobs:
           mkdir build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CPP_TESTS=OFF
-          cmake --build . --parallel
+          cmake --build . --parallel 2
 
       - name: Run extension loading benchmark
         run: |
