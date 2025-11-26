@@ -209,13 +209,17 @@ set(EXTENSION_BINARY_NAME "dplyr")
 
 # Register the extension with DuckDB (out-of-tree build)
 get_filename_component(DPLYR_EXTENSION_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
-duckdb_extension_load(${EXTENSION_NAME}
-    DONT_LINK
-    LOAD_TESTS
-    SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
-    INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
-    EXTENSION_VERSION ${EXTENSION_VERSION}
-)
+if(COMMAND duckdb_extension_load)
+    duckdb_extension_load(${EXTENSION_NAME}
+        DONT_LINK
+        LOAD_TESTS
+        SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
+        INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
+        EXTENSION_VERSION ${EXTENSION_VERSION}
+    )
+else()
+    message(STATUS "duckdb_extension_load not available at configure time; skipping registration")
+endif()
 
 # R8-AC1: Flexible DuckDB compatibility check function
 function(check_duckdb_version DUCKDB_VERSION)
