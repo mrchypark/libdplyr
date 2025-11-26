@@ -50,7 +50,7 @@ if(STANDALONE_BUILD)
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-            GIT_TAG v2.0.0
+            GIT_TAG v1.4.2
             GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(duckdb)
