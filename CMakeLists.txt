@@ -1,5 +1,5 @@
 # CMakeLists.txt for libdplyr DuckDB Extension
-# 
+#
 # This CMake configuration builds the libdplyr DuckDB extension by integrating
 # Rust and C++ components. It follows DuckDB extension development best practices
 # and fulfills requirements R4-AC1 and R8-AC1.
@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # R8-AC1: Project version and DuckDB compatibility range
-project(duckdb_dplyr_extension VERSION 0.1.0)
+project(dplyr VERSION 0.1.0)
 
 # R8-AC1: DuckDB extension configuration
 set(DUCKDB_EXTENSION_NAME "dplyr")
@@ -87,7 +87,7 @@ endif()
 
 if(NOT DEFINED DUCKDB_VERSION AND EXISTS "${DUCKDB_INCLUDE_DIR}/duckdb.hpp")
     file(READ "${DUCKDB_INCLUDE_DIR}/duckdb.hpp" DUCKDB_HEADER_CONTENT)
-    string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" 
+    string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\""
            DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
     if(DUCKDB_VERSION_MATCH)
         set(DUCKDB_VERSION ${CMAKE_MATCH_1})
@@ -118,7 +118,7 @@ execute_process(
 )
 
 if(NOT RUSTC_RESULT EQUAL 0)
-    message(FATAL_ERROR 
+    message(FATAL_ERROR
         "Rust compiler not found. Please install Rust from https://rustup.rs/\n"
         "Error: ${RUSTC_ERROR}")
 endif()
@@ -179,14 +179,14 @@ execute_process(
 
 if(RUSTUP_RESULT EQUAL 0)
     message(STATUS "Found rustup: ${RUSTUP_VERSION_OUTPUT}")
-    
+
     # Get available toolchains
     execute_process(
         COMMAND rustup toolchain list
         OUTPUT_VARIABLE RUSTUP_TOOLCHAINS
         ERROR_QUIET
     )
-    
+
     # Parse available toolchains and select the best one
     if(RUSTUP_TOOLCHAINS MATCHES "1\\.85[^\\n]*-${RUST_HOST_TARGET}")
         string(REGEX MATCH "1\\.85[^\\n]*-${RUST_HOST_TARGET}" Rust_TOOLCHAIN "${RUSTUP_TOOLCHAINS}")
@@ -205,7 +205,7 @@ if(RUSTUP_RESULT EQUAL 0)
             set(Rust_TOOLCHAIN "stable")
         endif()
     endif()
-    
+
     message(STATUS "Using Rust toolchain: ${Rust_TOOLCHAIN}")
 else()
     message(STATUS "rustup not found, using system Rust")
@@ -221,7 +221,7 @@ execute_process(
 )
 
 if(NOT CARGO_RESULT EQUAL 0)
-    message(FATAL_ERROR 
+    message(FATAL_ERROR
         "Cargo not found. Please ensure Rust is properly installed.\n"
         "Error: ${CARGO_ERROR}")
 endif()
@@ -239,21 +239,21 @@ if(NOT corrosion_FOUND)
         GIT_TAG v0.4.7
         GIT_SHALLOW TRUE
     )
-    
+
     # Check if fetch was successful
     FetchContent_GetProperties(Corrosion)
     if(NOT corrosion_POPULATED)
         message(STATUS "Downloading Corrosion...")
         FetchContent_Populate(Corrosion)
-        
+
         # Verify Corrosion was downloaded
         if(NOT EXISTS "${corrosion_SOURCE_DIR}/CMakeLists.txt")
             message(FATAL_ERROR "Failed to download Corrosion")
         endif()
-        
+
         add_subdirectory(${corrosion_SOURCE_DIR} ${corrosion_BINARY_DIR})
     endif()
-    
+
     message(STATUS "Successfully configured Corrosion for Rust integration")
 else()
     message(STATUS "Found existing Corrosion installation")
@@ -266,7 +266,7 @@ set(ENV{CARGO_TARGET_DIR} ${RUST_TARGET_DIR})
 # Verify Rust crate exists
 set(RUST_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml")
 if(NOT EXISTS ${RUST_MANIFEST_PATH})
-    message(FATAL_ERROR 
+    message(FATAL_ERROR
         "Rust crate manifest not found at ${RUST_MANIFEST_PATH}. "
         "Please ensure the libdplyr_c crate is properly set up.")
 endif()
@@ -326,36 +326,36 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
     target_link_libraries(${EXT_TARGET} libdplyr_c)
 
     if(WIN32)
-        target_link_libraries(${EXT_TARGET} 
+        target_link_libraries(${EXT_TARGET}
             ws2_32 userenv bcrypt ntdll advapi32 shell32 ole32
         )
-        
-        target_compile_definitions(${EXT_TARGET} 
-            PRIVATE 
+
+        target_compile_definitions(${EXT_TARGET}
+            PRIVATE
             WIN32_LEAN_AND_MEAN NOMINMAX
             DUCKDB_EXTENSION_MAIN
-            DUCKDB_VERSION="v2.0.0"
+            DUCKDB_VERSION="v1.0.0"
         )
-        
+
     elseif(APPLE)
-        target_link_libraries(${EXT_TARGET} 
+        target_link_libraries(${EXT_TARGET}
             "-framework Security"
             "-framework CoreFoundation"
             "-framework SystemConfiguration"
         )
-        
-        target_compile_options(${EXT_TARGET} 
-            PRIVATE 
+
+        target_compile_options(${EXT_TARGET}
+            PRIVATE
             -mmacosx-version-min=10.14
         )
-        
+
     elseif(UNIX)
-        target_link_libraries(${EXT_TARGET} 
+        target_link_libraries(${EXT_TARGET}
             pthread dl m rt
         )
-        
-        target_compile_options(${EXT_TARGET} 
-            PRIVATE 
+
+        target_compile_options(${EXT_TARGET}
+            PRIVATE
             -fPIC
         )
     endif()
@@ -367,20 +367,20 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
             $<$<CONFIG:Release>:-O3 -DNDEBUG>
             $<$<CONFIG:Debug>:-g -O0>
         )
-        
+
         # Link-time optimization for release builds
         if(CMAKE_BUILD_TYPE STREQUAL "Release")
             target_compile_options(${EXT_TARGET} PRIVATE -flto)
             target_link_options(${EXT_TARGET} PRIVATE -flto)
         endif()
-        
+
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         target_compile_options(${EXT_TARGET} PRIVATE
             /W4 /wd4100 /wd4996  # Disable unused parameter and deprecated warnings
             $<$<CONFIG:Release>:/O2 /DNDEBUG /GL>
             $<$<CONFIG:Debug>:/Od /Zi /RTC1>
         )
-        
+
         # Whole program optimization for release builds
         if(CMAKE_BUILD_TYPE STREQUAL "Release")
             target_link_options(${EXT_TARGET} PRIVATE /LTCG)
@@ -437,7 +437,7 @@ set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
 # R4-AC2: Smoke test - basic extension loading
 add_test(
     NAME smoke_test_load
-    COMMAND ${CMAKE_COMMAND} -E env 
+    COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
         duckdb -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
 )
@@ -448,19 +448,19 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
     # Create temporary database for smoke tests
     add_test(
         NAME smoke_test_comprehensive
-        COMMAND ${CMAKE_COMMAND} -E env 
+        COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
             duckdb ":memory:" -c ".read ${CMAKE_SOURCE_DIR}/tests/smoke.sql"
     )
-    set_tests_properties(smoke_test_comprehensive PROPERTIES 
+    set_tests_properties(smoke_test_comprehensive PROPERTIES
         TIMEOUT 120
         LABELS "smoke;comprehensive"
     )
-    
+
     # R1-AC2: Test minimum operation set specifically
     add_test(
         NAME smoke_test_minimum_operations
-        COMMAND ${CMAKE_COMMAND} -E env 
+        COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
             duckdb ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
@@ -477,15 +477,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
                 SELECT 'Minimum operations test completed' as result;
             "
     )
-    set_tests_properties(smoke_test_minimum_operations PROPERTIES 
+    set_tests_properties(smoke_test_minimum_operations PROPERTIES
         TIMEOUT 60
         LABELS "smoke;minimum_ops"
     )
-    
+
     # R5-AC1: DPLYR keyword entry point test
     add_test(
         NAME smoke_test_dplyr_keyword
-        COMMAND ${CMAKE_COMMAND} -E env 
+        COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
             duckdb ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
@@ -494,11 +494,11 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
                 SELECT 'DPLYR keyword test completed' as result;
             "
     )
-    set_tests_properties(smoke_test_dplyr_keyword PROPERTIES 
+    set_tests_properties(smoke_test_dplyr_keyword PROPERTIES
         TIMEOUT 30
         LABELS "smoke;keyword"
     )
-    
+
     message(STATUS "Comprehensive smoke tests configured")
 else()
     message(WARNING "Smoke test file not found at ${CMAKE_SOURCE_DIR}/tests/smoke.sql")
@@ -507,7 +507,7 @@ endif()
 # R4-AC2: Rust unit tests
 add_test(
     NAME rust_unit_tests
-    COMMAND ${CMAKE_COMMAND} -E env 
+    COMMAND ${CMAKE_COMMAND} -E env
         "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
         cargo test --manifest-path ${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -520,7 +520,7 @@ option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
 if(BUILD_CPP_TESTS)
     # Find Google Test
     find_package(GTest QUIET)
-    
+
     if(NOT GTest_FOUND)
         message(STATUS "Google Test not found, downloading...")
         include(FetchContent)
@@ -530,28 +530,28 @@ if(BUILD_CPP_TESTS)
             GIT_TAG v1.14.0
             GIT_SHALLOW TRUE
         )
-        
+
         # For Windows: Prevent overriding the parent project's compiler/linker settings
         set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-        
+
         FetchContent_MakeAvailable(googletest)
         message(STATUS "Successfully configured Google Test")
     else()
         message(STATUS "Found existing Google Test installation")
     endif()
-    
+
     # Create C++ integration test executable
     add_executable(duckdb_extension_integration_test
         tests/duckdb_extension_integration_test.cpp
     )
-    
+
     # Configure test executable
     target_include_directories(duckdb_extension_integration_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/extension/include
         ${DUCKDB_INCLUDE_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}
     )
-    
+
     # Link test dependencies
     target_link_libraries(duckdb_extension_integration_test
         PRIVATE
@@ -561,33 +561,33 @@ if(BUILD_CPP_TESTS)
         libdplyr_c
         ${DUCKDB_EXTENSION_STATIC_TARGET}
     )
-    
+
     # Platform-specific test linking
     if(WIN32)
-        target_link_libraries(duckdb_extension_integration_test 
-            PRIVATE 
+        target_link_libraries(duckdb_extension_integration_test
+            PRIVATE
             ws2_32 userenv bcrypt ntdll advapi32 shell32 ole32
         )
     elseif(APPLE)
-        target_link_libraries(duckdb_extension_integration_test 
-            PRIVATE 
+        target_link_libraries(duckdb_extension_integration_test
+            PRIVATE
             "-framework Security"
             "-framework CoreFoundation"
             "-framework SystemConfiguration"
         )
     elseif(UNIX)
-        target_link_libraries(duckdb_extension_integration_test 
-            PRIVATE 
+        target_link_libraries(duckdb_extension_integration_test
+            PRIVATE
             pthread dl m rt
         )
     endif()
-    
+
     # Set test properties
     set_target_properties(duckdb_extension_integration_test PROPERTIES
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON
     )
-    
+
     # Compiler-specific test settings
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(duckdb_extension_integration_test PRIVATE
@@ -600,65 +600,65 @@ if(BUILD_CPP_TESTS)
             $<$<CONFIG:Debug>:/Od /Zi /RTC1>
         )
     endif()
-    
+
     # R7-AC1: DuckDB extension loading and functionality tests
     add_test(
         NAME cpp_integration_extension_loading
         COMMAND duckdb_extension_integration_test --gtest_filter="DuckDBExtensionTest.ExtensionLoadingSuccess:DuckDBExtensionTest.DplyrKeywordRecognition:DuckDBExtensionTest.TableFunctionEntryPoint"
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
-    set_tests_properties(cpp_integration_extension_loading PROPERTIES 
+    set_tests_properties(cpp_integration_extension_loading PROPERTIES
         TIMEOUT 60
         ENVIRONMENT "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
     )
-    
+
     # R2-AC2: Standard SQL integration and mixing tests
     add_test(
         NAME cpp_integration_sql_mixing
         COMMAND duckdb_extension_integration_test --gtest_filter="DuckDBExtensionTest.StandardSqlMixingWithCTE:DuckDBExtensionTest.SubqueryIntegration:DuckDBExtensionTest.JoinWithDplyrResults"
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
-    set_tests_properties(cpp_integration_sql_mixing PROPERTIES 
+    set_tests_properties(cpp_integration_sql_mixing PROPERTIES
         TIMEOUT 60
         ENVIRONMENT "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
     )
-    
+
     # R7-AC3: Crash prevention and error handling tests
     add_test(
         NAME cpp_integration_crash_prevention
         COMMAND duckdb_extension_integration_test --gtest_filter="DuckDBExtensionTest.InvalidDplyrSyntaxNoCrash:DuckDBExtensionTest.NullPointerHandling:DuckDBExtensionTest.LargeInputHandling:DuckDBExtensionTest.ConcurrentAccessSafety:DuckDBExtensionTest.MemoryLeakPrevention"
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
-    set_tests_properties(cpp_integration_crash_prevention PROPERTIES 
+    set_tests_properties(cpp_integration_crash_prevention PROPERTIES
         TIMEOUT 120
         ENVIRONMENT "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
     )
-    
+
     # R4-AC2: Smoke tests for basic functionality
     add_test(
         NAME cpp_integration_smoke_tests
         COMMAND duckdb_extension_integration_test --gtest_filter="DuckDBExtensionTest.SmokeTestBasicOperations"
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
-    set_tests_properties(cpp_integration_smoke_tests PROPERTIES 
+    set_tests_properties(cpp_integration_smoke_tests PROPERTIES
         TIMEOUT 30
         ENVIRONMENT "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
     )
-    
+
     # Additional comprehensive test
     add_test(
         NAME cpp_integration_comprehensive
         COMMAND duckdb_extension_integration_test
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
-    set_tests_properties(cpp_integration_comprehensive PROPERTIES 
+    set_tests_properties(cpp_integration_comprehensive PROPERTIES
         TIMEOUT 180
         ENVIRONMENT "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
     )
-    
+
     # Make tests depend on extension build
     add_dependencies(duckdb_extension_integration_test ${DUCKDB_EXTENSION_STATIC_TARGET})
-    
+
     message(STATUS "C++ integration tests configured successfully")
 else()
     message(STATUS "C++ integration tests disabled (BUILD_CPP_TESTS=OFF)")
@@ -709,28 +709,28 @@ add_custom_target(quality-check
 # C++ test targets
 if(BUILD_CPP_TESTS)
     add_custom_target(cpp-test
-        COMMAND ${CMAKE_COMMAND} -E env 
+        COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
             ${CMAKE_BINARY_DIR}/duckdb_extension_integration_test
         COMMENT "Running C++ integration tests"
         DEPENDS duckdb_extension_integration_test
     )
-    
+
     add_custom_target(cpp-test-verbose
-        COMMAND ${CMAKE_COMMAND} -E env 
+        COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
             ${CMAKE_BINARY_DIR}/duckdb_extension_integration_test --gtest_color=yes --gtest_print_time=1
         COMMENT "Running C++ integration tests with verbose output"
         DEPENDS duckdb_extension_integration_test
     )
-    
+
     # Update quality-check to include C++ tests
     add_dependencies(quality-check duckdb_extension_integration_test)
 endif()
 
 # R4-AC2: Smoke test targets
 add_custom_target(smoke-test
-    COMMAND ${CMAKE_COMMAND} -E env 
+    COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_smoke_tests.sh
     COMMENT "Running comprehensive smoke tests"
@@ -739,7 +739,7 @@ add_custom_target(smoke-test
 )
 
 add_custom_target(smoke-test-quick
-    COMMAND ${CMAKE_COMMAND} -E env 
+    COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
         duckdb ":memory:" -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as status;"
     COMMENT "Running quick smoke test (extension loading only)"

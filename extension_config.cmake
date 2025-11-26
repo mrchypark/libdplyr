@@ -1,5 +1,5 @@
 # extension_config.cmake for libdplyr DuckDB Extension
-# 
+#
 # This file defines extension metadata and configuration for the DuckDB extension system.
 # It fulfills requirements R8-AC1 (version management) and R4-AC1 (build configuration).
 
@@ -85,7 +85,7 @@ if(WIN32)
 elseif(APPLE)
     set(EXTENSION_SYSTEM_LIBS
         "-framework Security"
-        "-framework CoreFoundation" 
+        "-framework CoreFoundation"
         "-framework SystemConfiguration"
     )
 elseif(UNIX)
@@ -173,7 +173,7 @@ endif()
 # R8-AC1: Extension capabilities and features
 set(EXTENSION_FEATURES
     "parser_extension"      # Provides SQL parser extensions
-    "dplyr_syntax"         # Supports R dplyr syntax  
+    "dplyr_syntax"         # Supports R dplyr syntax
     "rust_integration"     # Uses Rust backend
     "thread_safe"          # Thread-safe operations
     "caching"              # Built-in caching support
@@ -211,6 +211,7 @@ set(EXTENSION_BINARY_NAME "dplyr")
 get_filename_component(DPLYR_EXTENSION_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
 duckdb_extension_load(${EXTENSION_NAME}
     DONT_LINK
+    LOAD_TESTS
     SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
     INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
     EXTENSION_VERSION ${EXTENSION_VERSION}
@@ -221,15 +222,15 @@ function(check_duckdb_version DUCKDB_VERSION)
     message(STATUS "Checking DuckDB version compatibility...")
     message(STATUS "  DuckDB version: ${DUCKDB_VERSION}")
     message(STATUS "  Compatibility approach: ${DUCKDB_EXTENSION_COMPATIBILITY_APPROACH}")
-    
+
     # Only check for very old versions that lack basic extension API
     if(DUCKDB_VERSION VERSION_LESS ${DUCKDB_EXTENSION_MIN_SUPPORTED})
-        message(WARNING 
+        message(WARNING
             "DuckDB version ${DUCKDB_VERSION} is very old. "
             "Minimum supported version: ${DUCKDB_EXTENSION_MIN_SUPPORTED}. "
             "Extension may not work properly with very old DuckDB versions.")
     endif()
-    
+
     # Check if version is in tested versions list
     list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS ${DUCKDB_VERSION} VERSION_INDEX)
     if(VERSION_INDEX GREATER -1)
@@ -238,7 +239,7 @@ function(check_duckdb_version DUCKDB_VERSION)
         message(STATUS "  ℹ DuckDB version ${DUCKDB_VERSION} is not explicitly tested but should work")
         message(STATUS "    Extension uses runtime feature detection for compatibility")
     endif()
-    
+
     message(STATUS "  Strategy: ${EXTENSION_COMPATIBILITY_STRATEGY}")
 endfunction()
 
@@ -248,7 +249,7 @@ function(validate_extension_compatibility)
     if(CMAKE_VERSION VERSION_LESS "3.15")
         message(FATAL_ERROR "CMake 3.15 or higher is required")
     endif()
-    
+
     # Check compiler support
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS ${EXTENSION_MIN_GCC_VERSION})
@@ -263,7 +264,7 @@ function(validate_extension_compatibility)
             message(FATAL_ERROR "MSVC ${EXTENSION_MIN_MSVC_VERSION} or higher is required")
         endif()
     endif()
-    
+
     message(STATUS "✓ Extension compatibility validation passed")
 endfunction()
 
