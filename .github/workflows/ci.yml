@@ -162,10 +162,7 @@ jobs:
       # -------------------------------------------------------------------------
       # R4-AC1: CMake Build Configuration
       # -------------------------------------------------------------------------
-      - name: Set Rust compiler path for Unix
-        if: runner.os != 'Windows'
-        run: echo "RUSTC_PATH=$(which rustc)" >> $GITHUB_ENV
-
+      # -------------------------------------------------------------------------
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -176,7 +173,9 @@ jobs:
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
             -G "${{ matrix.cmake-generator }}" \
-            -DRUSTC_EXECUTABLE=${{ env.RUSTC_PATH }}
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
+            # ▲ [변경] RUSTC_EXECUTABLE 제거하고, 명시적인 타겟 지정 추가
+            # Corrosion이 PATH에 있는 cargo를 자동으로 감지합니다.
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -188,7 +187,8 @@ jobs:
             -DBUILD_CPP_TESTS=ON `
             -DBUILD_DUCKDB=ON `
             -G "${{ matrix.cmake-generator }}" `
-            -A x64
+            -A x64 `
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Build extension
         run: |
@@ -399,7 +399,7 @@ jobs:
               "macos-arm64",
               "windows-x86_64"
             ],
-            "duckdb_compatibility": ">=0.9.0",
+            "duckdb_compatibility": ">=1.4.2",
             "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
           }
           EOF

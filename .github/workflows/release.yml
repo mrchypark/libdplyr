@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v0.1.0)'
+        description: "Release version (e.g., v0.1.0)"
         required: true
         type: string
       prerelease:
-        description: 'Is this a pre-release?'
+        description: "Is this a pre-release?"
         required: false
         default: false
         type: boolean
@@ -25,7 +25,7 @@ jobs:
   build-release:
     name: Build Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       fail-fast: false
       matrix:
@@ -36,240 +36,240 @@ jobs:
             rust-toolchain: stable
             artifact-name: dplyr-linux-x86_64
             extension-name: dplyr-linux-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-linux-amd64.zip"
-            
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
+
           # macOS x86_64
           - os: macos-13
             target: x86_64-apple-darwin
             rust-toolchain: stable
             artifact-name: dplyr-macos-x86_64
             extension-name: dplyr-macos-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-osx-universal.zip"
-            
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+
           # macOS ARM64
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
             artifact-name: dplyr-macos-arm64
             extension-name: dplyr-macos-arm64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-osx-universal.zip"
-            
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
             artifact-name: dplyr-windows-x86_64
             extension-name: dplyr-windows-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-windows-amd64.zip"
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
 
     steps:
-    # -------------------------------------------------------------------------
-    # Environment Setup
-    # -------------------------------------------------------------------------
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      # -------------------------------------------------------------------------
+      # Environment Setup
+      # -------------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: ${{ matrix.rust-toolchain }}
-        targets: ${{ matrix.target }}
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust-toolchain }}
+          targets: ${{ matrix.target }}
 
-    - name: Setup Rust cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: release-${{ matrix.target }}
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
 
-    - name: Install CMake
-      uses: jwlawson/actions-setup-cmake@v1.14
-      with:
-        cmake-version: '3.20'
+      - name: Install CMake
+        uses: jwlawson/actions-setup-cmake@v1.14
+        with:
+          cmake-version: "3.20"
 
-    # -------------------------------------------------------------------------
-    # Platform-specific Dependencies
-    # -------------------------------------------------------------------------
-    - name: Install Linux dependencies
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential pkg-config libssl-dev unzip
+      # -------------------------------------------------------------------------
+      # Platform-specific Dependencies
+      # -------------------------------------------------------------------------
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev unzip
 
-    - name: Install macOS dependencies
-      if: runner.os == 'macOS'
-      run: |
-        brew install pkg-config openssl
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config openssl
 
-    - name: Install Windows dependencies
-      if: runner.os == 'Windows'
-      run: |
-        # Windows dependencies handled by vcpkg
-        echo "Windows dependencies configured"
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          # Windows dependencies handled by vcpkg
+          echo "Windows dependencies configured"
 
-    # -------------------------------------------------------------------------
-    # Version Information
-    # -------------------------------------------------------------------------
-    - name: Extract version information
-      shell: bash
-      run: |
-        if [[ "${{ github.event_name }}" == "release" ]]; then
-          VERSION="${{ github.event.release.tag_name }}"
-        else
-          VERSION="${{ github.event.inputs.version }}"
-        fi
-        
-        echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
-        echo "RELEASE_VERSION_NO_V=${VERSION#v}" >> $GITHUB_ENV
-        
-        # Extract version components
-        VERSION_NO_V="${VERSION#v}"
-        echo "VERSION_MAJOR=$(echo $VERSION_NO_V | cut -d. -f1)" >> $GITHUB_ENV
-        echo "VERSION_MINOR=$(echo $VERSION_NO_V | cut -d. -f2)" >> $GITHUB_ENV
-        echo "VERSION_PATCH=$(echo $VERSION_NO_V | cut -d. -f3)" >> $GITHUB_ENV
+      # -------------------------------------------------------------------------
+      # Version Information
+      # -------------------------------------------------------------------------
+      - name: Extract version information
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
 
-    # -------------------------------------------------------------------------
-    # Build Release
-    # -------------------------------------------------------------------------
-    - name: Build Rust components (Release)
-      run: |
-        cd libdplyr_c
-        cargo build --release --target ${{ matrix.target }}
+          echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION_NO_V=${VERSION#v}" >> $GITHUB_ENV
 
-    - name: Configure CMake (Release)
-      shell: bash
-      run: |
-        mkdir build
-        cd build
-        
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=ON \
-            -G "Visual Studio 17 2022" \
-            -A x64
-        else
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_DUCKDB=ON
-        fi
+          # Extract version components
+          VERSION_NO_V="${VERSION#v}"
+          echo "VERSION_MAJOR=$(echo $VERSION_NO_V | cut -d. -f1)" >> $GITHUB_ENV
+          echo "VERSION_MINOR=$(echo $VERSION_NO_V | cut -d. -f2)" >> $GITHUB_ENV
+          echo "VERSION_PATCH=$(echo $VERSION_NO_V | cut -d. -f3)" >> $GITHUB_ENV
 
-    - name: Build extension (Release)
-      run: |
-        cd build
-        cmake --build . --config Release --parallel
+      # -------------------------------------------------------------------------
+      # Build Release
+      # -------------------------------------------------------------------------
+      - name: Build Rust components (Release)
+        run: |
+          cd libdplyr_c
+          cargo build --release --target ${{ matrix.target }}
 
-    # -------------------------------------------------------------------------
-    # Quality Assurance
-    # -------------------------------------------------------------------------
-    - name: Download and install DuckDB CLI
-      shell: bash
-      run: |
-        mkdir -p duckdb-cli
-        cd duckdb-cli
-        
-        curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-        unzip duckdb.zip
-        
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          chmod +x duckdb.exe
-          echo "$(pwd)" >> $GITHUB_PATH
-        else
-          chmod +x duckdb
-          echo "$(pwd)" >> $GITHUB_PATH
-        fi
+      - name: Configure CMake (Release)
+        shell: bash
+        run: |
+          mkdir build
+          cd build
 
-    - name: Test extension loading
-      shell: bash
-      run: |
-        cd build
-        export DUCKDB_EXTENSION_PATH=$(pwd)
-        
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          duckdb.exe :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
-        else
-          duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
-        fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake .. \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_CPP_TESTS=OFF \
+              -DBUILD_DUCKDB=ON \
+              -G "Visual Studio 17 2022" \
+              -A x64
+          else
+            cmake .. \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_CPP_TESTS=OFF \
+              -DBUILD_DUCKDB=ON
+          fi
 
-    # -------------------------------------------------------------------------
-    # Package Release Artifacts
-    # -------------------------------------------------------------------------
-    - name: Create release package
-      shell: bash
-      run: |
-        mkdir -p release-package
-        
-        # Copy extension binary with platform-specific name
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          cp build/Release/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
-        else
-          cp build/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
-        fi
-        
-        # Create metadata file
-        cat > release-package/metadata.json << EOF
-        {
-          "version": "${{ env.RELEASE_VERSION }}",
-          "platform": "${{ matrix.os }}",
-          "target": "${{ matrix.target }}",
-          "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "git_commit": "${{ github.sha }}",
-          "git_ref": "${{ github.ref }}",
-          "rust_version": "$(rustc --version)",
-          "cmake_version": "$(cmake --version | head -n1)",
-          "duckdb_compatibility": ">=0.9.0",
-          "extension_size": "$(stat -c%s release-package/${{ matrix.extension-name }} 2>/dev/null || stat -f%z release-package/${{ matrix.extension-name }})"
-        }
-        EOF
-        
-        # Create installation instructions
-        cat > release-package/INSTALL.md << EOF
-        # Installation Instructions
-        
-        ## Platform: ${{ matrix.os }} (${{ matrix.target }})
-        
-        ### Prerequisites
-        - DuckDB 0.9.0 or later
-        
-        ### Installation
-        1. Download the extension file: \`${{ matrix.extension-name }}\`
-        2. Place it in a directory accessible to DuckDB
-        3. Load the extension in DuckDB:
-           \`\`\`sql
-           LOAD '/path/to/${{ matrix.extension-name }}';
-           \`\`\`
-        
-        ### Usage
-        \`\`\`sql
-        -- Example usage
-        DPLYR 'mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)';
-        \`\`\`
-        
-        ### Verification
-        \`\`\`sql
-        -- Test that the extension loaded successfully
-        SELECT 'Extension loaded successfully' as status;
-        \`\`\`
-        
-        For more information, see the project documentation.
-        EOF
-        
-        # Create checksum
-        cd release-package
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          certutil -hashfile "${{ matrix.extension-name }}" SHA256 > "${{ matrix.extension-name }}.sha256"
-        else
-          sha256sum "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
-        fi
+      - name: Build extension (Release)
+        run: |
+          cd build
+          cmake --build . --config Release --parallel
 
-    - name: Upload release artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.artifact-name }}
-        path: release-package/
-        retention-days: 90
+      # -------------------------------------------------------------------------
+      # Quality Assurance
+      # -------------------------------------------------------------------------
+      - name: Download and install DuckDB CLI
+        shell: bash
+        run: |
+          mkdir -p duckdb-cli
+          cd duckdb-cli
+
+          curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+          unzip duckdb.zip
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            chmod +x duckdb.exe
+            echo "$(pwd)" >> $GITHUB_PATH
+          else
+            chmod +x duckdb
+            echo "$(pwd)" >> $GITHUB_PATH
+          fi
+
+      - name: Test extension loading
+        shell: bash
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            duckdb.exe :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+          else
+            duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+          fi
+
+      # -------------------------------------------------------------------------
+      # Package Release Artifacts
+      # -------------------------------------------------------------------------
+      - name: Create release package
+        shell: bash
+        run: |
+          mkdir -p release-package
+
+          # Copy extension binary with platform-specific name
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp build/Release/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
+          else
+            cp build/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
+          fi
+
+          # Create metadata file
+          cat > release-package/metadata.json << EOF
+          {
+            "version": "${{ env.RELEASE_VERSION }}",
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "duckdb_compatibility": ">=1.4.2",
+            "extension_size": "$(stat -c%s release-package/${{ matrix.extension-name }} 2>/dev/null || stat -f%z release-package/${{ matrix.extension-name }})"
+          }
+          EOF
+
+          # Create installation instructions
+          cat > release-package/INSTALL.md << EOF
+          # Installation Instructions
+
+          ## Platform: ${{ matrix.os }} (${{ matrix.target }})
+
+          ### Prerequisites
+          - DuckDB 1.4.2 or later
+
+          ### Installation
+          1. Download the extension file: \`${{ matrix.extension-name }}\`
+          2. Place it in a directory accessible to DuckDB
+          3. Load the extension in DuckDB:
+             \`\`\`sql
+             LOAD '/path/to/${{ matrix.extension-name }}';
+             \`\`\`
+
+          ### Usage
+          \`\`\`sql
+          -- Example usage
+          DPLYR 'mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)';
+          \`\`\`
+
+          ### Verification
+          \`\`\`sql
+          -- Test that the extension loaded successfully
+          SELECT 'Extension loaded successfully' as status;
+          \`\`\`
+
+          For more information, see the project documentation.
+          EOF
+
+          # Create checksum
+          cd release-package
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            certutil -hashfile "${{ matrix.extension-name }}" SHA256 > "${{ matrix.extension-name }}.sha256"
+          else
+            sha256sum "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
+          fi
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: release-package/
+          retention-days: 90
 
   # =============================================================================
   # Create GitHub Release
@@ -279,194 +279,194 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-release
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Download all release artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: release-artifacts
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
 
-    - name: Prepare release assets
-      run: |
-        mkdir -p final-release
-        
-        # Collect all extension binaries and metadata
-        find release-artifacts -name "*.duckdb_extension" -exec cp {} final-release/ \;
-        find release-artifacts -name "*.sha256" -exec cp {} final-release/ \;
-        find release-artifacts -name "metadata.json" -exec cp {} final-release/ \;
-        find release-artifacts -name "INSTALL.md" -exec cp {} final-release/ \;
-        
-        # Create combined checksums file
-        cd final-release
-        cat *.sha256 > checksums.sha256
-        
-        # Create release info
-        cat > release-info.json << EOF
-        {
-          "version": "${{ github.event.release.tag_name || github.event.inputs.version }}",
-          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "git_commit": "${{ github.sha }}",
-          "supported_platforms": [
-            "linux-x86_64",
-            "macos-x86_64", 
-            "macos-arm64",
-            "windows-x86_64"
-          ],
-          "duckdb_compatibility": ">=0.9.0",
-          "total_artifacts": $(ls -1 *.duckdb_extension | wc -l),
-          "release_notes_url": "${{ github.event.release.html_url || 'Manual release' }}"
-        }
-        EOF
-        
-        # Create installation script
-        cat > install.sh << 'EOF'
-        #!/bin/bash
-        # DuckDB dplyr Extension Installation Script
-        
-        set -e
-        
-        PLATFORM=""
-        case "$(uname -s)" in
-            Linux*)     PLATFORM="linux-x86_64";;
-            Darwin*)    
-                case "$(uname -m)" in
-                    arm64)  PLATFORM="macos-arm64";;
-                    *)      PLATFORM="macos-x86_64";;
-                esac;;
-            CYGWIN*|MINGW*|MSYS*) PLATFORM="windows-x86_64";;
-            *)          echo "Unsupported platform"; exit 1;;
-        esac
-        
-        EXTENSION_FILE="dplyr-${PLATFORM}.duckdb_extension"
-        
-        if [[ ! -f "$EXTENSION_FILE" ]]; then
-            echo "Extension file for platform $PLATFORM not found!"
-            echo "Available files:"
-            ls -1 *.duckdb_extension
-            exit 1
-        fi
-        
-        echo "Installing DuckDB dplyr extension for $PLATFORM..."
-        echo "Extension file: $EXTENSION_FILE"
-        echo ""
-        echo "To use the extension, load it in DuckDB:"
-        echo "  LOAD '$(pwd)/$EXTENSION_FILE';"
-        echo ""
-        echo "Installation completed successfully!"
-        EOF
-        
-        chmod +x install.sh
+      - name: Prepare release assets
+        run: |
+          mkdir -p final-release
 
-    - name: Generate release notes
-      run: |
-        cd final-release
-        
-        cat > RELEASE_NOTES.md << EOF
-        # DuckDB dplyr Extension ${{ github.event.release.tag_name || github.event.inputs.version }}
-        
-        ## 🚀 Features
-        - Complete dplyr syntax support for DuckDB
-        - Multi-platform compatibility (Linux, macOS, Windows)
-        - High-performance transpilation with caching
-        - Comprehensive error handling and debugging
-        
-        ## 📦 Installation
-        
-        ### Quick Install
-        1. Download the appropriate extension for your platform
-        2. Run the installation script: \`./install.sh\`
-        3. Load in DuckDB: \`LOAD '/path/to/extension';\`
-        
-        ### Platform-specific Downloads
-        - **Linux x86_64**: \`dplyr-linux-x86_64.duckdb_extension\`
-        - **macOS x86_64**: \`dplyr-macos-x86_64.duckdb_extension\`
-        - **macOS ARM64**: \`dplyr-macos-arm64.duckdb_extension\`
-        - **Windows x86_64**: \`dplyr-windows-x86_64.duckdb_extension\`
-        
+          # Collect all extension binaries and metadata
+          find release-artifacts -name "*.duckdb_extension" -exec cp {} final-release/ \;
+          find release-artifacts -name "*.sha256" -exec cp {} final-release/ \;
+          find release-artifacts -name "metadata.json" -exec cp {} final-release/ \;
+          find release-artifacts -name "INSTALL.md" -exec cp {} final-release/ \;
+
+          # Create combined checksums file
+          cd final-release
+          cat *.sha256 > checksums.sha256
+
+          # Create release info
+          cat > release-info.json << EOF
+          {
+            "version": "${{ github.event.release.tag_name || github.event.inputs.version }}",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "supported_platforms": [
+              "linux-x86_64",
+              "macos-x86_64",
+              "macos-arm64",
+              "windows-x86_64"
+            ],
+            "duckdb_compatibility": ">=1.4.2",
+            "total_artifacts": $(ls -1 *.duckdb_extension | wc -l),
+            "release_notes_url": "${{ github.event.release.html_url || 'Manual release' }}"
+          }
+          EOF
+
+          # Create installation script
+          cat > install.sh << 'EOF'
+          #!/bin/bash
+          # DuckDB dplyr Extension Installation Script
+
+          set -e
+
+          PLATFORM=""
+          case "$(uname -s)" in
+              Linux*)     PLATFORM="linux-x86_64";;
+              Darwin*)
+                  case "$(uname -m)" in
+                      arm64)  PLATFORM="macos-arm64";;
+                      *)      PLATFORM="macos-x86_64";;
+                  esac;;
+              CYGWIN*|MINGW*|MSYS*) PLATFORM="windows-x86_64";;
+              *)          echo "Unsupported platform"; exit 1;;
+          esac
+
+          EXTENSION_FILE="dplyr-${PLATFORM}.duckdb_extension"
+
+          if [[ ! -f "$EXTENSION_FILE" ]]; then
+              echo "Extension file for platform $PLATFORM not found!"
+              echo "Available files:"
+              ls -1 *.duckdb_extension
+              exit 1
+          fi
+
+          echo "Installing DuckDB dplyr extension for $PLATFORM..."
+          echo "Extension file: $EXTENSION_FILE"
+          echo ""
+          echo "To use the extension, load it in DuckDB:"
+          echo "  LOAD '$(pwd)/$EXTENSION_FILE';"
+          echo ""
+          echo "Installation completed successfully!"
+          EOF
+
+          chmod +x install.sh
+
+      - name: Generate release notes
+        run: |
+          cd final-release
+
+          cat > RELEASE_NOTES.md << EOF
+          # DuckDB dplyr Extension ${{ github.event.release.tag_name || github.event.inputs.version }}
+
+          ## 🚀 Features
+          - Complete dplyr syntax support for DuckDB
+          - Multi-platform compatibility (Linux, macOS, Windows)
+          - High-performance transpilation with caching
+          - Comprehensive error handling and debugging
+
+          ## 📦 Installation
+
+          ### Quick Install
+          1. Download the appropriate extension for your platform
+          2. Run the installation script: \`./install.sh\`
+          3. Load in DuckDB: \`LOAD '/path/to/extension';\`
+
+          ### Platform-specific Downloads
+          - **Linux x86_64**: \`dplyr-linux-x86_64.duckdb_extension\`
+          - **macOS x86_64**: \`dplyr-macos-x86_64.duckdb_extension\`
+          - **macOS ARM64**: \`dplyr-macos-arm64.duckdb_extension\`
+          - **Windows x86_64**: \`dplyr-windows-x86_64.duckdb_extension\`
+
         ## 🔧 Requirements
-        - DuckDB 0.9.0 or later
+        - DuckDB 1.4.2 or later
         - Compatible operating system (Linux, macOS, Windows)
-        
-        ## 📊 Usage Example
-        \`\`\`sql
-        -- Load the extension
-        LOAD '/path/to/dplyr-platform.duckdb_extension';
-        
-        -- Use dplyr syntax
-        DPLYR 'mtcars %>% 
-               select(mpg, cyl, hp) %>% 
-               filter(mpg > 20) %>% 
-               arrange(desc(hp))';
-        \`\`\`
-        
-        ## ✅ Verification
-        All releases are automatically tested on multiple platforms with:
-        - Smoke tests for basic functionality
-        - Integration tests for DuckDB compatibility
-        - Performance benchmarks
-        - Security scans
-        
-        ## 🔒 Security
-        - All artifacts include SHA256 checksums
-        - Source code is scanned with CodeQL
-        - Dependencies are audited for vulnerabilities
-        
-        ## 📈 Performance
-        - Simple queries: <2ms transpilation time
-        - Complex queries: <15ms transpilation time
-        - Extension loading: <50ms
-        - Memory efficient with built-in caching
-        
-        ## 🐛 Known Issues
-        - None reported for this release
-        
-        ## 📚 Documentation
-        - [Installation Guide](INSTALL.md)
-        - [Usage Examples](https://github.com/your-repo/examples)
-        - [API Reference](https://github.com/your-repo/docs)
-        
-        ## 🤝 Contributing
-        We welcome contributions! Please see our [Contributing Guide](https://github.com/your-repo/CONTRIBUTING.md).
-        
-        ---
-        
-        **Full Changelog**: https://github.com/your-repo/compare/previous-tag...${{ github.event.release.tag_name || github.event.inputs.version }}
-        EOF
 
-    - name: Create or update release
-      if: github.event_name == 'release'
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          final-release/*.duckdb_extension
-          final-release/checksums.sha256
-          final-release/release-info.json
-          final-release/install.sh
-          final-release/RELEASE_NOTES.md
-        body_path: final-release/RELEASE_NOTES.md
-        prerelease: ${{ github.event.release.prerelease }}
-        draft: false
+          ## 📊 Usage Example
+          \`\`\`sql
+          -- Load the extension
+          LOAD '/path/to/dplyr-platform.duckdb_extension';
 
-    - name: Create manual release
-      if: github.event_name == 'workflow_dispatch'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ github.event.inputs.version }}
-        name: Release ${{ github.event.inputs.version }}
-        files: |
-          final-release/*.duckdb_extension
-          final-release/checksums.sha256
-          final-release/release-info.json
-          final-release/install.sh
-          final-release/RELEASE_NOTES.md
-        body_path: final-release/RELEASE_NOTES.md
-        prerelease: ${{ github.event.inputs.prerelease }}
-        draft: false
+          -- Use dplyr syntax
+          DPLYR 'mtcars %>%
+                 select(mpg, cyl, hp) %>%
+                 filter(mpg > 20) %>%
+                 arrange(desc(hp))';
+          \`\`\`
+
+          ## ✅ Verification
+          All releases are automatically tested on multiple platforms with:
+          - Smoke tests for basic functionality
+          - Integration tests for DuckDB compatibility
+          - Performance benchmarks
+          - Security scans
+
+          ## 🔒 Security
+          - All artifacts include SHA256 checksums
+          - Source code is scanned with CodeQL
+          - Dependencies are audited for vulnerabilities
+
+          ## 📈 Performance
+          - Simple queries: <2ms transpilation time
+          - Complex queries: <15ms transpilation time
+          - Extension loading: <50ms
+          - Memory efficient with built-in caching
+
+          ## 🐛 Known Issues
+          - None reported for this release
+
+          ## 📚 Documentation
+          - [Installation Guide](INSTALL.md)
+          - [Usage Examples](https://github.com/your-repo/examples)
+          - [API Reference](https://github.com/your-repo/docs)
+
+          ## 🤝 Contributing
+          We welcome contributions! Please see our [Contributing Guide](https://github.com/your-repo/CONTRIBUTING.md).
+
+          ---
+
+          **Full Changelog**: https://github.com/your-repo/compare/previous-tag...${{ github.event.release.tag_name || github.event.inputs.version }}
+          EOF
+
+      - name: Create or update release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            final-release/*.duckdb_extension
+            final-release/checksums.sha256
+            final-release/release-info.json
+            final-release/install.sh
+            final-release/RELEASE_NOTES.md
+          body_path: final-release/RELEASE_NOTES.md
+          prerelease: ${{ github.event.release.prerelease }}
+          draft: false
+
+      - name: Create manual release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          files: |
+            final-release/*.duckdb_extension
+            final-release/checksums.sha256
+            final-release/release-info.json
+            final-release/install.sh
+            final-release/RELEASE_NOTES.md
+          body_path: final-release/RELEASE_NOTES.md
+          prerelease: ${{ github.event.inputs.prerelease }}
+          draft: false
 
   # =============================================================================
   # Post-release Tasks
@@ -476,36 +476,36 @@ jobs:
     runs-on: ubuntu-latest
     needs: create-release
     if: always() && needs.create-release.result == 'success'
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Update version badges
-      run: |
-        echo "## 🎉 Release ${{ github.event.release.tag_name || github.event.inputs.version }} Published!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📦 Release Assets" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Linux x86_64 extension" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ macOS x86_64 extension" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ macOS ARM64 extension" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Windows x86_64 extension" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Installation script" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ SHA256 checksums" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Release metadata" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
-        echo "- [Release Page](${{ github.event.release.html_url || 'https://github.com/' }}${{ github.repository }}/releases/tag/${{ github.event.release.tag_name || github.event.inputs.version }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [Installation Instructions](INSTALL.md)" >> $GITHUB_STEP_SUMMARY
-        echo "- [Documentation](README.md)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### ✅ Requirements Fulfilled" >> $GITHUB_STEP_SUMMARY
-        echo "- R4-AC3: Multi-platform binary packaging" >> $GITHUB_STEP_SUMMARY
-        echo "- R8-AC3: Automated release with metadata" >> $GITHUB_STEP_SUMMARY
-        echo "- Quality assurance through automated testing" >> $GITHUB_STEP_SUMMARY
-        echo "- Security verification with checksums" >> $GITHUB_STEP_SUMMARY
+      - name: Update version badges
+        run: |
+          echo "## 🎉 Release ${{ github.event.release.tag_name || github.event.inputs.version }} Published!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Release Assets" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Linux x86_64 extension" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ macOS x86_64 extension" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ macOS ARM64 extension" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Windows x86_64 extension" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Installation script" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SHA256 checksums" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Release metadata" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [Release Page](${{ github.event.release.html_url || 'https://github.com/' }}${{ github.repository }}/releases/tag/${{ github.event.release.tag_name || github.event.inputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Installation Instructions](INSTALL.md)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Documentation](README.md)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Requirements Fulfilled" >> $GITHUB_STEP_SUMMARY
+          echo "- R4-AC3: Multi-platform binary packaging" >> $GITHUB_STEP_SUMMARY
+          echo "- R8-AC3: Automated release with metadata" >> $GITHUB_STEP_SUMMARY
+          echo "- Quality assurance through automated testing" >> $GITHUB_STEP_SUMMARY
+          echo "- Security verification with checksums" >> $GITHUB_STEP_SUMMARY
 
-    - name: Notify success
-      run: |
-        echo "✅ Release ${{ github.event.release.tag_name || github.event.inputs.version }} has been successfully published!"
-        echo "All platform-specific extensions are now available for download."
+      - name: Notify success
+        run: |
+          echo "✅ Release ${{ github.event.release.tag_name || github.event.inputs.version }} has been successfully published!"
+          echo "All platform-specific extensions are now available for download."
