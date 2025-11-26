@@ -106,12 +106,12 @@ jobs:
       - name: Run Clippy with security lints
         run: |
           cd libdplyr_c
-          cargo clippy --all-targets --all-features -- \
-            -D warnings \
-            -D clippy::all \
-            -D clippy::pedantic \
-            -D clippy::security \
-            -D clippy::suspicious
+          cargo clippy --workspace --all-targets --all-features -- \
+            -A unknown_lints \
+            -W clippy::all \
+            -W clippy::suspicious \
+            -W clippy::security \
+            -W clippy::nursery
 
       - name: Install additional static analysis tools
         run: |

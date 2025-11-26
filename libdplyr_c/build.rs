@@ -5,7 +5,7 @@ fn main() {
     let timestamp = chrono::Utc::now()
         .format("%Y-%m-%d %H:%M:%S UTC")
         .to_string();
-    println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);
+    println!("cargo:rustc-env=BUILD_TIMESTAMP={timestamp}");
 
     // Get rustc version
     if let Ok(output) = Command::new("rustc").arg("--version").output() {
