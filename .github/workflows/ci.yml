@@ -190,10 +190,19 @@ jobs:
             -A x64 `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
+      - name: Create Swap Space
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo swapon --show
+
       - name: Build extension
         run: |
           cd build
-          cmake --build . --config Release --parallel
+          cmake --build . --config Release --parallel 2
 
       # -------------------------------------------------------------------------
       # R4-AC2: Smoke Tests Execution
