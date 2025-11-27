@@ -28,35 +28,35 @@ jobs:
         with:
           submodules: recursive
 
-    - name: Test script syntax
-      run: |
-        bash -n install.sh
-        echo "✓ Bash syntax check passed"
+      - name: Test script syntax
+        run: |
+          bash -n install.sh
+          echo "✓ Bash syntax check passed"
 
-    - name: Test help option
-      run: |
-        ./install.sh --help
-        echo "✓ Help option works"
+      - name: Test help option
+        run: |
+          ./install.sh --help
+          echo "✓ Help option works"
 
-    - name: Test dry run mode (if available)
-      run: |
-        # Test that script doesn't fail with invalid options
-        if ./install.sh --invalid-option 2>&1 | grep -q "Unknown option"; then
-          echo "✓ Error handling works correctly"
-        else
-          echo "✗ Error handling needs improvement"
-          exit 1
-        fi
+      - name: Test dry run mode (if available)
+        run: |
+          # Test that script doesn't fail with invalid options
+          if ./install.sh --invalid-option 2>&1 | grep -q "Unknown option"; then
+            echo "✓ Error handling works correctly"
+          else
+            echo "✗ Error handling needs improvement"
+            exit 1
+          fi
 
-    - name: Test version parsing
-      run: |
-        # Test version parameter parsing
-        if ./install.sh --version 0.1.0 --help | grep -q "libdplyr installation script"; then
-          echo "✓ Version parameter parsing works"
-        else
-          echo "✗ Version parameter parsing failed"
-          exit 1
-        fi
+      - name: Test version parsing
+        run: |
+          # Test version parameter parsing
+          if ./install.sh --version 0.1.0 --help | grep -q "libdplyr installation script"; then
+            echo "✓ Version parameter parsing works"
+          else
+            echo "✗ Version parameter parsing failed"
+            exit 1
+          fi
 
   test-windows-install:
     name: Test Windows Installation Script
@@ -68,26 +68,26 @@ jobs:
         with:
           submodules: recursive
 
-    - name: Test PowerShell syntax
-      run: |
-        Get-Command -Syntax .\install.ps1
-        Write-Host "✓ PowerShell syntax check passed"
+      - name: Test PowerShell syntax
+        run: |
+          Get-Command -Syntax .\install.ps1
+          Write-Host "✓ PowerShell syntax check passed"
 
-    - name: Test help option
-      run: |
-        .\install.ps1 -Help
-        Write-Host "✓ Help option works"
+      - name: Test help option
+        run: |
+          .\install.ps1 -Help
+          Write-Host "✓ Help option works"
 
-    - name: Test parameter validation
-      run: |
-        # Test that script handles invalid parameters gracefully
-        try {
-          .\install.ps1 -InvalidParameter "test" -ErrorAction Stop
-          Write-Host "✗ Should have failed with invalid parameter"
-          exit 1
-        } catch {
-          Write-Host "✓ Parameter validation works correctly"
-        }
+      - name: Test parameter validation
+        run: |
+          # Test that script handles invalid parameters gracefully
+          try {
+            .\install.ps1 -InvalidParameter "test" -ErrorAction Stop
+            Write-Host "✗ Should have failed with invalid parameter"
+            exit 1
+          } catch {
+            Write-Host "✓ Parameter validation works correctly"
+          }
 
   test-script-security:
     name: Test Script Security
@@ -99,26 +99,26 @@ jobs:
         with:
           submodules: recursive
 
-    - name: Install shellcheck
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y shellcheck
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
 
-    - name: Run shellcheck on install.sh
-      run: |
-        shellcheck install.sh
-        echo "✓ Shellcheck passed"
+      - name: Run shellcheck on install.sh
+        run: |
+          shellcheck install.sh
+          echo "✓ Shellcheck passed"
 
-    - name: Check for security issues
-      run: |
-        # Check for common security issues
-        if grep -q "curl.*|.*bash" install.sh; then
-          echo "⚠️  Script contains pipe to bash pattern - ensure this is intentional"
-        fi
+      - name: Check for security issues
+        run: |
+          # Check for common security issues
+          if grep -q "curl.*|.*bash" install.sh; then
+            echo "⚠️  Script contains pipe to bash pattern - ensure this is intentional"
+          fi
 
-        if grep -q "sudo" install.sh; then
-          echo "⚠️  Script contains sudo usage - ensure this is necessary"
-        fi
+          if grep -q "sudo" install.sh; then
+            echo "⚠️  Script contains sudo usage - ensure this is necessary"
+          fi
 
         # Check for proper error handling
         if grep -q "set -e" install.sh; then
