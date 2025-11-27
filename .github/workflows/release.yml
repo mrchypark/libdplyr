@@ -174,13 +174,16 @@ jobs:
           cd duckdb-cli
 
           curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-          unzip -o duckdb.zip
+          rm -rf duckdb-bin
+          unzip -o duckdb.zip -d duckdb-bin
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            chmod +x duckdb.exe
+            chmod +x duckdb-bin/duckdb.exe
+            mv duckdb-bin/duckdb.exe ./duckdb.exe
             echo "$(pwd)" >> $GITHUB_PATH
           else
-            chmod +x duckdb
+            chmod +x duckdb-bin/duckdb
+            mv duckdb-bin/duckdb ./duckdb
             echo "$(pwd)" >> $GITHUB_PATH
           fi
 

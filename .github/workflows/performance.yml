@@ -93,10 +93,10 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           curl -L "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip" -o duckdb.zip
-          rm -rf duckdb
-          unzip -o duckdb.zip
-          chmod +x duckdb
-          sudo mv duckdb /usr/local/bin/
+          rm -rf duckdb-cli
+          unzip -o duckdb.zip -d duckdb-cli
+          chmod +x duckdb-cli/duckdb
+          sudo mv duckdb-cli/duckdb /usr/local/bin/
 
       - name: Build extension
         run: |

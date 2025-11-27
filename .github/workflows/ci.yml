@@ -127,8 +127,11 @@ jobs:
             echo "$(pwd)" >> $GITHUB_PATH
           else
             curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-            unzip -o duckdb.zip
-            chmod +x duckdb
+            rm -rf duckdb-bin
+            mkdir -p duckdb-bin
+            unzip -o duckdb.zip -d duckdb-bin
+            chmod +x duckdb-bin/duckdb
+            mv duckdb-bin/duckdb ./duckdb
             echo "$(pwd)" >> $GITHUB_PATH
           fi
 
