@@ -2,17 +2,17 @@ name: Test Installation Scripts
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
-      - 'install.sh'
-      - 'install.ps1'
-      - '.github/workflows/test-install.yml'
+      - "install.sh"
+      - "install.ps1"
+      - ".github/workflows/test-install.yml"
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
-      - 'install.sh'
-      - 'install.ps1'
-      - '.github/workflows/test-install.yml'
+      - "install.sh"
+      - "install.ps1"
+      - ".github/workflows/test-install.yml"
 
 jobs:
   test-unix-install:
@@ -120,21 +120,29 @@ jobs:
             echo "⚠️  Script contains sudo usage - ensure this is necessary"
           fi
 
-        # Check for proper error handling
-        if grep -q "set -e" install.sh; then
-          echo "✓ Script uses proper error handling (set -e)"
-        else
-          echo "⚠️  Consider adding 'set -e' for better error handling"
-        fi
+          # Check for proper error handling
+          if grep -q "set -e" install.sh; then
+            echo "✓ Script uses proper error handling (set -e)"
+          else
+            echo "⚠️  Consider adding 'set -e' for better error handling"
+          fi
 
-        echo "✓ Security check completed"
+          echo "✓ Security check completed"
 
   test-cross-platform:
     name: Test Cross-Platform Compatibility
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, macos-11, macos-12, windows-2019, windows-2022]
+        os:
+          [
+            ubuntu-20.04,
+            ubuntu-22.04,
+            macos-11,
+            macos-12,
+            windows-2019,
+            windows-2022,
+          ]
 
     steps:
       - name: Checkout code
@@ -142,36 +150,36 @@ jobs:
         with:
           submodules: recursive
 
-    - name: Test script availability (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        if [ -f "install.sh" ] && [ -x "install.sh" ]; then
-          echo "✓ install.sh is present and executable"
-        else
-          echo "✗ install.sh is not executable"
-          exit 1
-        fi
+      - name: Test script availability (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if [ -f "install.sh" ] && [ -x "install.sh" ]; then
+            echo "✓ install.sh is present and executable"
+          else
+            echo "✗ install.sh is not executable"
+            exit 1
+          fi
 
-    - name: Test script availability (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        if (Test-Path "install.ps1") {
-          Write-Host "✓ install.ps1 is present"
-        } else {
-          Write-Host "✗ install.ps1 is missing"
-          exit 1
-        }
+      - name: Test script availability (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path "install.ps1") {
+            Write-Host "✓ install.ps1 is present"
+          } else {
+            Write-Host "✗ install.ps1 is missing"
+            exit 1
+          }
 
-    - name: Test basic functionality (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        # Test that script can parse basic options without network calls
-        ./install.sh --help > /dev/null
-        echo "✓ Basic functionality test passed"
+      - name: Test basic functionality (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          # Test that script can parse basic options without network calls
+          ./install.sh --help > /dev/null
+          echo "✓ Basic functionality test passed"
 
-    - name: Test basic functionality (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        # Test that script can parse basic options
-        .\install.ps1 -Help | Out-Null
-        Write-Host "✓ Basic functionality test passed"
+      - name: Test basic functionality (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Test that script can parse basic options
+          .\install.ps1 -Help | Out-Null
+          Write-Host "✓ Basic functionality test passed"
