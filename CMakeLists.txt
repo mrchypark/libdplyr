@@ -310,7 +310,7 @@ endif()
 # R4-AC1: Platform-specific Rust compilation settings
 if(WIN32)
     # Windows-specific Rust settings
-    set(ENV{RUSTFLAGS} "${ENV{RUSTFLAGS}} -C target-feature=+crt-static")
+    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C target-feature=+crt-static")
 endif()
 
 # Extension source files
