@@ -1,12 +1,21 @@
 name: Performance Testing
 
-# R6-AC1, R6-AC2: Performance target validation
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      benchmark_type:
+        description: "Type of benchmark to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - rust-only
+          - integration-only
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +24,7 @@ jobs:
   performance-tests:
     name: Performance Tests
     runs-on: ubuntu-latest
+    if: github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == '' || github.event.inputs.benchmark_type == null
 
     steps:
       - name: Checkout code
@@ -57,3 +67,115 @@ jobs:
           echo "- Simple queries: P95 < 2ms ✅" >> $GITHUB_STEP_SUMMARY
           echo "- Complex queries: P95 < 15ms ✅" >> $GITHUB_STEP_SUMMARY
           echo "- Caching effectiveness validated ✅" >> $GITHUB_STEP_SUMMARY
+
+  integration-benchmarks:
+    name: Integration Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'integration-only' || github.event.inputs.benchmark_type == '' || github.event.inputs.benchmark_type == null
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake unzip time
+
+      - name: Install DuckDB CLI
+        run: |
+          curl -L "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip" -o duckdb.zip
+          rm -rf duckdb
+          unzip duckdb.zip
+          chmod +x duckdb
+          sudo mv duckdb /usr/local/bin/
+
+      - name: Build extension
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CPP_TESTS=OFF
+          cmake --build . --parallel 1
+
+      - name: Run extension loading benchmark
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+
+          echo "## Extension Loading Performance" > ../integration-benchmark-results.md
+          echo "" >> ../integration-benchmark-results.md
+
+          total_time=0
+          iterations=10
+
+          for i in $(seq 1 $iterations); do
+            start_time=$(date +%s%N)
+            duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'loaded' as status;" > /dev/null
+            end_time=$(date +%s%N)
+
+            iteration_time=$(( (end_time - start_time) / 1000000 ))
+            total_time=$(( total_time + iteration_time ))
+
+            echo "Iteration $i: ${iteration_time}ms"
+          done
+
+          avg_time=$(( total_time / iterations ))
+          echo "" >> ../integration-benchmark-results.md
+          echo "| Metric | Value |" >> ../integration-benchmark-results.md
+          echo "|--------|-------|" >> ../integration-benchmark-results.md
+          echo "| Average loading time | ${avg_time}ms |" >> ../integration-benchmark-results.md
+          echo "| Target | <50ms |" >> ../integration-benchmark-results.md
+          echo "| Status | $([ $avg_time -lt 50 ] && echo \"✅ PASS\" || echo \"❌ FAIL\") |" >> ../integration-benchmark-results.md
+
+          if [ $avg_time -ge 50 ]; then
+            echo "❌ Extension loading time ($avg_time ms) exceeds target (50ms)"
+            exit 1
+          else
+            echo "✅ Extension loading time ($avg_time ms) meets target (<50ms)"
+          fi
+
+      - name: Run query performance benchmark
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+
+          echo "" >> ../integration-benchmark-results.md
+          echo "### Query Performance Benchmarks" >> ../integration-benchmark-results.md
+          echo "" >> ../integration-benchmark-results.md
+
+          start_time=$(date +%s%N)
+          duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT * FROM range(1000000) WHERE i % 2 = 0;" > /dev/null
+          end_time=$(date +%s%N)
+          simple_query_time=$(( (end_time - start_time) / 1000000 ))
+
+          start_time=$(date +%s%N)
+          duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; WITH cte AS (SELECT i, i%10 AS grp, i*i AS val FROM range(1000000)) SELECT grp, avg(val) FROM cte GROUP BY grp;" > /dev/null
+          end_time=$(date +%s%N)
+          complex_query_time=$(( (end_time - start_time) / 1000000 ))
+
+          echo "| Query Type | Time (ms) | Target | Status |" >> ../integration-benchmark-results.md
+          echo "|------------|-----------|--------|--------|" >> ../integration-benchmark-results.md
+          echo "| Simple query | ${simple_query_time}ms | <15ms | $([ $simple_query_time -lt 15 ] && echo \"✅\" || echo \"❌\") |" >> ../integration-benchmark-results.md
+          echo "| Complex query | ${complex_query_time}ms | <50ms | $([ $complex_query_time -lt 50 ] && echo \"✅\" || echo \"❌\") |" >> ../integration-benchmark-results.md
+
+          if [ $simple_query_time -ge 15 ] || [ $complex_query_time -ge 50 ]; then
+            echo "❌ Performance targets not met: simple=${simple_query_time}ms (target<15), complex=${complex_query_time}ms (target<50)"
+            exit 1
+          else
+            echo "✅ Performance targets met: simple=${simple_query_time}ms, complex=${complex_query_time}ms"
+          fi
+
+      - name: Upload integration benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-benchmark-results
+          path: integration-benchmark-results.md
+          retention-days: 30
