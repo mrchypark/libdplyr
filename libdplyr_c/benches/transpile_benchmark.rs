@@ -406,8 +406,10 @@ criterion_main!(benches);
 #[cfg(test)]
 #[allow(dead_code, unused_imports)]
 mod performance_tests {
-    use super::{create_default_options, safe_dplyr_compile, COMPLEX_QUERIES, EDGE_CASE_QUERIES,
-        SIMPLE_QUERIES};
+    use super::{
+        create_default_options, safe_dplyr_compile, COMPLEX_QUERIES, EDGE_CASE_QUERIES,
+        SIMPLE_QUERIES,
+    };
     use std::time::Instant;
 
     // Performance targets from R6-AC1
