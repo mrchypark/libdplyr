@@ -46,7 +46,7 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           curl -L "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip" -o duckdb.zip
-          unzip duckdb.zip
+          unzip -o duckdb.zip
           chmod +x duckdb
           sudo mv duckdb /usr/local/bin/
 
@@ -394,7 +394,7 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           curl -L "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip" -o duckdb.zip
-          unzip duckdb.zip
+          unzip -o duckdb.zip
           chmod +x duckdb
           sudo mv duckdb /usr/local/bin/
 

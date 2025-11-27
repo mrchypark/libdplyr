@@ -174,7 +174,7 @@ jobs:
           cd duckdb-cli
 
           curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
-          unzip duckdb.zip
+          unzip -o duckdb.zip
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             chmod +x duckdb.exe
