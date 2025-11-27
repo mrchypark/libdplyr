@@ -33,6 +33,7 @@ go.work.sum
 
 target*
 build/*
+build-codeql/
 # DuckDB extension build artifacts
 *.duckdb_extension
 *.db

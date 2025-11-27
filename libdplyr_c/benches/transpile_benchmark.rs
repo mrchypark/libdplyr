@@ -45,10 +45,6 @@ const EDGE_CASE_QUERIES: &[&str] = &[
     "select(col1 col2)",      // Syntax error
 ];
 
-// Performance targets from R6-AC1
-const SIMPLE_QUERY_TARGET_MS: f64 = 2.0; // P95 < 2ms for simple queries
-const COMPLEX_QUERY_TARGET_MS: f64 = 15.0; // P95 < 15ms for complex queries
-
 // Helper function to create default options
 fn create_default_options() -> DplyrOptions {
     DplyrOptions {
@@ -88,14 +84,12 @@ fn safe_dplyr_compile(query: &str, options: &DplyrOptions) -> Result<String, Str
     let mut out_sql: *mut i8 = ptr::null_mut();
     let mut out_error: *mut i8 = ptr::null_mut();
 
-    let result = unsafe {
-        dplyr_compile(
-            c_query.as_ptr(),
-            options as *const DplyrOptions,
-            &mut out_sql,
-            &mut out_error,
-        )
-    };
+    let result = dplyr_compile(
+        c_query.as_ptr(),
+        options as *const DplyrOptions,
+        &mut out_sql,
+        &mut out_error,
+    );
 
     if result == 0 {
         // Success
@@ -197,7 +191,7 @@ fn bench_caching_performance(c: &mut Criterion) {
                 let start = Instant::now();
                 let result = safe_dplyr_compile(black_box(&unique_query), black_box(&options));
                 total_duration += start.elapsed();
-                black_box(result);
+                let _ = black_box(result);
             }
             total_duration
         });
@@ -410,10 +404,15 @@ criterion_main!(benches);
 
 // Performance validation tests
 #[cfg(test)]
-#[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod performance_tests {
-    use super::*;
+    use super::{create_default_options, safe_dplyr_compile, COMPLEX_QUERIES, EDGE_CASE_QUERIES,
+        SIMPLE_QUERIES};
     use std::time::Instant;
+
+    // Performance targets from R6-AC1
+    const SIMPLE_QUERY_TARGET_MS: f64 = 2.0; // P95 < 2ms for simple queries
+    const COMPLEX_QUERY_TARGET_MS: f64 = 15.0; // P95 < 15ms for complex queries
 
     #[test]
     fn test_simple_query_performance_target() {
