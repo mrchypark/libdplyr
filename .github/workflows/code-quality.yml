@@ -61,7 +61,11 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=ON -DBUILD_DUCKDB=ON
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_CPP_TESTS=ON \
+            -DBUILD_DUCKDB=ON \
+            -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           cmake --build . --parallel 1
 
       - name: Run integration tests with coverage
@@ -409,7 +413,8 @@ jobs:
             -DCMAKE_C_FLAGS="-g -O0" \
             -DCMAKE_CXX_FLAGS="-g -O0" \
             -DBUILD_CPP_TESTS=ON \
-            -DBUILD_DUCKDB=ON
+            -DBUILD_DUCKDB=ON \
+            -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           cmake --build . --parallel 1
 
       - name: Run Valgrind memory check

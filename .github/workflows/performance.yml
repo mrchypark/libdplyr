@@ -102,7 +102,10 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CPP_TESTS=OFF
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CPP_TESTS=OFF \
+            -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           cmake --build . --parallel 1
 
       - name: Run extension loading benchmark
