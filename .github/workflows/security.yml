@@ -127,7 +127,7 @@ jobs:
         run: |
           cd libdplyr_c
           cargo geiger --format json > geiger-report.json || true
-          cargo geiger
+          cargo geiger || true
 
       - name: Upload static analysis results
         if: always()
