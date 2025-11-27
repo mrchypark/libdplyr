@@ -13,6 +13,8 @@ mod tests {
     // Performance targets from R6-AC1
     const SIMPLE_QUERY_TARGET_MS: f64 = 2.0; // P95 < 2ms for simple queries
     const COMPLEX_QUERY_TARGET_MS: f64 = 15.0; // P95 < 15ms for complex queries
+    const ERROR_PERFORMANCE_SAMPLES: usize = 60; // Enough samples so P95 isn't dominated by one cold run
+    const ERROR_PERFORMANCE_WARMUP: usize = 5; // Warm-up runs to stabilize cache and allocator
 
     // Helper function to safely call dplyr_compile
     fn safe_dplyr_compile_test(query: &str, options: &DplyrOptions) -> Result<String, String> {
@@ -218,9 +220,14 @@ mod tests {
         ];
 
         for query in &invalid_queries {
+            // Warm-up to avoid counting cold-start penalties
+            for _ in 0..ERROR_PERFORMANCE_WARMUP {
+                let _ = safe_dplyr_compile_test(query, &options);
+            }
+
             // Measure error handling performance
             let mut durations = Vec::new();
-            for _ in 0..20 {
+            for _ in 0..ERROR_PERFORMANCE_SAMPLES {
                 let start = Instant::now();
                 let result = safe_dplyr_compile_test(query, &options);
                 durations.push(start.elapsed());
