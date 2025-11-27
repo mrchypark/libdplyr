@@ -11,6 +11,13 @@ set(EXTENSION_VERSION_MAJOR 0)
 set(EXTENSION_VERSION_MINOR 1)
 set(EXTENSION_VERSION_PATCH 0)
 
+# Ensure DuckDB's extension metadata version is populated even when duckdb_extension_load
+# is unavailable (e.g., standalone top-level CMake configure).
+string(TOUPPER "${EXTENSION_NAME}" EXTENSION_NAME_UPPERCASE)
+if(NOT DEFINED DUCKDB_EXTENSION_${EXTENSION_NAME_UPPERCASE}_EXT_VERSION OR DUCKDB_EXTENSION_${EXTENSION_NAME_UPPERCASE}_EXT_VERSION STREQUAL "")
+    set(DUCKDB_EXTENSION_${EXTENSION_NAME_UPPERCASE}_EXT_VERSION "${EXTENSION_VERSION}")
+endif()
+
 # R8-AC1: Semantic versioning policy
 # - MAJOR: Incompatible API changes (requires migration)
 # - MINOR: Backward-compatible functionality additions

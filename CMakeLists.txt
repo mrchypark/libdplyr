@@ -85,12 +85,30 @@ if(NOT DUCKDB_INCLUDE_DIR OR NOT DUCKDB_LIBRARIES)
     message(FATAL_ERROR "DuckDB headers/libs not provided. Set DUCKDB_INCLUDE_DIR and DUCKDB_LIBRARIES or build standalone.")
 endif()
 
-if(NOT DEFINED DUCKDB_VERSION AND EXISTS "${DUCKDB_INCLUDE_DIR}/duckdb.hpp")
-    file(READ "${DUCKDB_INCLUDE_DIR}/duckdb.hpp" DUCKDB_HEADER_CONTENT)
-    string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\""
-           DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
-    if(DUCKDB_VERSION_MATCH)
-        set(DUCKDB_VERSION ${CMAKE_MATCH_1})
+if(NOT DEFINED DUCKDB_VERSION)
+    set(_duckdb_header_candidates
+        "${DUCKDB_INCLUDE_DIR}/duckdb.hpp"
+        "${DUCKDB_INCLUDE_DIR}/duckdb.h"
+    )
+    foreach(_duckdb_header IN LISTS _duckdb_header_candidates)
+        if(EXISTS "${_duckdb_header}")
+            file(READ "${_duckdb_header}" DUCKDB_HEADER_CONTENT)
+            string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\""
+                   DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
+            if(DUCKDB_VERSION_MATCH)
+                set(DUCKDB_VERSION ${CMAKE_MATCH_1})
+                break()
+            endif()
+        endif()
+    endforeach()
+endif()
+
+if(NOT DEFINED DUCKDB_VERSION OR DUCKDB_VERSION STREQUAL "unknown")
+    if(DEFINED DUCKDB_EXTENSION_TESTED_VERSIONS)
+        list(GET DUCKDB_EXTENSION_TESTED_VERSIONS 0 _duckdb_version_guess)
+        set(DUCKDB_VERSION "${_duckdb_version_guess}")
+    elseif(DEFINED DUCKDB_EXTENSION_MIN_SUPPORTED)
+        set(DUCKDB_VERSION "${DUCKDB_EXTENSION_MIN_SUPPORTED}")
     else()
         set(DUCKDB_VERSION "unknown")
     endif()
@@ -101,6 +119,13 @@ if(DUCKDB_VERSION_CHECK AND NOT DUCKDB_VERSION STREQUAL "unknown")
 else()
     message(STATUS "DuckDB version checking disabled or version unknown")
     message(STATUS "Extension will use runtime feature detection for compatibility")
+endif()
+
+# Ensure a normalized DuckDB version is available for extension metadata
+if(NOT DEFINED DUCKDB_NORMALIZED_VERSION OR DUCKDB_NORMALIZED_VERSION STREQUAL "")
+    if(DEFINED DUCKDB_VERSION AND NOT DUCKDB_VERSION STREQUAL "unknown")
+        set(DUCKDB_NORMALIZED_VERSION "v${DUCKDB_VERSION}")
+    endif()
 endif()
 
 message(STATUS "DuckDB include directory: ${DUCKDB_INCLUDE_DIR}")
