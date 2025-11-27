@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -57,6 +59,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -94,6 +98,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -172,7 +178,7 @@ jobs:
           mkdir build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON
-          cmake --build . --parallel
+          cmake --build . --parallel 1
 
       - name: Build for CodeQL (Rust)
         if: matrix.language == 'rust'

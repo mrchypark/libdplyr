@@ -69,6 +69,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          submodules: recursive
+        with:
           fetch-depth: 0
 
       - name: Setup Rust toolchain
@@ -160,7 +162,7 @@ jobs:
       - name: Build extension (Release)
         run: |
           cd build
-          cmake --build . --config Release --parallel
+          cmake --build . --config Release --parallel 1
 
       # -------------------------------------------------------------------------
       # Quality Assurance
@@ -284,6 +286,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
         with:
           fetch-depth: 0
 
@@ -481,6 +485,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Update version badges
         run: |

@@ -21,10 +21,12 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
     - name: Test script syntax
       run: |
@@ -59,10 +61,12 @@ jobs:
   test-windows-install:
     name: Test Windows Installation Script
     runs-on: windows-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
     - name: Test PowerShell syntax
       run: |
@@ -88,10 +92,12 @@ jobs:
   test-script-security:
     name: Test Script Security
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
     - name: Install shellcheck
       run: |
@@ -109,18 +115,18 @@ jobs:
         if grep -q "curl.*|.*bash" install.sh; then
           echo "⚠️  Script contains pipe to bash pattern - ensure this is intentional"
         fi
-        
+
         if grep -q "sudo" install.sh; then
           echo "⚠️  Script contains sudo usage - ensure this is necessary"
         fi
-        
+
         # Check for proper error handling
         if grep -q "set -e" install.sh; then
           echo "✓ Script uses proper error handling (set -e)"
         else
           echo "⚠️  Consider adding 'set -e' for better error handling"
         fi
-        
+
         echo "✓ Security check completed"
 
   test-cross-platform:
@@ -129,10 +135,12 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04, ubuntu-22.04, macos-11, macos-12, windows-2019, windows-2022]
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
     - name: Test script availability (Unix)
       if: runner.os != 'Windows'

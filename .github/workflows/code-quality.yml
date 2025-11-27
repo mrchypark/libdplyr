@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,7 +61,7 @@ jobs:
           mkdir build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=ON -DBUILD_DUCKDB=ON
-          cmake --build . --parallel
+          cmake --build . --parallel 1
 
       - name: Run integration tests with coverage
         run: |
@@ -156,6 +158,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -259,6 +263,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install C++ analysis tools
         run: |
@@ -367,6 +373,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install memory analysis tools
         run: |
@@ -400,7 +408,7 @@ jobs:
             -DCMAKE_CXX_FLAGS="-g -O0" \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON
-          cmake --build . --parallel
+          cmake --build . --parallel 1
 
       - name: Run Valgrind memory check
         run: |
@@ -471,7 +479,7 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address" \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON
-          cmake --build . --parallel
+          cmake --build . --parallel 1
 
           export DUCKDB_EXTENSION_PATH=$(pwd)
           export ASAN_OPTIONS="detect_leaks=1:abort_on_error=1"

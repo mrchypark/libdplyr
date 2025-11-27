@@ -1,3 +1,7 @@
 [submodule "build/_deps/corrosion-src"]
     path = build/_deps/corrosion-src
     url = https://github.com/corrosion-rs/corrosion.git
+
+[submodule "duckdb"]
+    path = duckdb
+    url = https://github.com/duckdb/duckdb.git
