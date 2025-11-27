@@ -147,8 +147,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
-              -G "Visual Studio 16 2019" \
-              -A x64 \
+              -G "Ninja" \
               -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           else
             cmake .. \

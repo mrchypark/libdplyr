@@ -52,7 +52,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
-            cmake-generator: "Visual Studio 16 2019"
+            cmake-generator: "Ninja"
             artifact-name: dplyr-windows-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
 
@@ -188,7 +188,6 @@ jobs:
             -DBUILD_CPP_TESTS=ON `
             -DBUILD_DUCKDB=ON `
             -G "${{ matrix.cmake-generator }}" `
-            -A x64 `
             -DRust_CARGO_TARGET="${{ matrix.target }}" `
             -DDUCKDB_MODULE_BASE_DIR="${{ github.workspace }}/duckdb"
 
