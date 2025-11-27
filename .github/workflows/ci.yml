@@ -173,7 +173,8 @@ jobs:
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
             -G "${{ matrix.cmake-generator }}" \
-            -DRust_CARGO_TARGET="${{ matrix.target }}"
+            -DRust_CARGO_TARGET="${{ matrix.target }}" \
+            -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
             # ▲ [변경] RUSTC_EXECUTABLE 제거하고, 명시적인 타겟 지정 추가
             # Corrosion이 PATH에 있는 cargo를 자동으로 감지합니다.
 
@@ -188,7 +189,8 @@ jobs:
             -DBUILD_DUCKDB=ON `
             -G "${{ matrix.cmake-generator }}" `
             -A x64 `
-            -DRust_CARGO_TARGET="${{ matrix.target }}"
+            -DRust_CARGO_TARGET="${{ matrix.target }}" `
+            -DDUCKDB_MODULE_BASE_DIR="${{ github.workspace }}/duckdb"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'

@@ -148,12 +148,14 @@ jobs:
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
               -G "Visual Studio 16 2019" \
-              -A x64
+              -A x64 \
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           else
             cmake .. \
               -DCMAKE_BUILD_TYPE=Release \
               -DBUILD_CPP_TESTS=OFF \
-              -DBUILD_DUCKDB=ON
+              -DBUILD_DUCKDB=ON \
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
           fi
 
       - name: Build extension (Release)
