@@ -23,6 +23,9 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "MPL-2.0",
+    "Zlib",
+    "Unicode-3.0",
 ]
 
 [[licenses.exceptions]]
