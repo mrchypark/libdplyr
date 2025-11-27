@@ -27,13 +27,12 @@ allow = [
     "Zlib",
     "Unicode-3.0",
 ]
-
-[[licenses.exceptions]]
-allow = ["Unicode-DFS-2016"]
-name = "unicode-ident"
+# Silence warnings for allowed licenses not encountered
+unused-allowed-license = "allow"
 
 [bans]
-multiple-versions = "warn"
+# Allow multiple versions to avoid noisy warnings for windows-* split dependencies
+multiple-versions = "allow"
 
 [sources]
 unknown-registry = "warn"
