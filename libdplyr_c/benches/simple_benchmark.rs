@@ -10,7 +10,7 @@ use std::ptr;
 // Simple benchmark function
 fn bench_simple_query(c: &mut Criterion) {
     c.bench_function("simple_select", |b| {
-        b.iter(|| {
+        b.iter(|| unsafe {
             let query = CString::new("select(mpg)").unwrap();
             let mut out_sql: *mut i8 = ptr::null_mut();
             let mut out_error: *mut i8 = ptr::null_mut();

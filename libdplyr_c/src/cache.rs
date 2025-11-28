@@ -264,6 +264,259 @@ impl SimpleTranspileCache {
     }
 }
 
+// FFI functions for cache management
+
+use std::ffi::{c_char, CString};
+use std::os::raw::c_int;
+
+/// Get cache statistics as JSON string
+///
+/// # Returns
+/// JSON string with cache statistics (must be freed with dplyr_free_string)
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_stats() -> *mut c_char {
+    let stats = SimpleTranspileCache::get_cache_stats();
+    match CString::new(stats) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get cache hit rate as percentage
+///
+/// # Returns
+/// Hit rate as percentage (0.0 to 100.0)
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_hit_rate() -> f64 {
+    SimpleTranspileCache::get_hit_rate() * 100.0
+}
+
+/// Check if cache is performing effectively
+///
+/// # Returns
+/// true if hit rate > 50%, false otherwise
+#[no_mangle]
+pub extern "C" fn dplyr_cache_is_effective() -> bool {
+    SimpleTranspileCache::is_cache_effective()
+}
+
+/// Clear cache and reset all metrics
+///
+/// # Returns
+/// 0 on success, negative error code on failure
+#[no_mangle]
+pub extern "C" fn dplyr_cache_clear() -> c_int {
+    let result = std::panic::catch_unwind(|| {
+        SimpleTranspileCache::clear_cache();
+        0
+    });
+
+    result.unwrap_or(-1)
+}
+
+/// Get current cache size
+///
+/// # Returns
+/// Number of entries currently in cache
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_size() -> usize {
+    REQUEST_CACHE.with(|cache| cache.borrow().len())
+}
+
+/// Get maximum cache capacity
+///
+/// # Returns
+/// Maximum number of entries cache can hold
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_capacity() -> usize {
+    REQUEST_CACHE.with(|cache| cache.borrow().cap().get())
+}
+
+/// Get total number of cache hits
+///
+/// # Returns
+/// Total cache hits since last clear
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_hits() -> u64 {
+    CACHE_METRICS.with(|metrics| metrics.borrow().hits)
+}
+
+/// Get total number of cache misses
+///
+/// # Returns
+/// Total cache misses since last clear
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_misses() -> u64 {
+    CACHE_METRICS.with(|metrics| metrics.borrow().misses)
+}
+
+/// Get total number of cache evictions
+///
+/// # Returns
+/// Total evictions since last clear
+#[no_mangle]
+pub extern "C" fn dplyr_cache_get_evictions() -> u64 {
+    CACHE_METRICS.with(|metrics| metrics.borrow().evictions)
+}
+
+/// # Safety
+/// Caller must ensure that:
+/// - `prefix` is either `std::ptr::null()` or a valid, null-terminated `*const c_char`.
+/// - Passing an invalid pointer will result in undefined behavior.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_cache_log_stats(prefix: *const c_char) {
+    let prefix_str = if prefix.is_null() {
+        "CACHE_STATS"
+    } else {
+        
+            std::ffi::CStr::from_ptr(prefix).to_str().unwrap_or("CACHE_STATS")
+        
+    };
+
+    let stats = SimpleTranspileCache::get_cache_stats();
+    eprintln!("{}: {}", prefix_str, stats);
+}
+
+/// Log cache statistics with timestamp (R10-AC2: Debug mode logging)
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `prefix` is either `std::ptr::null()` or a valid, null-terminated `*const c_char`.
+/// - Passing an invalid pointer will result in undefined behavior.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_cache_log_stats_detailed(prefix: *const c_char, include_timestamp: bool) {
+    let prefix_str = if prefix.is_null() {
+        "CACHE_STATS"
+    } else {
+        
+            std::ffi::CStr::from_ptr(prefix).to_str().unwrap_or("CACHE_STATS")
+        
+    };
+
+    let timestamp_str = if include_timestamp {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("[{}] ", timestamp)
+    } else {
+        String::new()
+    };
+
+    let stats = SimpleTranspileCache::get_cache_stats();
+    let metrics = SimpleTranspileCache::get_cache_metrics();
+    let hit_rate = SimpleTranspileCache::get_hit_rate();
+
+    eprintln!(
+        "{}{}: {} (hit_rate: {:.2}%, effective: {})",
+        timestamp_str,
+        prefix_str,
+        stats,
+        hit_rate * 100.0,
+        SimpleTranspileCache::is_cache_effective()
+    );
+
+    // R10-AC2: Additional debug information in detailed mode
+    if metrics.hits + metrics.misses > 0 {
+        eprintln!(
+            "{}CACHE_PERFORMANCE: avg_processing_time: {}μs, cache_overhead: {}μs",
+            timestamp_str,
+            if metrics.misses > 0 {
+                metrics.total_processing_time_us / metrics.misses
+            } else {
+                0
+            },
+            if metrics.hits + metrics.misses > 0 {
+                metrics.cache_processing_time_us / (metrics.hits + metrics.misses)
+            } else {
+                0
+            }
+        );
+    }
+}
+
+/// Log cache performance warning if performance is poor (R10-AC2)
+///
+/// # Returns
+/// true if warning was logged, false if performance is acceptable
+#[no_mangle]
+pub extern "C" fn dplyr_cache_log_performance_warning() -> bool {
+    let metrics = SimpleTranspileCache::get_cache_metrics();
+    let hit_rate = SimpleTranspileCache::get_hit_rate();
+
+    // Only warn if we have enough data points
+    if metrics.hits + metrics.misses < 10 {
+        return false;
+    }
+
+    let mut warnings = Vec::new();
+
+    // Check hit rate
+    if hit_rate < 0.3 {
+        warnings.push(format!("Low hit rate: {:.1}%", hit_rate * 100.0));
+    }
+
+    // Check cache overhead
+    if metrics.hits + metrics.misses > 0 {
+        let avg_cache_overhead = metrics.cache_processing_time_us / (metrics.hits + metrics.misses);
+        let avg_processing_time = if metrics.misses > 0 {
+            metrics.total_processing_time_us / metrics.misses
+        } else {
+            0
+        };
+
+        // Warn if cache overhead is more than 10% of processing time
+        if avg_cache_overhead > avg_processing_time / 10 {
+            warnings.push(format!(
+                "High cache overhead: {}μs vs {}μs processing",
+                avg_cache_overhead, avg_processing_time
+            ));
+        }
+    }
+
+    // Check excessive evictions
+    if metrics.evictions > metrics.hits / 2 {
+        warnings.push(format!(
+            "Excessive evictions: {} ({}% of hits)",
+            metrics.evictions,
+            if metrics.hits > 0 {
+                metrics.evictions * 100 / metrics.hits
+            } else {
+                0
+            }
+        ));
+    }
+
+    if !warnings.is_empty() {
+        eprintln!("CACHE_WARNING: Performance issues detected:");
+        for warning in warnings {
+            eprintln!("  - {}", warning);
+        }
+        eprintln!("  Consider clearing cache or adjusting cache size");
+        return true;
+    }
+
+    false
+}
+
+/// Check if cache should be cleared based on performance
+///
+/// # Returns
+/// true if cache performance is poor and should be cleared
+#[no_mangle]
+pub extern "C" fn dplyr_cache_should_clear() -> bool {
+    let metrics = SimpleTranspileCache::get_cache_metrics();
+
+    // Clear if hit rate is very low (< 10%) and we have enough data points
+    if metrics.hits + metrics.misses >= 20 {
+        let hit_rate = metrics.hits as f64 / (metrics.hits + metrics.misses) as f64;
+        hit_rate < 0.1
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,35 +693,37 @@ mod tests {
 
     #[test]
     fn test_debug_logging_functions() {
-        SimpleTranspileCache::clear_cache();
+        unsafe {
+            SimpleTranspileCache::clear_cache();
 
-        // Test basic logging (should not panic)
-        dplyr_cache_log_stats(std::ptr::null());
-        dplyr_cache_log_stats(b"TEST_PREFIX\0".as_ptr() as *const c_char);
+            // Test basic logging (should not panic)
+            dplyr_cache_log_stats(std::ptr::null());
+            dplyr_cache_log_stats(c"TEST_PREFIX".as_ptr());
 
-        // Test detailed logging
-        dplyr_cache_log_stats_detailed(std::ptr::null(), false);
-        dplyr_cache_log_stats_detailed(b"DETAILED_TEST\0".as_ptr() as *const c_char, true);
+            // Test detailed logging
+            dplyr_cache_log_stats_detailed(std::ptr::null(), false);
+            dplyr_cache_log_stats_detailed(c"DETAILED_TEST".as_ptr(), true);
 
-        // Add some cache entries to test with data
-        let options = DplyrOptions::default();
-        for i in 0..3 {
-            let code = format!("select(test_col{})", i);
-            let _ = SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
-                Ok(format!("SELECT test_col{} FROM table", i))
-            });
+            // Add some cache entries to test with data
+            let options = DplyrOptions::default();
+            for i in 0..3 {
+                let code = format!("select(test_col{})", i);
+                let _ = SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
+                    Ok(format!("SELECT test_col{} FROM table", i))
+                });
+            }
+
+            // Test logging with data
+            dplyr_cache_log_stats_detailed(c"WITH_DATA".as_ptr(), true);
+
+            // Test performance warning (should not warn with good performance)
+            let warned = dplyr_cache_log_performance_warning();
+            assert!(!warned); // Should not warn with only 3 entries
+
+            // Test should_clear function
+            let should_clear = dplyr_cache_should_clear();
+            assert!(!should_clear); // Should not clear with good performance
         }
-
-        // Test logging with data
-        dplyr_cache_log_stats_detailed(b"WITH_DATA\0".as_ptr() as *const c_char, true);
-
-        // Test performance warning (should not warn with good performance)
-        let warned = dplyr_cache_log_performance_warning();
-        assert!(!warned); // Should not warn with only 3 entries
-
-        // Test should_clear function
-        let should_clear = dplyr_cache_should_clear();
-        assert!(!should_clear); // Should not clear with good performance
     }
 
     #[test]
@@ -534,266 +789,5 @@ mod tests {
         let top_entries = SimpleTranspileCache::get_top_entries(5);
         assert_eq!(top_entries.len(), 1);
         assert_eq!(top_entries[0].1, 5); // 5 total accesses
-    }
-}
-
-// FFI functions for cache management
-
-use std::ffi::{c_char, CString};
-use std::os::raw::c_int;
-
-/// Get cache statistics as JSON string
-///
-/// # Returns
-/// JSON string with cache statistics (must be freed with dplyr_free_string)
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_stats() -> *mut c_char {
-    let stats = SimpleTranspileCache::get_cache_stats();
-    match CString::new(stats) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Get cache hit rate as percentage
-///
-/// # Returns
-/// Hit rate as percentage (0.0 to 100.0)
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_hit_rate() -> f64 {
-    SimpleTranspileCache::get_hit_rate() * 100.0
-}
-
-/// Check if cache is performing effectively
-///
-/// # Returns
-/// true if hit rate > 50%, false otherwise
-#[no_mangle]
-pub extern "C" fn dplyr_cache_is_effective() -> bool {
-    SimpleTranspileCache::is_cache_effective()
-}
-
-/// Clear cache and reset all metrics
-///
-/// # Returns
-/// 0 on success, negative error code on failure
-#[no_mangle]
-pub extern "C" fn dplyr_cache_clear() -> c_int {
-    let result = std::panic::catch_unwind(|| {
-        SimpleTranspileCache::clear_cache();
-        0
-    });
-
-    match result {
-        Ok(code) => code,
-        Err(_) => -1, // Panic error
-    }
-}
-
-/// Get current cache size
-///
-/// # Returns
-/// Number of entries currently in cache
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_size() -> usize {
-    REQUEST_CACHE.with(|cache| cache.borrow().len())
-}
-
-/// Get maximum cache capacity
-///
-/// # Returns
-/// Maximum number of entries cache can hold
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_capacity() -> usize {
-    REQUEST_CACHE.with(|cache| cache.borrow().cap().get())
-}
-
-/// Get total number of cache hits
-///
-/// # Returns
-/// Total cache hits since last clear
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_hits() -> u64 {
-    CACHE_METRICS.with(|metrics| metrics.borrow().hits)
-}
-
-/// Get total number of cache misses
-///
-/// # Returns
-/// Total cache misses since last clear
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_misses() -> u64 {
-    CACHE_METRICS.with(|metrics| metrics.borrow().misses)
-}
-
-/// Get total number of cache evictions
-///
-/// # Returns
-/// Total evictions since last clear
-#[no_mangle]
-pub extern "C" fn dplyr_cache_get_evictions() -> u64 {
-    CACHE_METRICS.with(|metrics| metrics.borrow().evictions)
-}
-
-/// Log cache statistics to stderr (for debugging)
-///
-/// # Arguments
-/// * `prefix` - Optional prefix for log message (can be null)
-#[no_mangle]
-pub extern "C" fn dplyr_cache_log_stats(prefix: *const c_char) {
-    let prefix_str = if prefix.is_null() {
-        "CACHE_STATS"
-    } else {
-        unsafe {
-            match std::ffi::CStr::from_ptr(prefix).to_str() {
-                Ok(s) => s,
-                Err(_) => "CACHE_STATS",
-            }
-        }
-    };
-
-    let stats = SimpleTranspileCache::get_cache_stats();
-    eprintln!("{}: {}", prefix_str, stats);
-}
-
-/// Log cache statistics with timestamp (R10-AC2: Debug mode logging)
-///
-/// # Arguments
-/// * `prefix` - Optional prefix for log message (can be null)
-/// * `include_timestamp` - Whether to include timestamp in log
-#[no_mangle]
-pub extern "C" fn dplyr_cache_log_stats_detailed(prefix: *const c_char, include_timestamp: bool) {
-    let prefix_str = if prefix.is_null() {
-        "CACHE_STATS"
-    } else {
-        unsafe {
-            match std::ffi::CStr::from_ptr(prefix).to_str() {
-                Ok(s) => s,
-                Err(_) => "CACHE_STATS",
-            }
-        }
-    };
-
-    let timestamp_str = if include_timestamp {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        format!("[{}] ", timestamp)
-    } else {
-        String::new()
-    };
-
-    let stats = SimpleTranspileCache::get_cache_stats();
-    let metrics = SimpleTranspileCache::get_cache_metrics();
-    let hit_rate = SimpleTranspileCache::get_hit_rate();
-
-    eprintln!(
-        "{}{}: {} (hit_rate: {:.2}%, effective: {})",
-        timestamp_str,
-        prefix_str,
-        stats,
-        hit_rate * 100.0,
-        SimpleTranspileCache::is_cache_effective()
-    );
-
-    // R10-AC2: Additional debug information in detailed mode
-    if metrics.hits + metrics.misses > 0 {
-        eprintln!(
-            "{}CACHE_PERFORMANCE: avg_processing_time: {}μs, cache_overhead: {}μs",
-            timestamp_str,
-            if metrics.misses > 0 {
-                metrics.total_processing_time_us / metrics.misses
-            } else {
-                0
-            },
-            if metrics.hits + metrics.misses > 0 {
-                metrics.cache_processing_time_us / (metrics.hits + metrics.misses)
-            } else {
-                0
-            }
-        );
-    }
-}
-
-/// Log cache performance warning if performance is poor (R10-AC2)
-///
-/// # Returns
-/// true if warning was logged, false if performance is acceptable
-#[no_mangle]
-pub extern "C" fn dplyr_cache_log_performance_warning() -> bool {
-    let metrics = SimpleTranspileCache::get_cache_metrics();
-    let hit_rate = SimpleTranspileCache::get_hit_rate();
-
-    // Only warn if we have enough data points
-    if metrics.hits + metrics.misses < 10 {
-        return false;
-    }
-
-    let mut warnings = Vec::new();
-
-    // Check hit rate
-    if hit_rate < 0.3 {
-        warnings.push(format!("Low hit rate: {:.1}%", hit_rate * 100.0));
-    }
-
-    // Check cache overhead
-    if metrics.hits + metrics.misses > 0 {
-        let avg_cache_overhead = metrics.cache_processing_time_us / (metrics.hits + metrics.misses);
-        let avg_processing_time = if metrics.misses > 0 {
-            metrics.total_processing_time_us / metrics.misses
-        } else {
-            0
-        };
-
-        // Warn if cache overhead is more than 10% of processing time
-        if avg_cache_overhead > avg_processing_time / 10 {
-            warnings.push(format!(
-                "High cache overhead: {}μs vs {}μs processing",
-                avg_cache_overhead, avg_processing_time
-            ));
-        }
-    }
-
-    // Check excessive evictions
-    if metrics.evictions > metrics.hits / 2 {
-        warnings.push(format!(
-            "Excessive evictions: {} ({}% of hits)",
-            metrics.evictions,
-            if metrics.hits > 0 {
-                metrics.evictions * 100 / metrics.hits
-            } else {
-                0
-            }
-        ));
-    }
-
-    if !warnings.is_empty() {
-        eprintln!("CACHE_WARNING: Performance issues detected:");
-        for warning in warnings {
-            eprintln!("  - {}", warning);
-        }
-        eprintln!("  Consider clearing cache or adjusting cache size");
-        return true;
-    }
-
-    false
-}
-
-/// Check if cache should be cleared based on performance
-///
-/// # Returns
-/// true if cache performance is poor and should be cleared
-#[no_mangle]
-pub extern "C" fn dplyr_cache_should_clear() -> bool {
-    let metrics = SimpleTranspileCache::get_cache_metrics();
-
-    // Clear if hit rate is very low (< 10%) and we have enough data points
-    if metrics.hits + metrics.misses >= 20 {
-        let hit_rate = metrics.hits as f64 / (metrics.hits + metrics.misses) as f64;
-        hit_rate < 0.1
-    } else {
-        false
     }
 }

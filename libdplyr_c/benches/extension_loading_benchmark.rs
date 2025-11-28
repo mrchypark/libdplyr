@@ -35,11 +35,9 @@ fn find_extension_binary() -> Option<String> {
 
     // Try to find using glob pattern
     if let Ok(entries) = glob::glob("target/*/build/libdplyr_c-*/out/dplyr.duckdb_extension") {
-        for entry in entries {
-            if let Ok(path) = entry {
-                if path.exists() {
-                    return Some(path.to_string_lossy().to_string());
-                }
+        for path in entries.flatten() {
+            if path.exists() {
+                return Some(path.to_string_lossy().to_string());
             }
         }
     }
@@ -255,8 +253,7 @@ criterion_group! {
 criterion_main!(benches);
 
 // Extension loading performance tests
-#[cfg(test)]
-#[cfg(test)]
+
 mod extension_loading_tests {
 
     #[test]

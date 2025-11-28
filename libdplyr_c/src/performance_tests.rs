@@ -22,12 +22,12 @@ mod tests {
         let mut out_sql: *mut i8 = ptr::null_mut();
         let mut out_error: *mut i8 = ptr::null_mut();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             c_query.as_ptr(),
             options as *const DplyrOptions,
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         if result == 0 {
             // Success
@@ -233,10 +233,7 @@ mod tests {
                 durations.push(start.elapsed());
 
                 // Should either succeed or fail gracefully, but not panic
-                match result {
-                    Ok(_) => {}  // Some queries might actually be valid
-                    Err(_) => {} // Expected for most invalid queries
-                }
+                if result.is_ok() {}
             }
 
             // Calculate P95

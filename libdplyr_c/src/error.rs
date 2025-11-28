@@ -234,6 +234,91 @@ impl TranspileError {
     }
 }
 
+// FFI helper functions for error handling
+
+/// Get error code name as C string
+///
+/// # Arguments
+/// * `error_code` - C error code
+///
+/// # Returns
+/// Static string pointer (no need to free)
+#[no_mangle]
+pub extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
+    match error_code {
+        DPLYR_SUCCESS => c"SUCCESS".as_ptr(),
+        DPLYR_ERROR_NULL_POINTER => c"E-NULL-POINTER".as_ptr(),
+        DPLYR_ERROR_INVALID_UTF8 => c"E-INVALID-UTF8".as_ptr(),
+        DPLYR_ERROR_INPUT_TOO_LARGE => c"E-INPUT-TOO-LARGE".as_ptr(),
+        DPLYR_ERROR_TIMEOUT => c"E-TIMEOUT".as_ptr(),
+        DPLYR_ERROR_SYNTAX => c"E-SYNTAX".as_ptr(),
+        DPLYR_ERROR_UNSUPPORTED => c"E-UNSUPPORTED".as_ptr(),
+        DPLYR_ERROR_INTERNAL => c"E-INTERNAL".as_ptr(),
+        DPLYR_ERROR_PANIC => c"E-PANIC".as_ptr(),
+        _ => c"E-UNKNOWN".as_ptr(),
+    }
+}
+
+/// Check if error code indicates success
+///
+/// # Arguments
+/// * `error_code` - C error code
+///
+/// # Returns
+/// true if success, false if error
+#[no_mangle]
+pub extern "C" fn dplyr_is_success(error_code: i32) -> bool {
+    error_code == DPLYR_SUCCESS
+}
+
+/// Check if error code indicates a recoverable error
+///
+/// # Arguments
+/// * `error_code` - C error code
+///
+/// # Returns
+/// true if recoverable, false if fatal
+#[no_mangle]
+pub extern "C" fn dplyr_is_recoverable_error(error_code: i32) -> bool {
+    match error_code {
+        DPLYR_ERROR_SYNTAX
+        | DPLYR_ERROR_UNSUPPORTED
+        | DPLYR_ERROR_INPUT_TOO_LARGE
+        | DPLYR_ERROR_TIMEOUT => true,
+        DPLYR_ERROR_INTERNAL
+        | DPLYR_ERROR_PANIC
+        | DPLYR_ERROR_NULL_POINTER
+        | DPLYR_ERROR_INVALID_UTF8 => false,
+        _ => false,
+    }
+}
+
+// Helper function to create error message with context
+pub(crate) fn create_error_message_with_context(
+    error: &TranspileError,
+    input_context: Option<&str>,
+) -> CString {
+    let base_message = error.to_c_string();
+    let base_str = base_message.to_string_lossy();
+
+    let full_message = if let Some(context) = input_context {
+        format!(
+            "{}\nInput context: {}",
+            base_str,
+            if context.len() > 100 {
+                format!("{}...", &context[..100])
+            } else {
+                context.to_string()
+            }
+        )
+    } else {
+        base_str.to_string()
+    };
+
+    CString::new(full_message)
+        .unwrap_or_else(|_| CString::new("E-INTERNAL: Error message encoding failed").unwrap())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,89 +458,4 @@ mod tests {
         assert!(message_str.contains("...")); // Should be truncated
         assert!(message_str.len() < long_context.len() + 100); // Should be shorter than full context
     }
-}
-
-// FFI helper functions for error handling
-
-/// Get error code name as C string
-///
-/// # Arguments
-/// * `error_code` - C error code
-///
-/// # Returns
-/// Static string pointer (no need to free)
-#[no_mangle]
-pub extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
-    match error_code {
-        DPLYR_SUCCESS => b"SUCCESS\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_NULL_POINTER => b"E-NULL-POINTER\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_INVALID_UTF8 => b"E-INVALID-UTF8\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_INPUT_TOO_LARGE => b"E-INPUT-TOO-LARGE\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_TIMEOUT => b"E-TIMEOUT\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_SYNTAX => b"E-SYNTAX\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_UNSUPPORTED => b"E-UNSUPPORTED\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_INTERNAL => b"E-INTERNAL\0".as_ptr() as *const c_char,
-        DPLYR_ERROR_PANIC => b"E-PANIC\0".as_ptr() as *const c_char,
-        _ => b"E-UNKNOWN\0".as_ptr() as *const c_char,
-    }
-}
-
-/// Check if error code indicates success
-///
-/// # Arguments
-/// * `error_code` - C error code
-///
-/// # Returns
-/// true if success, false if error
-#[no_mangle]
-pub extern "C" fn dplyr_is_success(error_code: i32) -> bool {
-    error_code == DPLYR_SUCCESS
-}
-
-/// Check if error code indicates a recoverable error
-///
-/// # Arguments
-/// * `error_code` - C error code
-///
-/// # Returns
-/// true if recoverable, false if fatal
-#[no_mangle]
-pub extern "C" fn dplyr_is_recoverable_error(error_code: i32) -> bool {
-    match error_code {
-        DPLYR_ERROR_SYNTAX
-        | DPLYR_ERROR_UNSUPPORTED
-        | DPLYR_ERROR_INPUT_TOO_LARGE
-        | DPLYR_ERROR_TIMEOUT => true,
-        DPLYR_ERROR_INTERNAL
-        | DPLYR_ERROR_PANIC
-        | DPLYR_ERROR_NULL_POINTER
-        | DPLYR_ERROR_INVALID_UTF8 => false,
-        _ => false,
-    }
-}
-
-// Helper function to create error message with context
-pub(crate) fn create_error_message_with_context(
-    error: &TranspileError,
-    input_context: Option<&str>,
-) -> CString {
-    let base_message = error.to_c_string();
-    let base_str = base_message.to_string_lossy();
-
-    let full_message = if let Some(context) = input_context {
-        format!(
-            "{}\nInput context: {}",
-            base_str,
-            if context.len() > 100 {
-                format!("{}...", &context[..100])
-            } else {
-                context.to_string()
-            }
-        )
-    } else {
-        base_str.to_string()
-    };
-
-    CString::new(full_message)
-        .unwrap_or_else(|_| CString::new("E-INTERNAL: Error message encoding failed").unwrap())
 }

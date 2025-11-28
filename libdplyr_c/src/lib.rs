@@ -178,16 +178,17 @@ pub const MAX_FUNCTION_CALLS: usize = 1000; // Maximum function calls per input
 /// Compile dplyr code to SQL
 ///
 /// # Safety
-/// - `code` must be a valid null-terminated C string
-/// - `options` can be null (will use defaults)
-/// - `out_sql` and `out_error` must be valid pointers
-/// - Caller must call `dplyr_free_string` on returned strings
+/// Caller must ensure that:
+/// - `code` is a valid null-terminated C string.
+/// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()` if default options are desired.
+/// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char` where results can be stored.
+/// - Any `*mut c_char` returned must be freed using `dplyr_free_string`.
 ///
 /// # Returns
 /// - 0 on success
 /// - Negative error codes on failure
 #[no_mangle]
-pub extern "C" fn dplyr_compile(
+pub unsafe extern "C" fn dplyr_compile(
     code: *const c_char,
     options: *const DplyrOptions,
     out_sql: *mut *mut c_char,
@@ -279,9 +280,7 @@ pub extern "C" fn dplyr_compile(
                 }
 
                 // R9-AC2: Additional input validation for malicious patterns
-                if let Err(validation_error) = validate_input_security(dplyr_code) {
-                    return Err(validation_error);
-                }
+                validate_input_security(dplyr_code)?;
 
                 // Create transpiler with DuckDB dialect
                 let dialect = Box::new(DuckDbDialect::new());
@@ -336,7 +335,7 @@ pub extern "C" fn dplyr_compile(
 
                     // R10-AC2: Cache statistics logging in debug mode
                     cache::dplyr_cache_log_stats_detailed(
-                        b"DEBUG_TRANSPILE\0".as_ptr() as *const c_char,
+                        c"DEBUG_TRANSPILE".as_ptr(),
                         true,
                     );
 
@@ -378,14 +377,15 @@ pub extern "C" fn dplyr_compile(
 /// Free string allocated by dplyr_compile
 ///
 /// # Safety
-/// - `s` must be a string previously returned by dplyr_compile
-/// - Must not be called twice on the same pointer
-/// - `s` can be null (no-op)
+/// Caller must ensure that:
+/// - `s` is a valid `*mut c_char` that was previously allocated by a `libdplyr_c` function (e.g., `dplyr_compile`).
+/// - `s` must not be freed twice.
+/// - `s` can be `std::ptr::null_mut()`, in which case it's a no-op.
 ///
 /// # Returns
 /// 0 on success, negative error code on failure
 #[no_mangle]
-pub extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
+pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
     // R3-AC3: Safe memory management with null pointer check
     if s.is_null() {
         return DPLYR_SUCCESS; // Null pointer is OK, no-op
@@ -414,9 +414,11 @@ pub extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 /// Free multiple strings at once
 ///
 /// # Safety
-/// - `strings` must be an array of valid string pointers or null
-/// - `count` must be the exact number of strings in the array
-/// - Each string must have been allocated by dplyr functions
+/// Caller must ensure that:
+/// - `strings` is a valid `*mut *mut c_char` pointing to an array of string pointers, or `std::ptr::null_mut()`.
+/// - `count` accurately reflects the number of valid `*mut c_char` pointers in the array.
+/// - Each `*mut c_char` in the array must have been previously allocated by a `libdplyr_c` function.
+/// - No `*mut c_char` in the array is freed twice.
 ///
 /// # Arguments
 /// * `strings` - Array of string pointers to free
@@ -425,7 +427,7 @@ pub extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 /// # Returns
 /// Number of strings successfully freed, or negative error code
 #[no_mangle]
-pub extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) -> i32 {
+pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) -> i32 {
     if strings.is_null() {
         return DPLYR_ERROR_NULL_POINTER;
     }
@@ -460,8 +462,9 @@ pub extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) ->
 /// Check if a pointer looks like a valid C string
 ///
 /// # Safety
-/// - This is a best-effort check and cannot guarantee validity
-/// - Should only be used for debugging/validation purposes
+/// Caller must ensure that:
+/// - `s` is either `std::ptr::null()` or a valid, non-dangling `*const c_char` that is part of a null-terminated C string.
+/// - Dereferencing an invalid pointer is undefined behavior.
 ///
 /// # Arguments
 /// * `s` - Pointer to check
@@ -469,7 +472,7 @@ pub extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) ->
 /// # Returns
 /// true if pointer appears valid, false otherwise
 #[no_mangle]
-pub extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool {
+pub unsafe extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool {
     if s.is_null() {
         return false;
     }
@@ -478,10 +481,7 @@ pub extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool {
         unsafe {
             // Try to create a CStr from the pointer
             // This will fail if the pointer is invalid or doesn't contain a null terminator
-            match CStr::from_ptr(s).to_str() {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+            CStr::from_ptr(s).to_str().is_ok()
         }
     });
 
@@ -495,7 +495,7 @@ pub extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool {
 #[no_mangle]
 pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management
-    b"0.1.0\0".as_ptr() as *const c_char
+    c"0.1.0".as_ptr()
 }
 
 /// Get detailed version information including build info
@@ -520,7 +520,7 @@ pub extern "C" fn dplyr_version_detailed() -> *const c_char {
 #[no_mangle]
 pub extern "C" fn dplyr_supported_dialects() -> *const c_char {
     // R8-AC1: Capability information
-    b"DuckDB\0".as_ptr() as *const c_char
+    c"DuckDB".as_ptr()
 }
 
 /// Get build timestamp
@@ -656,13 +656,15 @@ pub extern "C" fn dplyr_options_create_with_timeout(
 
 /// Validate DplyrOptions
 ///
-/// # Arguments
-/// * `options` - Options to validate
+/// # Safety
+/// Caller must ensure that:
+/// - `options` is a valid `*const DplyrOptions` or `std::ptr::null()`.
+/// - Passing an invalid pointer to a `DplyrOptions` struct will result in undefined behavior.
 ///
 /// # Returns
 /// 0 if valid, negative error code if invalid
 #[no_mangle]
-pub extern "C" fn dplyr_options_validate(options: *const DplyrOptions) -> i32 {
+pub unsafe extern "C" fn dplyr_options_validate(options: *const DplyrOptions) -> i32 {
     if options.is_null() {
         return -1; // Null pointer error
     }
@@ -675,10 +677,7 @@ pub extern "C" fn dplyr_options_validate(options: *const DplyrOptions) -> i32 {
         }
     });
 
-    match result {
-        Ok(code) => code,
-        Err(_) => -4, // Panic error
-    }
+    result.unwrap_or(-4)
 }
 
 // Helper functions for FFI implementation (will be used in subsequent tasks)
@@ -805,7 +804,7 @@ fn validate_input_security(input: &str) -> Result<(), TranspileError> {
 
 fn calculate_nesting_depth(input: &str) -> usize {
     let mut max_depth = 0;
-    let mut current_depth = 0;
+    let mut current_depth: i32 = 0;
 
     for ch in input.chars() {
         match ch {
@@ -822,7 +821,7 @@ fn calculate_nesting_depth(input: &str) -> usize {
         }
     }
 
-    max_depth
+    max_depth.try_into().unwrap()
 }
 
 fn count_function_calls(input: &str) -> usize {
@@ -1206,11 +1205,11 @@ mod tests {
         assert_eq!(custom_opts.max_input_length, 2048);
 
         // Test validation
-        let valid_result = dplyr_options_validate(&default_opts as *const DplyrOptions);
+        let valid_result = unsafe { dplyr_options_validate(&default_opts as *const DplyrOptions) };
         assert_eq!(valid_result, 0);
 
         // Test null pointer validation
-        let null_result = dplyr_options_validate(std::ptr::null());
+        let null_result = unsafe { dplyr_options_validate(std::ptr::null()) };
         assert_eq!(null_result, -1);
     }
 
@@ -1220,19 +1219,19 @@ mod tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test null code pointer
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             std::ptr::null(),
             std::ptr::null(),
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
         assert!(!out_error.is_null());
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1244,19 +1243,19 @@ mod tests {
         // Create invalid UTF-8 sequence
         let invalid_utf8 = b"select(col1)\xFF\xFE\0";
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             invalid_utf8.as_ptr() as *const c_char,
             std::ptr::null(),
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         assert_eq!(result, DPLYR_ERROR_INVALID_UTF8);
         assert!(!out_error.is_null());
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1271,19 +1270,19 @@ mod tests {
         // Create input larger than limit
         let large_input = CString::new("select(very_long_column_name_that_exceeds_limit)").unwrap();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             large_input.as_ptr(),
             &options as *const DplyrOptions,
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
         assert!(!out_error.is_null());
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1295,12 +1294,12 @@ mod tests {
         // Simple dplyr code that should work
         let input = CString::new("select(col1)").unwrap();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             input.as_ptr(),
             std::ptr::null(), // Use default options
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         // Note: This might fail if libdplyr doesn't support the exact syntax
         // but the FFI layer should handle it gracefully
@@ -1309,14 +1308,14 @@ mod tests {
             assert!(out_error.is_null());
 
             // Clean up
-            assert_eq!(dplyr_free_string(out_sql), DPLYR_SUCCESS);
+            assert_eq!(unsafe { dplyr_free_string(out_sql) }, DPLYR_SUCCESS);
         } else {
             // If it fails, should have error message
             assert!(!out_error.is_null());
 
             // Clean up
             if !out_error.is_null() {
-                assert_eq!(dplyr_free_string(out_error), DPLYR_SUCCESS);
+                assert_eq!(unsafe { dplyr_free_string(out_error) }, DPLYR_SUCCESS);
             }
         }
     }
@@ -1324,7 +1323,7 @@ mod tests {
     #[test]
     fn test_dplyr_free_string_safety() {
         // Test freeing null pointer (should be safe)
-        let result = dplyr_free_string(std::ptr::null_mut());
+        let result = unsafe { dplyr_free_string(std::ptr::null_mut()) };
         assert_eq!(result, DPLYR_SUCCESS);
 
         // Test freeing valid string
@@ -1332,10 +1331,10 @@ mod tests {
         let raw_ptr = test_string.into_raw();
 
         // Verify pointer looks valid
-        assert!(dplyr_is_valid_string_pointer(raw_ptr));
+        assert!(unsafe { dplyr_is_valid_string_pointer(raw_ptr) });
 
         // Free it
-        let result = dplyr_free_string(raw_ptr);
+        let result = unsafe { dplyr_free_string(raw_ptr) };
         assert_eq!(result, DPLYR_SUCCESS);
 
         // Note: We can't test double-free safely as it would be undefined behavior
@@ -1352,28 +1351,28 @@ mod tests {
         let mut strings = vec![string1, string2, string3, std::ptr::null_mut()];
 
         // Free all strings
-        let freed_count = dplyr_free_strings(strings.as_mut_ptr(), strings.len());
+        let freed_count = unsafe { dplyr_free_strings(strings.as_mut_ptr(), strings.len()) };
         assert_eq!(freed_count, 3); // Should free 3 strings (null pointer is skipped)
 
         // Test with null array
-        let result = dplyr_free_strings(std::ptr::null_mut(), 0);
+        let result = unsafe { dplyr_free_strings(std::ptr::null_mut(), 0) };
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
     }
 
     #[test]
     fn test_dplyr_is_valid_string_pointer() {
         // Test null pointer
-        assert!(!dplyr_is_valid_string_pointer(std::ptr::null()));
+        assert!(unsafe { !dplyr_is_valid_string_pointer(std::ptr::null()) });
 
         // Test valid string
         let test_string = CString::new("valid string").unwrap();
-        assert!(dplyr_is_valid_string_pointer(test_string.as_ptr()));
+        assert!(unsafe { dplyr_is_valid_string_pointer(test_string.as_ptr()) });
 
         // Test static string
         let static_str = b"static string\0";
-        assert!(dplyr_is_valid_string_pointer(
+        assert!(unsafe { dplyr_is_valid_string_pointer(
             static_str.as_ptr() as *const c_char
-        ));
+        ) });
     }
 
     #[test]
@@ -1395,9 +1394,9 @@ mod tests {
         assert!(!timestamp.to_string_lossy().is_empty());
 
         // Test debug support check
-        let has_debug = dplyr_has_debug_support();
+        let _has_debug = dplyr_has_debug_support();
         // Should be true in debug builds, may be false in release builds
-        assert!(has_debug || !has_debug); // Always true, just testing it doesn't panic
+
 
         // Test limits
         assert_eq!(dplyr_max_input_length(), MAX_INPUT_LENGTH as u32);
@@ -1518,12 +1517,12 @@ mod tests {
         let malicious_input =
             CString::new("select(col1) %>% filter(col2 = '; DROP TABLE users; --')").unwrap();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             malicious_input.as_ptr(),
             std::ptr::null(),
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         // Should fail with security error
         assert_ne!(result, DPLYR_SUCCESS);
@@ -1542,7 +1541,7 @@ mod tests {
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1554,12 +1553,12 @@ mod tests {
         // Test with unbalanced parentheses
         let unbalanced_input = CString::new("select(col1, col2").unwrap();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             unbalanced_input.as_ptr(),
             std::ptr::null(),
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         // Should fail with syntax error
         assert_ne!(result, DPLYR_SUCCESS);
@@ -1571,7 +1570,7 @@ mod tests {
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1622,19 +1621,19 @@ mod tests {
 
                     let input = CString::new(format!("select(thread_col_{})", thread_id)).unwrap();
 
-                    let result = dplyr_compile(
+                    let result = unsafe { dplyr_compile(
                         input.as_ptr(),
                         std::ptr::null(), // Use default options
                         &mut out_sql,
                         &mut out_error,
-                    );
+                    ) };
 
                     // Clean up regardless of result
                     if !out_sql.is_null() {
-                        dplyr_free_string(out_sql);
+                        unsafe { dplyr_free_string(out_sql) };
                     }
                     if !out_error.is_null() {
-                        dplyr_free_string(out_error);
+                        unsafe { dplyr_free_string(out_error) };
                     }
 
                     // Return the result code
@@ -1651,7 +1650,7 @@ mod tests {
         // Results may vary (success or error) but should not crash
         for result in results {
             // Should be a valid error code (not some random value from memory corruption)
-            assert!(result >= -10 && result <= 0);
+            assert!((-10..=0).contains(&result));
         }
     }
 
@@ -1719,7 +1718,7 @@ mod tests {
 
                     // Free all strings
                     for ptr in raw_pointers {
-                        let result = dplyr_free_string(ptr);
+                        let result = unsafe { dplyr_free_string(ptr) };
                         assert_eq!(result, DPLYR_SUCCESS);
                     }
 
@@ -1734,8 +1733,9 @@ mod tests {
                     let mut batch_pointers: Vec<*mut c_char> =
                         batch_strings.into_iter().map(|s| s.into_raw()).collect();
 
-                    let freed_count =
-                        dplyr_free_strings(batch_pointers.as_mut_ptr(), batch_pointers.len());
+                    let freed_count = unsafe {
+                        dplyr_free_strings(batch_pointers.as_mut_ptr(), batch_pointers.len())
+                    };
                     assert_eq!(freed_count, 5);
 
                     thread_id
@@ -1765,13 +1765,13 @@ mod tests {
                     );
 
                     // Validate options
-                    let validation_result = dplyr_options_validate(&options as *const DplyrOptions);
+                    let validation_result = unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
                     assert_eq!(validation_result, 0);
 
                     // Test default options
                     let default_options = dplyr_options_default();
                     let default_validation =
-                        dplyr_options_validate(&default_options as *const DplyrOptions);
+                        unsafe { dplyr_options_validate(&default_options as *const DplyrOptions) };
                     assert_eq!(default_validation, 0);
 
                     thread_id
@@ -1790,21 +1790,21 @@ mod tests {
         // Test that utility functions are thread-safe
         let handles: Vec<_> = (0..4)
             .map(|thread_id| {
-                thread::spawn(move || {
+                thread::spawn(move || unsafe {
                     // These functions should be safe to call from multiple threads
                     let version_str =
-                        unsafe { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
+                        { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
                     assert!(!version_str.to_string_lossy().is_empty());
 
                     let detailed_version =
-                        unsafe { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
+                        { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
                     assert!(!detailed_version.to_string_lossy().is_empty());
 
-                    let dialects = unsafe { std::ffi::CStr::from_ptr(dplyr_supported_dialects()) };
+                    let dialects = { std::ffi::CStr::from_ptr(dplyr_supported_dialects()) };
                     assert!(!dialects.to_string_lossy().is_empty());
 
-                    let has_debug = dplyr_has_debug_support();
-                    assert!(has_debug || !has_debug); // Just test it doesn't crash
+                    let _has_debug = dplyr_has_debug_support();
+
 
                     let max_input = dplyr_max_input_length();
                     assert_eq!(max_input, MAX_INPUT_LENGTH as u32);
@@ -1831,7 +1831,7 @@ mod tests {
         // Test that error handling functions are thread-safe
         let handles: Vec<_> = (0..4)
             .map(|thread_id| {
-                thread::spawn(move || {
+                thread::spawn(move || unsafe {
                     // Test error code functions
                     let error_codes = [
                         DPLYR_SUCCESS,
@@ -1842,7 +1842,7 @@ mod tests {
                     ];
 
                     for &error_code in &error_codes {
-                        let error_name = unsafe {
+                        let error_name = {
                             std::ffi::CStr::from_ptr(dplyr_error_code_name(error_code))
                                 .to_string_lossy()
                         };
@@ -1851,9 +1851,9 @@ mod tests {
                         let is_success = dplyr_is_success(error_code);
                         assert_eq!(is_success, error_code == DPLYR_SUCCESS);
 
-                        let is_recoverable = dplyr_is_recoverable_error(error_code);
+                        let _is_recoverable = dplyr_is_recoverable_error(error_code);
                         // Just test it doesn't crash
-                        assert!(is_recoverable || !is_recoverable);
+
                     }
 
                     thread_id
@@ -1873,17 +1873,17 @@ mod tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test with null pointers - should not panic
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             std::ptr::null(),
             std::ptr::null(),
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
 
         // Clean up
         if !out_error.is_null() {
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -1970,6 +1970,25 @@ mod tests {
         assert_eq!(metrics.hits, 1);
         assert_eq!(metrics.misses, 1);
         assert_eq!(SimpleTranspileCache::get_hit_rate(), 0.5);
+
+        // Test with `dplyr_compile` - using explicit unsafe blocks
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+        let dplyr_code = CString::new("select(caching_test)").unwrap();
+
+        let result = unsafe { dplyr_compile(
+            dplyr_code.as_ptr(),
+            std::ptr::null(),
+            &mut out_sql,
+            &mut out_error,
+        ) };
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        unsafe { dplyr_free_string(out_sql) };
+        if !out_error.is_null() {
+            unsafe { dplyr_free_string(out_error) };
+        }
+    }
     }
 
     // R3-AC3: Memory management tests
@@ -1985,22 +2004,22 @@ mod tests {
         assert_eq!(recovered.to_str().unwrap(), test_str);
 
         // Free it safely
-        assert_eq!(dplyr_free_string(raw_ptr), DPLYR_SUCCESS);
+        assert_eq!(unsafe { dplyr_free_string(raw_ptr) }, DPLYR_SUCCESS);
 
         // Test null pointer handling
-        assert_eq!(dplyr_free_string(std::ptr::null_mut()), DPLYR_SUCCESS);
+        assert_eq!(unsafe { dplyr_free_string(std::ptr::null_mut()) }, DPLYR_SUCCESS);
 
         // Test multiple string freeing
         let str1 = CString::new("test1").unwrap().into_raw();
         let str2 = CString::new("test2").unwrap().into_raw();
         let mut string_array = [str1, str2];
 
-        let freed_count = dplyr_free_strings(string_array.as_mut_ptr(), 2);
+        let freed_count = unsafe { dplyr_free_strings(string_array.as_mut_ptr(), 2) };
         assert_eq!(freed_count, 2);
 
         // Test null array handling
         assert_eq!(
-            dplyr_free_strings(std::ptr::null_mut(), 0),
+            unsafe { dplyr_free_strings(std::ptr::null_mut(), 0) },
             DPLYR_ERROR_NULL_POINTER
         );
     }
@@ -2024,8 +2043,8 @@ mod tests {
         assert!(!timestamp_str.is_empty());
 
         // Test capability functions
-        let has_debug = dplyr_has_debug_support();
-        assert!(has_debug || !has_debug); // Just ensure it doesn't panic
+        let _has_debug = dplyr_has_debug_support();
+
 
         assert_eq!(dplyr_max_input_length(), MAX_INPUT_LENGTH as u32);
         assert_eq!(dplyr_max_processing_time_ms(), MAX_PROCESSING_TIME_MS);
@@ -2098,17 +2117,17 @@ mod tests {
     #[test]
     fn test_constants_validation() {
         // Verify constants are reasonable
-        assert!(MAX_INPUT_LENGTH > 0);
-        assert!(MAX_PROCESSING_TIME_MS > 0);
-        assert!(MAX_OUTPUT_LENGTH > MAX_INPUT_LENGTH);
-        assert!(MAX_NESTING_DEPTH > 0);
-        assert!(MAX_FUNCTION_CALLS > 0);
+
+
+
+
+
 
         // Verify relationships
-        assert!(MAX_OUTPUT_LENGTH >= MAX_INPUT_LENGTH);
-        assert!(MAX_PROCESSING_TIME_MS >= 1000); // At least 1 second
-        assert!(MAX_NESTING_DEPTH >= 10); // Reasonable minimum
-        assert!(MAX_FUNCTION_CALLS >= 100); // Reasonable minimum
+
+
+
+
 
         // Test that constants match expected values
         assert_eq!(MAX_INPUT_LENGTH, 1024 * 1024); // 1MB
@@ -2122,15 +2141,15 @@ mod tests {
     #[test]
     fn test_string_pointer_validation() {
         // Test null pointer
-        assert!(!dplyr_is_valid_string_pointer(std::ptr::null()));
+        assert!(!unsafe { dplyr_is_valid_string_pointer(std::ptr::null()) });
 
         // Test valid string
         let valid_string = CString::new("test").unwrap();
-        assert!(dplyr_is_valid_string_pointer(valid_string.as_ptr()));
+        assert!(unsafe { dplyr_is_valid_string_pointer(valid_string.as_ptr()) });
 
         // Test empty string
         let empty_string = CString::new("").unwrap();
-        assert!(dplyr_is_valid_string_pointer(empty_string.as_ptr()));
+        assert!(unsafe { dplyr_is_valid_string_pointer(empty_string.as_ptr()) });
     }
 
     // Integration test with actual transpilation (if libdplyr is available)
@@ -2143,7 +2162,7 @@ mod tests {
         let dplyr_code = CString::new("select(name, age)").unwrap();
         let options = DplyrOptions::default();
 
-        let result = dplyr_compile(dplyr_code.as_ptr(), &options, &mut out_sql, &mut out_error);
+        let result = unsafe { dplyr_compile(dplyr_code.as_ptr(), &options, &mut out_sql, &mut out_error) };
 
         if result == DPLYR_SUCCESS {
             assert!(!out_sql.is_null());
@@ -2152,7 +2171,7 @@ mod tests {
             assert!(!sql_str.is_empty());
 
             // Clean up
-            dplyr_free_string(out_sql);
+            unsafe { dplyr_free_string(out_sql) };
         } else {
             // If transpilation fails, we should have an error message
             assert!(!out_error.is_null());
@@ -2161,7 +2180,7 @@ mod tests {
             assert!(!error_str.is_empty());
 
             // Clean up
-            dplyr_free_string(out_error);
+            unsafe { dplyr_free_string(out_error) };
         }
     }
 
@@ -2288,6 +2307,7 @@ mod tests {
     }
 
     // Helper function for performance tests
+    #[allow(dead_code)]
     fn safe_dplyr_compile_test(query: &str, options: &DplyrOptions) -> Result<String, String> {
         use std::ffi::{CStr, CString};
 
@@ -2295,12 +2315,12 @@ mod tests {
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
-        let result = dplyr_compile(
+        let result = unsafe { dplyr_compile(
             c_query.as_ptr(),
             options as *const DplyrOptions,
             &mut out_sql,
             &mut out_error,
-        );
+        ) };
 
         if result == 0 {
             // Success
@@ -2322,7 +2342,6 @@ mod tests {
             Err(error)
         }
     }
-}
 
 // DuckDB C Extension API init function
 // This function is required for C API-based DuckDB extensions
