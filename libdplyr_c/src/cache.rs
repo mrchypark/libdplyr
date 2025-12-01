@@ -368,9 +368,9 @@ pub unsafe extern "C" fn dplyr_cache_log_stats(prefix: *const c_char) {
     let prefix_str = if prefix.is_null() {
         "CACHE_STATS"
     } else {
-        
-            std::ffi::CStr::from_ptr(prefix).to_str().unwrap_or("CACHE_STATS")
-        
+        std::ffi::CStr::from_ptr(prefix)
+            .to_str()
+            .unwrap_or("CACHE_STATS")
     };
 
     let stats = SimpleTranspileCache::get_cache_stats();
@@ -384,13 +384,16 @@ pub unsafe extern "C" fn dplyr_cache_log_stats(prefix: *const c_char) {
 /// - `prefix` is either `std::ptr::null()` or a valid, null-terminated `*const c_char`.
 /// - Passing an invalid pointer will result in undefined behavior.
 #[no_mangle]
-pub unsafe extern "C" fn dplyr_cache_log_stats_detailed(prefix: *const c_char, include_timestamp: bool) {
+pub unsafe extern "C" fn dplyr_cache_log_stats_detailed(
+    prefix: *const c_char,
+    include_timestamp: bool,
+) {
     let prefix_str = if prefix.is_null() {
         "CACHE_STATS"
     } else {
-        
-            std::ffi::CStr::from_ptr(prefix).to_str().unwrap_or("CACHE_STATS")
-        
+        std::ffi::CStr::from_ptr(prefix)
+            .to_str()
+            .unwrap_or("CACHE_STATS")
     };
 
     let timestamp_str = if include_timestamp {

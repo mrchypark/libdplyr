@@ -84,12 +84,14 @@ fn safe_dplyr_compile(query: &str, options: &DplyrOptions) -> Result<String, Str
     let mut out_sql: *mut i8 = ptr::null_mut();
     let mut out_error: *mut i8 = ptr::null_mut();
 
-    let result = unsafe { dplyr_compile(
-        c_query.as_ptr(),
-        options as *const DplyrOptions,
-        &mut out_sql,
-        &mut out_error,
-    ) };
+    let result = unsafe {
+        dplyr_compile(
+            c_query.as_ptr(),
+            options as *const DplyrOptions,
+            &mut out_sql,
+            &mut out_error,
+        )
+    };
 
     if result == 0 {
         // Success

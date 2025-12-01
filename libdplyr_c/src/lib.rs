@@ -334,10 +334,7 @@ pub unsafe extern "C" fn dplyr_compile(
                     );
 
                     // R10-AC2: Cache statistics logging in debug mode
-                    cache::dplyr_cache_log_stats_detailed(
-                        c"DEBUG_TRANSPILE".as_ptr(),
-                        true,
-                    );
+                    cache::dplyr_cache_log_stats_detailed(c"DEBUG_TRANSPILE".as_ptr(), true);
 
                     // R10-AC2: Log performance warning if cache is underperforming
                     cache::dplyr_cache_log_performance_warning();
@@ -1219,12 +1216,14 @@ mod tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test null code pointer
-        let result = unsafe { dplyr_compile(
-            std::ptr::null(),
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
         assert!(!out_error.is_null());
@@ -1243,12 +1242,14 @@ mod tests {
         // Create invalid UTF-8 sequence
         let invalid_utf8 = b"select(col1)\xFF\xFE\0";
 
-        let result = unsafe { dplyr_compile(
-            invalid_utf8.as_ptr() as *const c_char,
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                invalid_utf8.as_ptr() as *const c_char,
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         assert_eq!(result, DPLYR_ERROR_INVALID_UTF8);
         assert!(!out_error.is_null());
@@ -1270,12 +1271,14 @@ mod tests {
         // Create input larger than limit
         let large_input = CString::new("select(very_long_column_name_that_exceeds_limit)").unwrap();
 
-        let result = unsafe { dplyr_compile(
-            large_input.as_ptr(),
-            &options as *const DplyrOptions,
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                large_input.as_ptr(),
+                &options as *const DplyrOptions,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
         assert!(!out_error.is_null());
@@ -1294,12 +1297,14 @@ mod tests {
         // Simple dplyr code that should work
         let input = CString::new("select(col1)").unwrap();
 
-        let result = unsafe { dplyr_compile(
-            input.as_ptr(),
-            std::ptr::null(), // Use default options
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                input.as_ptr(),
+                std::ptr::null(), // Use default options
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         // Note: This might fail if libdplyr doesn't support the exact syntax
         // but the FFI layer should handle it gracefully
@@ -1370,9 +1375,7 @@ mod tests {
 
         // Test static string
         let static_str = b"static string\0";
-        assert!(unsafe { dplyr_is_valid_string_pointer(
-            static_str.as_ptr() as *const c_char
-        ) });
+        assert!(unsafe { dplyr_is_valid_string_pointer(static_str.as_ptr() as *const c_char) });
     }
 
     #[test]
@@ -1396,7 +1399,6 @@ mod tests {
         // Test debug support check
         let _has_debug = dplyr_has_debug_support();
         // Should be true in debug builds, may be false in release builds
-
 
         // Test limits
         assert_eq!(dplyr_max_input_length(), MAX_INPUT_LENGTH as u32);
@@ -1517,12 +1519,14 @@ mod tests {
         let malicious_input =
             CString::new("select(col1) %>% filter(col2 = '; DROP TABLE users; --')").unwrap();
 
-        let result = unsafe { dplyr_compile(
-            malicious_input.as_ptr(),
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                malicious_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         // Should fail with security error
         assert_ne!(result, DPLYR_SUCCESS);
@@ -1553,12 +1557,14 @@ mod tests {
         // Test with unbalanced parentheses
         let unbalanced_input = CString::new("select(col1, col2").unwrap();
 
-        let result = unsafe { dplyr_compile(
-            unbalanced_input.as_ptr(),
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                unbalanced_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
 
         // Should fail with syntax error
         assert_ne!(result, DPLYR_SUCCESS);
@@ -1621,12 +1627,14 @@ mod tests {
 
                     let input = CString::new(format!("select(thread_col_{})", thread_id)).unwrap();
 
-                    let result = unsafe { dplyr_compile(
-                        input.as_ptr(),
-                        std::ptr::null(), // Use default options
-                        &mut out_sql,
-                        &mut out_error,
-                    ) };
+                    let result = unsafe {
+                        dplyr_compile(
+                            input.as_ptr(),
+                            std::ptr::null(), // Use default options
+                            &mut out_sql,
+                            &mut out_error,
+                        )
+                    };
 
                     // Clean up regardless of result
                     if !out_sql.is_null() {
@@ -1765,7 +1773,8 @@ mod tests {
                     );
 
                     // Validate options
-                    let validation_result = unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
+                    let validation_result =
+                        unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
                     assert_eq!(validation_result, 0);
 
                     // Test default options
@@ -1792,19 +1801,16 @@ mod tests {
             .map(|thread_id| {
                 thread::spawn(move || unsafe {
                     // These functions should be safe to call from multiple threads
-                    let version_str =
-                        { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
+                    let version_str = { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
                     assert!(!version_str.to_string_lossy().is_empty());
 
-                    let detailed_version =
-                        { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
+                    let detailed_version = { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
                     assert!(!detailed_version.to_string_lossy().is_empty());
 
                     let dialects = { std::ffi::CStr::from_ptr(dplyr_supported_dialects()) };
                     assert!(!dialects.to_string_lossy().is_empty());
 
                     let _has_debug = dplyr_has_debug_support();
-
 
                     let max_input = dplyr_max_input_length();
                     assert_eq!(max_input, MAX_INPUT_LENGTH as u32);
@@ -1853,7 +1859,6 @@ mod tests {
 
                         let _is_recoverable = dplyr_is_recoverable_error(error_code);
                         // Just test it doesn't crash
-
                     }
 
                     thread_id
@@ -1873,12 +1878,14 @@ mod tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test with null pointers - should not panic
-        let result = unsafe { dplyr_compile(
-            std::ptr::null(),
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
 
         // Clean up
@@ -1976,12 +1983,14 @@ mod tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
         let dplyr_code = CString::new("select(caching_test)").unwrap();
 
-        let result = unsafe { dplyr_compile(
-            dplyr_code.as_ptr(),
-            std::ptr::null(),
-            &mut out_sql,
-            &mut out_error,
-        ) };
+        let result = unsafe {
+            dplyr_compile(
+                dplyr_code.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
         assert_eq!(result, DPLYR_SUCCESS);
         assert!(!out_sql.is_null());
         unsafe { dplyr_free_string(out_sql) };
@@ -1989,359 +1998,354 @@ mod tests {
             unsafe { dplyr_free_string(out_error) };
         }
     }
+}
+
+// R3-AC3: Memory management tests
+#[test]
+fn test_memory_management() {
+    // Test string allocation and deallocation
+    let test_str = "test string for memory management";
+    let c_string = CString::new(test_str).unwrap();
+    let raw_ptr = c_string.into_raw();
+
+    // Verify the string is valid
+    let recovered = unsafe { CStr::from_ptr(raw_ptr) };
+    assert_eq!(recovered.to_str().unwrap(), test_str);
+
+    // Free it safely
+    assert_eq!(unsafe { dplyr_free_string(raw_ptr) }, DPLYR_SUCCESS);
+
+    // Test null pointer handling
+    assert_eq!(
+        unsafe { dplyr_free_string(std::ptr::null_mut()) },
+        DPLYR_SUCCESS
+    );
+
+    // Test multiple string freeing
+    let str1 = CString::new("test1").unwrap().into_raw();
+    let str2 = CString::new("test2").unwrap().into_raw();
+    let mut string_array = [str1, str2];
+
+    let freed_count = unsafe { dplyr_free_strings(string_array.as_mut_ptr(), 2) };
+    assert_eq!(freed_count, 2);
+
+    // Test null array handling
+    assert_eq!(
+        unsafe { dplyr_free_strings(std::ptr::null_mut(), 0) },
+        DPLYR_ERROR_NULL_POINTER
+    );
+}
+
+// R8-AC1: Version and capability tests
+#[test]
+fn test_version_and_capabilities() {
+    // Test version functions
+    let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
+    assert_eq!(version.to_str().unwrap(), "0.1.0");
+
+    let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
+    let detailed_str = detailed.to_str().unwrap();
+    assert!(detailed_str.contains("libdplyr_c v0.1.0"));
+
+    let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
+    assert_eq!(dialects.to_str().unwrap(), "DuckDB");
+
+    let timestamp = unsafe { CStr::from_ptr(dplyr_build_timestamp()) };
+    let timestamp_str = timestamp.to_str().unwrap();
+    assert!(!timestamp_str.is_empty());
+
+    // Test capability functions
+    let _has_debug = dplyr_has_debug_support();
+
+    assert_eq!(dplyr_max_input_length(), MAX_INPUT_LENGTH as u32);
+    assert_eq!(dplyr_max_processing_time_ms(), MAX_PROCESSING_TIME_MS);
+
+    // Test system check
+    assert_eq!(dplyr_check_system(), DPLYR_SUCCESS);
+}
+
+// Helper function tests
+#[test]
+fn test_helper_functions() {
+    // Test nesting depth calculation
+    assert_eq!(calculate_nesting_depth("()"), 1);
+    assert_eq!(calculate_nesting_depth("(())"), 2);
+    assert_eq!(calculate_nesting_depth("()()"), 1);
+    assert_eq!(calculate_nesting_depth("((()))"), 3);
+    assert_eq!(calculate_nesting_depth("select(filter(col1))"), 2);
+
+    // Test function call counting
+    assert_eq!(count_function_calls("func()"), 1);
+    assert_eq!(count_function_calls("func1() func2()"), 2);
+    assert_eq!(count_function_calls("select(col1) %>% filter(age > 18)"), 2);
+    assert_eq!(count_function_calls("no functions here"), 0);
+    assert_eq!(count_function_calls("func ( )"), 1); // With spaces
+
+    // Test suspicious pattern detection
+    assert!(contains_suspicious_patterns("'; DROP TABLE"));
+    assert!(contains_suspicious_patterns("union select"));
+    assert!(contains_suspicious_patterns("UNION SELECT"));
+    assert!(contains_suspicious_patterns("<script>"));
+    assert!(contains_suspicious_patterns("../"));
+    assert!(!contains_suspicious_patterns("select(col1)"));
+
+    // Test excessive repetition detection
+    assert!(has_excessive_repetition(&"a".repeat(150)));
+    assert!(has_excessive_repetition(&"abc".repeat(25)));
+    assert!(!has_excessive_repetition("normal input"));
+    assert!(!has_excessive_repetition(&"a".repeat(10))); // Well under threshold
+}
+
+// Error conversion tests
+#[test]
+fn test_error_conversion() {
+    // Test libdplyr error conversion
+    let lex_error =
+        libdplyr::TranspileError::LexError(libdplyr::LexError::UnexpectedCharacter('x', 5));
+    let converted = convert_libdplyr_error(lex_error);
+    assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_SYNTAX);
+
+    let parse_error = libdplyr::TranspileError::ParseError(libdplyr::ParseError::UnexpectedToken {
+        expected: "identifier".to_string(),
+        found: "number".to_string(),
+        position: 10,
+    });
+    let converted = convert_libdplyr_error(parse_error);
+    assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_SYNTAX);
+
+    let gen_error = libdplyr::TranspileError::GenerationError(
+        libdplyr::GenerationError::UnsupportedOperation {
+            operation: "complex_join".to_string(),
+            dialect: "simple_query".to_string(),
+        },
+    );
+    let converted = convert_libdplyr_error(gen_error);
+    assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_UNSUPPORTED);
+}
+
+// Constants validation tests
+#[test]
+fn test_constants_validation() {
+    // Verify constants are reasonable
+
+    // Verify relationships
+
+    // Test that constants match expected values
+    assert_eq!(MAX_INPUT_LENGTH, 1024 * 1024); // 1MB
+    assert_eq!(MAX_PROCESSING_TIME_MS, 30000); // 30 seconds
+    assert_eq!(MAX_OUTPUT_LENGTH, 10 * 1024 * 1024); // 10MB
+    assert_eq!(MAX_NESTING_DEPTH, 50);
+    assert_eq!(MAX_FUNCTION_CALLS, 1000);
+}
+
+// String pointer validation tests
+#[test]
+fn test_string_pointer_validation() {
+    // Test null pointer
+    assert!(!unsafe { dplyr_is_valid_string_pointer(std::ptr::null()) });
+
+    // Test valid string
+    let valid_string = CString::new("test").unwrap();
+    assert!(unsafe { dplyr_is_valid_string_pointer(valid_string.as_ptr()) });
+
+    // Test empty string
+    let empty_string = CString::new("").unwrap();
+    assert!(unsafe { dplyr_is_valid_string_pointer(empty_string.as_ptr()) });
+}
+
+// Integration test with actual transpilation (if libdplyr is available)
+#[test]
+#[ignore] // Ignore by default since it requires libdplyr to be fully functional
+fn test_full_transpilation_integration() {
+    let mut out_sql: *mut c_char = std::ptr::null_mut();
+    let mut out_error: *mut c_char = std::ptr::null_mut();
+
+    let dplyr_code = CString::new("select(name, age)").unwrap();
+    let options = DplyrOptions::default();
+
+    let result =
+        unsafe { dplyr_compile(dplyr_code.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+    if result == DPLYR_SUCCESS {
+        assert!(!out_sql.is_null());
+        let sql_result = unsafe { CStr::from_ptr(out_sql) };
+        let sql_str = sql_result.to_str().unwrap();
+        assert!(!sql_str.is_empty());
+
+        // Clean up
+        unsafe { dplyr_free_string(out_sql) };
+    } else {
+        // If transpilation fails, we should have an error message
+        assert!(!out_error.is_null());
+        let error_result = unsafe { CStr::from_ptr(out_error) };
+        let error_str = error_result.to_str().unwrap();
+        assert!(!error_str.is_empty());
+
+        // Clean up
+        unsafe { dplyr_free_string(out_error) };
+    }
+}
+
+// R6-AC1, R6-AC2: Performance validation tests
+#[test]
+fn test_simple_query_performance_target() {
+    use std::time::Instant;
+
+    let options = DplyrOptions::default();
+    let query = "select(mpg, cyl)";
+
+    // Warm up
+    for _ in 0..10 {
+        let _ = safe_dplyr_compile_test(query, &options);
     }
 
-    // R3-AC3: Memory management tests
-    #[test]
-    fn test_memory_management() {
-        // Test string allocation and deallocation
-        let test_str = "test string for memory management";
-        let c_string = CString::new(test_str).unwrap();
-        let raw_ptr = c_string.into_raw();
-
-        // Verify the string is valid
-        let recovered = unsafe { CStr::from_ptr(raw_ptr) };
-        assert_eq!(recovered.to_str().unwrap(), test_str);
-
-        // Free it safely
-        assert_eq!(unsafe { dplyr_free_string(raw_ptr) }, DPLYR_SUCCESS);
-
-        // Test null pointer handling
-        assert_eq!(unsafe { dplyr_free_string(std::ptr::null_mut()) }, DPLYR_SUCCESS);
-
-        // Test multiple string freeing
-        let str1 = CString::new("test1").unwrap().into_raw();
-        let str2 = CString::new("test2").unwrap().into_raw();
-        let mut string_array = [str1, str2];
-
-        let freed_count = unsafe { dplyr_free_strings(string_array.as_mut_ptr(), 2) };
-        assert_eq!(freed_count, 2);
-
-        // Test null array handling
-        assert_eq!(
-            unsafe { dplyr_free_strings(std::ptr::null_mut(), 0) },
-            DPLYR_ERROR_NULL_POINTER
-        );
-    }
-
-    // R8-AC1: Version and capability tests
-    #[test]
-    fn test_version_and_capabilities() {
-        // Test version functions
-        let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-        assert_eq!(version.to_str().unwrap(), "0.1.0");
-
-        let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
-        let detailed_str = detailed.to_str().unwrap();
-        assert!(detailed_str.contains("libdplyr_c v0.1.0"));
-
-        let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
-        assert_eq!(dialects.to_str().unwrap(), "DuckDB");
-
-        let timestamp = unsafe { CStr::from_ptr(dplyr_build_timestamp()) };
-        let timestamp_str = timestamp.to_str().unwrap();
-        assert!(!timestamp_str.is_empty());
-
-        // Test capability functions
-        let _has_debug = dplyr_has_debug_support();
-
-
-        assert_eq!(dplyr_max_input_length(), MAX_INPUT_LENGTH as u32);
-        assert_eq!(dplyr_max_processing_time_ms(), MAX_PROCESSING_TIME_MS);
-
-        // Test system check
-        assert_eq!(dplyr_check_system(), DPLYR_SUCCESS);
-    }
-
-    // Helper function tests
-    #[test]
-    fn test_helper_functions() {
-        // Test nesting depth calculation
-        assert_eq!(calculate_nesting_depth("()"), 1);
-        assert_eq!(calculate_nesting_depth("(())"), 2);
-        assert_eq!(calculate_nesting_depth("()()"), 1);
-        assert_eq!(calculate_nesting_depth("((()))"), 3);
-        assert_eq!(calculate_nesting_depth("select(filter(col1))"), 2);
-
-        // Test function call counting
-        assert_eq!(count_function_calls("func()"), 1);
-        assert_eq!(count_function_calls("func1() func2()"), 2);
-        assert_eq!(count_function_calls("select(col1) %>% filter(age > 18)"), 2);
-        assert_eq!(count_function_calls("no functions here"), 0);
-        assert_eq!(count_function_calls("func ( )"), 1); // With spaces
-
-        // Test suspicious pattern detection
-        assert!(contains_suspicious_patterns("'; DROP TABLE"));
-        assert!(contains_suspicious_patterns("union select"));
-        assert!(contains_suspicious_patterns("UNION SELECT"));
-        assert!(contains_suspicious_patterns("<script>"));
-        assert!(contains_suspicious_patterns("../"));
-        assert!(!contains_suspicious_patterns("select(col1)"));
-
-        // Test excessive repetition detection
-        assert!(has_excessive_repetition(&"a".repeat(150)));
-        assert!(has_excessive_repetition(&"abc".repeat(25)));
-        assert!(!has_excessive_repetition("normal input"));
-        assert!(!has_excessive_repetition(&"a".repeat(10))); // Well under threshold
-    }
-
-    // Error conversion tests
-    #[test]
-    fn test_error_conversion() {
-        // Test libdplyr error conversion
-        let lex_error =
-            libdplyr::TranspileError::LexError(libdplyr::LexError::UnexpectedCharacter('x', 5));
-        let converted = convert_libdplyr_error(lex_error);
-        assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_SYNTAX);
-
-        let parse_error =
-            libdplyr::TranspileError::ParseError(libdplyr::ParseError::UnexpectedToken {
-                expected: "identifier".to_string(),
-                found: "number".to_string(),
-                position: 10,
-            });
-        let converted = convert_libdplyr_error(parse_error);
-        assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_SYNTAX);
-
-        let gen_error = libdplyr::TranspileError::GenerationError(
-            libdplyr::GenerationError::UnsupportedOperation {
-                operation: "complex_join".to_string(),
-                dialect: "simple_query".to_string(),
-            },
-        );
-        let converted = convert_libdplyr_error(gen_error);
-        assert_eq!(converted.to_c_error_code(), DPLYR_ERROR_UNSUPPORTED);
-    }
-
-    // Constants validation tests
-    #[test]
-    fn test_constants_validation() {
-        // Verify constants are reasonable
-
-
-
-
-
-
-        // Verify relationships
-
-
-
-
-
-        // Test that constants match expected values
-        assert_eq!(MAX_INPUT_LENGTH, 1024 * 1024); // 1MB
-        assert_eq!(MAX_PROCESSING_TIME_MS, 30000); // 30 seconds
-        assert_eq!(MAX_OUTPUT_LENGTH, 10 * 1024 * 1024); // 10MB
-        assert_eq!(MAX_NESTING_DEPTH, 50);
-        assert_eq!(MAX_FUNCTION_CALLS, 1000);
-    }
-
-    // String pointer validation tests
-    #[test]
-    fn test_string_pointer_validation() {
-        // Test null pointer
-        assert!(!unsafe { dplyr_is_valid_string_pointer(std::ptr::null()) });
-
-        // Test valid string
-        let valid_string = CString::new("test").unwrap();
-        assert!(unsafe { dplyr_is_valid_string_pointer(valid_string.as_ptr()) });
-
-        // Test empty string
-        let empty_string = CString::new("").unwrap();
-        assert!(unsafe { dplyr_is_valid_string_pointer(empty_string.as_ptr()) });
-    }
-
-    // Integration test with actual transpilation (if libdplyr is available)
-    #[test]
-    #[ignore] // Ignore by default since it requires libdplyr to be fully functional
-    fn test_full_transpilation_integration() {
-        let mut out_sql: *mut c_char = std::ptr::null_mut();
-        let mut out_error: *mut c_char = std::ptr::null_mut();
-
-        let dplyr_code = CString::new("select(name, age)").unwrap();
-        let options = DplyrOptions::default();
-
-        let result = unsafe { dplyr_compile(dplyr_code.as_ptr(), &options, &mut out_sql, &mut out_error) };
-
-        if result == DPLYR_SUCCESS {
-            assert!(!out_sql.is_null());
-            let sql_result = unsafe { CStr::from_ptr(out_sql) };
-            let sql_str = sql_result.to_str().unwrap();
-            assert!(!sql_str.is_empty());
-
-            // Clean up
-            unsafe { dplyr_free_string(out_sql) };
-        } else {
-            // If transpilation fails, we should have an error message
-            assert!(!out_error.is_null());
-            let error_result = unsafe { CStr::from_ptr(out_error) };
-            let error_str = error_result.to_str().unwrap();
-            assert!(!error_str.is_empty());
-
-            // Clean up
-            unsafe { dplyr_free_string(out_error) };
-        }
-    }
-
-    // R6-AC1, R6-AC2: Performance validation tests
-    #[test]
-    fn test_simple_query_performance_target() {
-        use std::time::Instant;
-
-        let options = DplyrOptions::default();
-        let query = "select(mpg, cyl)";
-
-        // Warm up
-        for _ in 0..10 {
-            let _ = safe_dplyr_compile_test(query, &options);
-        }
-
-        // Measure performance over multiple runs
-        let mut durations = Vec::new();
-        for _ in 0..100 {
-            let start = Instant::now();
-            let result = safe_dplyr_compile_test(query, &options);
-            durations.push(start.elapsed());
-
-            // Verify the query actually works
-            assert!(result.is_ok(), "Query should succeed: {:?}", result);
-        }
-
-        // Calculate P95
-        durations.sort();
-        let p95_index = (durations.len() as f64 * 0.95) as usize;
-        let p95_duration = durations[p95_index];
-
-        println!("Simple query P95: {:?}", p95_duration);
-
-        // R6-AC1: Simple queries should be under 2ms P95
-        const SIMPLE_QUERY_TARGET_MS: f64 = 2.0;
-        assert!(
-            p95_duration.as_millis() as f64 <= SIMPLE_QUERY_TARGET_MS,
-            "Simple query P95 ({:?}) exceeds target ({}ms)",
-            p95_duration,
-            SIMPLE_QUERY_TARGET_MS
-        );
-    }
-
-    #[test]
-    fn test_complex_query_performance_target() {
-        use std::time::Instant;
-
-        let options = DplyrOptions::default();
-        let query = "mtcars %>% select(mpg, cyl, hp) %>% filter(mpg > 20) %>% group_by(cyl) %>% summarise(avg_hp = mean(hp)) %>% arrange(desc(avg_hp))";
-
-        // Warm up
-        for _ in 0..5 {
-            let _ = safe_dplyr_compile_test(query, &options);
-        }
-
-        // Measure performance over multiple runs
-        let mut durations = Vec::new();
-        for _ in 0..50 {
-            let start = Instant::now();
-            let result = safe_dplyr_compile_test(query, &options);
-            durations.push(start.elapsed());
-
-            // Verify the query actually works
-            assert!(result.is_ok(), "Query should succeed: {:?}", result);
-        }
-
-        // Calculate P95
-        durations.sort();
-        let p95_index = (durations.len() as f64 * 0.95) as usize;
-        let p95_duration = durations[p95_index];
-
-        println!("Complex query P95: {:?}", p95_duration);
-
-        // R6-AC1: Complex queries should be under 15ms P95
-        const COMPLEX_QUERY_TARGET_MS: f64 = 15.0;
-        assert!(
-            p95_duration.as_millis() as f64 <= COMPLEX_QUERY_TARGET_MS,
-            "Complex query P95 ({:?}) exceeds target ({}ms)",
-            p95_duration,
-            COMPLEX_QUERY_TARGET_MS
-        );
-    }
-
-    #[test]
-    fn test_cache_effectiveness() {
-        use std::time::Instant;
-
-        let options = DplyrOptions::default();
-        let query = "select(mpg, cyl) %>% filter(mpg > 20)";
-
-        // First call (cache miss)
+    // Measure performance over multiple runs
+    let mut durations = Vec::new();
+    for _ in 0..100 {
         let start = Instant::now();
-        let result1 = safe_dplyr_compile_test(query, &options);
-        let cache_miss_duration = start.elapsed();
+        let result = safe_dplyr_compile_test(query, &options);
+        durations.push(start.elapsed());
 
-        assert!(result1.is_ok(), "First query should succeed");
-
-        // Second call (cache hit)
-        let start = Instant::now();
-        let result2 = safe_dplyr_compile_test(query, &options);
-        let cache_hit_duration = start.elapsed();
-
-        assert!(result2.is_ok(), "Second query should succeed");
-        assert_eq!(
-            result1.unwrap(),
-            result2.unwrap(),
-            "Results should be identical"
-        );
-
-        println!(
-            "Cache miss: {:?}, Cache hit: {:?}",
-            cache_miss_duration, cache_hit_duration
-        );
-
-        // R6-AC2: Cache should provide significant speedup
-        // Cache hit should be measurably faster than cache miss (>=20% faster)
-        assert!(
-            cache_hit_duration.as_nanos() * 5 < cache_miss_duration.as_nanos() * 4,
-            "Cache not effective enough: miss={:?}, hit={:?}",
-            cache_miss_duration,
-            cache_hit_duration
-        );
+        // Verify the query actually works
+        assert!(result.is_ok(), "Query should succeed: {:?}", result);
     }
 
-    // Helper function for performance tests
-    #[allow(dead_code)]
-    fn safe_dplyr_compile_test(query: &str, options: &DplyrOptions) -> Result<String, String> {
-        use std::ffi::{CStr, CString};
+    // Calculate P95
+    durations.sort();
+    let p95_index = (durations.len() as f64 * 0.95) as usize;
+    let p95_duration = durations[p95_index];
 
-        let c_query = CString::new(query).unwrap();
-        let mut out_sql: *mut c_char = std::ptr::null_mut();
-        let mut out_error: *mut c_char = std::ptr::null_mut();
+    println!("Simple query P95: {:?}", p95_duration);
 
-        let result = unsafe { dplyr_compile(
+    // R6-AC1: Simple queries should be under 2ms P95
+    const SIMPLE_QUERY_TARGET_MS: f64 = 2.0;
+    assert!(
+        p95_duration.as_millis() as f64 <= SIMPLE_QUERY_TARGET_MS,
+        "Simple query P95 ({:?}) exceeds target ({}ms)",
+        p95_duration,
+        SIMPLE_QUERY_TARGET_MS
+    );
+}
+
+#[test]
+fn test_complex_query_performance_target() {
+    use std::time::Instant;
+
+    let options = DplyrOptions::default();
+    let query = "mtcars %>% select(mpg, cyl, hp) %>% filter(mpg > 20) %>% group_by(cyl) %>% summarise(avg_hp = mean(hp)) %>% arrange(desc(avg_hp))";
+
+    // Warm up
+    for _ in 0..5 {
+        let _ = safe_dplyr_compile_test(query, &options);
+    }
+
+    // Measure performance over multiple runs
+    let mut durations = Vec::new();
+    for _ in 0..50 {
+        let start = Instant::now();
+        let result = safe_dplyr_compile_test(query, &options);
+        durations.push(start.elapsed());
+
+        // Verify the query actually works
+        assert!(result.is_ok(), "Query should succeed: {:?}", result);
+    }
+
+    // Calculate P95
+    durations.sort();
+    let p95_index = (durations.len() as f64 * 0.95) as usize;
+    let p95_duration = durations[p95_index];
+
+    println!("Complex query P95: {:?}", p95_duration);
+
+    // R6-AC1: Complex queries should be under 15ms P95
+    const COMPLEX_QUERY_TARGET_MS: f64 = 15.0;
+    assert!(
+        p95_duration.as_millis() as f64 <= COMPLEX_QUERY_TARGET_MS,
+        "Complex query P95 ({:?}) exceeds target ({}ms)",
+        p95_duration,
+        COMPLEX_QUERY_TARGET_MS
+    );
+}
+
+#[test]
+fn test_cache_effectiveness() {
+    use std::time::Instant;
+
+    let options = DplyrOptions::default();
+    let query = "select(mpg, cyl) %>% filter(mpg > 20)";
+
+    // First call (cache miss)
+    let start = Instant::now();
+    let result1 = safe_dplyr_compile_test(query, &options);
+    let cache_miss_duration = start.elapsed();
+
+    assert!(result1.is_ok(), "First query should succeed");
+
+    // Second call (cache hit)
+    let start = Instant::now();
+    let result2 = safe_dplyr_compile_test(query, &options);
+    let cache_hit_duration = start.elapsed();
+
+    assert!(result2.is_ok(), "Second query should succeed");
+    assert_eq!(
+        result1.unwrap(),
+        result2.unwrap(),
+        "Results should be identical"
+    );
+
+    println!(
+        "Cache miss: {:?}, Cache hit: {:?}",
+        cache_miss_duration, cache_hit_duration
+    );
+
+    // R6-AC2: Cache should provide significant speedup
+    // Cache hit should be measurably faster than cache miss (>=20% faster)
+    assert!(
+        cache_hit_duration.as_nanos() * 5 < cache_miss_duration.as_nanos() * 4,
+        "Cache not effective enough: miss={:?}, hit={:?}",
+        cache_miss_duration,
+        cache_hit_duration
+    );
+}
+
+// Helper function for performance tests
+#[allow(dead_code)]
+fn safe_dplyr_compile_test(query: &str, options: &DplyrOptions) -> Result<String, String> {
+    use std::ffi::{CStr, CString};
+
+    let c_query = CString::new(query).unwrap();
+    let mut out_sql: *mut c_char = std::ptr::null_mut();
+    let mut out_error: *mut c_char = std::ptr::null_mut();
+
+    let result = unsafe {
+        dplyr_compile(
             c_query.as_ptr(),
             options as *const DplyrOptions,
             &mut out_sql,
             &mut out_error,
-        ) };
+        )
+    };
 
-        if result == 0 {
-            // Success
-            let sql = unsafe {
-                let c_str = CStr::from_ptr(out_sql);
-                let rust_str = c_str.to_string_lossy().into_owned();
-                dplyr_free_string(out_sql);
-                rust_str
-            };
-            Ok(sql)
-        } else {
-            // Error
-            let error = unsafe {
-                let c_str = CStr::from_ptr(out_error);
-                let rust_str = c_str.to_string_lossy().into_owned();
-                dplyr_free_string(out_error);
-                rust_str
-            };
-            Err(error)
-        }
+    if result == 0 {
+        // Success
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let rust_str = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            rust_str
+        };
+        Ok(sql)
+    } else {
+        // Error
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let rust_str = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            rust_str
+        };
+        Err(error)
     }
+}
 
 // DuckDB C Extension API init function
 // This function is required for C API-based DuckDB extensions
