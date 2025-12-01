@@ -149,13 +149,13 @@ jobs:
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
               -G "Ninja" \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src
           else
             cmake .. \
               -DCMAKE_BUILD_TYPE=Release \
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src
           fi
 
       - name: Build extension (Release)
