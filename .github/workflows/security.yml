@@ -177,7 +177,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON -DDUCKDB_PLATFORM=linux-x86_64 -DCMAKE_CXX_FLAGS="-fno-sanitize=address" -DCMAKE_C_FLAGS="-fno-sanitize=address"
+          cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON -DDUCKDB_PLATFORM=linux-x86_64 -DENABLE_SANITIZER=FALSE
           cmake --build . --parallel 1
 
       - name: Build for CodeQL (Rust)
