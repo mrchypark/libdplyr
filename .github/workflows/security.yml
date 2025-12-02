@@ -177,7 +177,7 @@ jobs:
           
           # Prepend 'env LD_PRELOAD="${LD_PRELOAD}"' to the COMMAND that executes duckdb_platform_binary
           # This specifically targets the add_custom_command for duckdb_platform_out
-          sed -i 's|COMMAND $<TARGET_FILE:duckdb_platform_binary>|COMMAND env LD_PRELOAD="${LD_PRELOAD}" $<TARGET_FILE:duckdb_platform_binary>|g' "$DUCKDB_CMAKELIST_PATH"
+          sed -i 's|COMMAND \$<TARGET_FILE:duckdb_platform_binary>|COMMAND "${CODEQL_ACTION_RUNNER}" \$<TARGET_FILE:duckdb_platform_binary>|g' "$DUCKDB_CMAKELIST_PATH"
           
           echo "Patched DuckDB CMakeLists.txt to include LD_PRELOAD in custom command."
 
