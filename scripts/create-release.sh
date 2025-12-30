@@ -309,11 +309,11 @@ echo -e "${GREEN}✅ Tag $VERSION created and pushed${NC}"
 echo -e "\n${BLUE}🚀 Triggering Release Workflow${NC}"
 echo "-------------------------------"
 
-# Trigger the release deployment workflow
-gh workflow run release-deploy.yml \
-    -f tag="$VERSION" \
-    -f draft="$DRAFT" \
-    -f prerelease="$PRERELEASE"
+# Trigger the release workflow
+gh workflow run release.yml \
+    -f version="$VERSION" \
+    -f prerelease="$PRERELEASE" \
+    -f draft="$DRAFT"
 
 echo -e "${GREEN}✅ Release workflow triggered${NC}"
 
@@ -328,7 +328,7 @@ echo "Waiting for workflow to start..."
 sleep 10
 
 # Get the latest workflow run
-RUN_ID=$(gh run list --workflow=release-deploy.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+RUN_ID=$(gh run list --workflow=release.yml --limit=1 --json databaseId --jq '.[0].databaseId')
 
 if [ -n "$RUN_ID" ]; then
     echo "Workflow run ID: $RUN_ID"
@@ -460,7 +460,7 @@ cat > "post-release-checklist-$VERSION.md" << EOF
 
 ## 🔗 Useful Links
 - Release: $RELEASE_URL
-- Workflow: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/actions/workflows/release-deploy.yml
+- Workflow: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + \"/\" + .name')/actions/workflows/release.yml
 - Issues: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/issues
 
 ## 📊 Release Statistics

@@ -56,30 +56,10 @@ fn test_cache_effectiveness() {
 
 ## 자동화된 성능 모니터링
 
-### GitHub Actions 워크플로우
+### GitHub Actions
 
-#### 1. 성능 테스트 워크플로우 (`.github/workflows/performance.yml`)
-```yaml
-# 트리거
-- push: main, develop 브랜치
-- pull_request: main 브랜치  
-- schedule: 매일 오전 2시 UTC
-- workflow_dispatch: 수동 실행
-
-# 플랫폼
-- Linux x86_64
-- macOS ARM64
-- Windows x86_64
-```
-
-#### 2. 실행 단계
-1. **환경 설정**: Rust, CMake, DuckDB CLI
-2. **빌드**: Release 모드로 컴포넌트 빌드
-3. **성능 검증**: 단위 테스트로 목표 달성 확인
-4. **벤치마크 실행**: Criterion으로 상세 측정
-5. **결과 처리**: JSON 및 HTML 리포트 생성
-6. **회귀 검사**: 이전 결과와 비교
-7. **리포트 생성**: 종합 성능 리포트
+성능 벤치마크 워크플로우는 유지보수/노이즈 비용 대비 효과가 낮아 기본 CI에서 제거했습니다.
+성능 회귀 방지는 아래의 로컬 스크립트/테스트 기반으로 수행합니다.
 
 ### 로컬 성능 테스트
 

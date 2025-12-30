@@ -114,16 +114,12 @@ rg "DplyrNode::" --type rust | grep -v "//"
 
 ### Workflows that run on every push:
 1. **CI/CD Pipeline** - Build and test on multiple platforms
-2. **Code Quality Analysis** - Clippy, formatting, security
-3. **Performance Testing** - Rust benchmarks
-4. **Performance Benchmarks** - Integration benchmarks
-5. **Security Checks** - Dependency audits
+2. **Security Checks** - Dependency audits, licenses, CodeQL
 
 ### Key CI checks:
 - `cargo fmt --all -- --check` (formatting)
 - `cargo clippy` (linting)
 - `cargo test` (unit tests)
-- `cargo bench` (benchmarks compile)
 - `make test` (SQL tests)
 
 ## Debugging CI Failures

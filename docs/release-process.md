@@ -82,7 +82,7 @@ git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 
 # 2. GitHub Actions 워크플로우 트리거
-gh workflow run release-deploy.yml -f tag=v1.0.0
+gh workflow run release.yml -f version=v1.0.0
 ```
 
 ### Phase 3: 릴리스 검증
@@ -143,13 +143,8 @@ gh pr create --title "Add dplyr extension v1.0.0" --body-file ../community-submi
 
 #### 1. release.yml
 - **트리거**: 릴리스 태그 생성 시
-- **기능**: 다중 플랫폼 빌드 및 테스트
-- **출력**: 플랫폼별 바이너리 아티팩트
-
-#### 2. release-deploy.yml
-- **트리거**: 수동 실행 또는 릴리스 이벤트
-- **기능**: GitHub Release 생성 및 배포
-- **출력**: 완전한 릴리스 패키지
+- **기능**: 다중 플랫폼 빌드/테스트 + GitHub Release 아티팩트 업로드
+- **출력**: 플랫폼별 바이너리/체크섬/설치 스크립트/릴리스 노트
 
 ### 릴리스 아티팩트
 

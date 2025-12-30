@@ -128,15 +128,14 @@ cargo bench complex_transpile
 ## CI/CD 통합
 
 ### GitHub Actions 워크플로우
-- **`code-quality.yml`**: 포괄적인 품질 검사
 - **`ci.yml`**: 기본 빌드 및 테스트
 - **`security.yml`**: 보안 스캔
-- **`benchmark.yml`**: 성능 벤치마크
+- (성능 벤치마크는 로컬에서 `scripts/run-performance-tests.sh`로 실행)
 
 ### 자동 실행 조건
-- **Push**: 모든 품질 검사
-- **Pull Request**: 품질 검사 + 커버리지 비교
-- **스케줄**: 주간 품질 검사
+- **Push**: CI/CD + 보안 검사
+- **Pull Request**: CI/CD + 보안 검사
+- **스케줄**: 보안 검사 (매일)
 
 ### 품질 게이트
 - 모든 테스트 통과
