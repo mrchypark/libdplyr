@@ -272,7 +272,6 @@
 //! This project is licensed under the MIT License - see the LICENSE file for details.
 
 pub mod error;
-pub mod ffi;
 pub mod lexer;
 pub mod parser;
 pub mod performance;
@@ -320,7 +319,7 @@ pub use crate::sql_generator::{
 /// let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
 /// let mysql_sql = mysql_transpiler.transpile("select(name)").unwrap();
 ///
-/// // SQLite dialect  
+/// // SQLite dialect
 /// let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
 /// let sqlite_sql = sqlite_transpiler.transpile("select(name)").unwrap();
 ///

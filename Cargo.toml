@@ -44,7 +44,6 @@ pretty_assertions = "1.4"
 tempfile = "3.20.0"
 
 # C binding generation
-cbindgen = "0.27"
 
 [features]
 default = []
