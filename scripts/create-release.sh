@@ -160,12 +160,12 @@ RELEASE_NOTES_FILE=$(mktemp)
 if [ -n "$PREV_TAG" ]; then
     echo "## 🚀 What's Changed" >> "$RELEASE_NOTES_FILE"
     echo "" >> "$RELEASE_NOTES_FILE"
-    
+
     # Get commits since last tag
     git log --pretty=format:"- %s (%h)" "$PREV_TAG..HEAD" >> "$RELEASE_NOTES_FILE"
     echo "" >> "$RELEASE_NOTES_FILE"
     echo "" >> "$RELEASE_NOTES_FILE"
-    
+
     # Get contributors
     CONTRIBUTORS=$(git log --pretty=format:"%an" "$PREV_TAG..HEAD" | sort -u | tr '\n' ',' | sed 's/,$//')
     if [ -n "$CONTRIBUTORS" ]; then
@@ -206,11 +206,11 @@ cd combined && ./install.sh
 -- Load the extension
 LOAD '/path/to/dplyr-platform.duckdb_extension';
 
--- Use dplyr syntax
-DPLYR 'mtcars %>% 
-       select(mpg, cyl, hp) %>% 
-       filter(mpg > 20) %>% 
-       arrange(desc(hp))';
+-- Use implicit pipeline syntax (%>%)
+mtcars %>%
+       select(mpg, cyl, hp) %>%
+       filter(mpg > 20) %>%
+       arrange(desc(hp));
 
 -- Table function syntax
 SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(cyl == 4)');
@@ -234,13 +234,13 @@ duckdb -c "LOAD './extension'; SELECT 'Extension loaded successfully' as status;
 duckdb -c "
 LOAD './extension';
 CREATE TABLE test AS SELECT 1 as id, 'test' as name;
-DPLYR 'test %>% select(id, name)';
+SELECT * FROM dplyr('test %>% select(id, name)');
 "
 \`\`\`
 
 ## 📈 Performance
 - Simple queries: <2ms transpilation time
-- Complex queries: <15ms transpilation time  
+- Complex queries: <15ms transpilation time
 - Extension loading: <50ms
 - Memory efficient with built-in caching
 
@@ -333,17 +333,17 @@ RUN_ID=$(gh run list --workflow=release-deploy.yml --limit=1 --json databaseId -
 if [ -n "$RUN_ID" ]; then
     echo "Workflow run ID: $RUN_ID"
     echo "Monitor progress: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/actions/runs/$RUN_ID"
-    
+
     # Wait for workflow to complete (with timeout)
     echo "Waiting for workflow to complete (timeout: 30 minutes)..."
-    
+
     TIMEOUT=1800  # 30 minutes
     ELAPSED=0
     INTERVAL=30
-    
+
     while [ $ELAPSED -lt $TIMEOUT ]; do
         STATUS=$(gh run view "$RUN_ID" --json status --jq '.status')
-        
+
         case "$STATUS" in
             "completed")
                 CONCLUSION=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')
@@ -367,11 +367,11 @@ if [ -n "$RUN_ID" ]; then
                 exit 1
                 ;;
         esac
-        
+
         sleep $INTERVAL
         ELAPSED=$((ELAPSED + INTERVAL))
     done
-    
+
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo -e "\n${YELLOW}⚠️ Workflow monitoring timed out${NC}"
         echo "Check the workflow status manually"
@@ -394,19 +394,19 @@ sleep 5
 # Check if release was created
 if gh release view "$VERSION" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Release $VERSION created successfully${NC}"
-    
+
     # Get release information
     RELEASE_URL=$(gh release view "$VERSION" --json url --jq '.url')
     ASSET_COUNT=$(gh release view "$VERSION" --json assets --jq '.assets | length')
-    
+
     echo "Release URL: $RELEASE_URL"
     echo "Assets uploaded: $ASSET_COUNT"
-    
+
     # List assets
     echo ""
     echo "Release assets:"
     gh release view "$VERSION" --json assets --jq '.assets[] | "  - " + .name + " (" + (.size | tostring) + " bytes)"'
-    
+
 else
     echo -e "${RED}❌ Release $VERSION not found${NC}"
     echo "The release may still be processing or the workflow failed"

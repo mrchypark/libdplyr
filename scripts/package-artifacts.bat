@@ -240,21 +240,21 @@ echo -- Load the extension
 echo LOAD 'C:\path\to\%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension';
 echo.
 echo -- Create sample data
-echo CREATE TABLE mtcars AS 
+echo CREATE TABLE mtcars AS
 echo SELECT * FROM 'https://raw.githubusercontent.com/tidyverse/dplyr/main/data-raw/mtcars.csv';
 echo.
-echo -- Use dplyr syntax
-echo DPLYR 'mtcars %%^>%% 
-echo        select^(mpg, cyl, hp^) %%^>%% 
-echo        filter^(mpg ^> 20^) %%^>%% 
-echo        arrange^(desc^(hp^)^)';
+echo -- Use implicit pipeline syntax (%%^>%%)
+echo mtcars %%^>%%
+echo        select^(mpg, cyl, hp^) %%^>%%
+echo        filter^(mpg ^> 20^) %%^>%%
+echo        arrange^(desc^(hp^)^);
 echo ```
 echo.
 echo ### Table Function Syntax
 echo ```sql
 echo -- Alternative syntax using table function
-echo SELECT * FROM dplyr^('mtcars %%^>%% 
-echo                      select^(mpg, cyl^) %%^>%% 
+echo SELECT * FROM dplyr^('mtcars %%^>%%
+echo                      select^(mpg, cyl^) %%^>%%
 echo                      filter^(cyl == 4^)'^);
 echo ```
 echo.
@@ -340,7 +340,7 @@ powershell -command "Compress-Archive -Path '%PLATFORM_ARCH%\*' -DestinationPath
 
 if exist "%ARCHIVE_NAME%.zip" (
     echo ✅ ZIP archive created: %PACKAGE_ROOT%\%ARCHIVE_NAME%.zip
-    
+
     REM Generate archive checksum
     for /f "tokens=*" %%i in ('certutil -hashfile "%ARCHIVE_NAME%.zip" SHA256 ^| findstr /v "hash"') do (
         echo %%i > "%ARCHIVE_NAME%.zip.sha256"
@@ -384,7 +384,7 @@ echo - **ABI Version**: 1
 echo - **API Version**: 1
 echo.
 echo ## Features
-echo - ✅ DPLYR keyword syntax
+echo - ✅ Implicit pipeline syntax (%%^>%%)
 echo - ✅ Table function interface
 echo - ✅ Error handling with codes
 echo - ✅ Query result caching
@@ -394,7 +394,7 @@ echo ## Installation
 echo 1. Download the ZIP archive for Windows
 echo 2. Extract the extension binary
 echo 3. Load in DuckDB: `LOAD 'C:\path\to\extension';`
-echo 4. Use dplyr syntax: `DPLYR 'data %%^>%% select^(col^)';`
+echo 4. Example: `SELECT * FROM dplyr^('data %%^>%% select^(col^)'^);`
 echo.
 echo ## Verification
 echo ```cmd

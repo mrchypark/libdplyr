@@ -85,7 +85,7 @@ for platform in "${PLATFORMS[@]}"; do
             BUILD_DIRS=("build" "build-windows" "build-windows-x86_64")
             ;;
     esac
-    
+
     FOUND=false
     for build_dir in "${BUILD_DIRS[@]}"; do
         # Check for extension file
@@ -99,7 +99,7 @@ for platform in "${PLATFORMS[@]}"; do
                 "$build_dir/$EXTENSION_NAME.duckdb_extension"
             )
         fi
-        
+
         for ext_path in "${EXTENSION_PATHS[@]}"; do
             if [ -f "$ext_path" ]; then
                 echo -e "  ${GREEN}✅ $platform: $ext_path${NC}"
@@ -109,7 +109,7 @@ for platform in "${PLATFORMS[@]}"; do
             fi
         done
     done
-    
+
     if [ "$FOUND" = false ]; then
         echo -e "  ${RED}❌ $platform: No build artifacts found${NC}"
         MISSING_PLATFORMS+=("$platform")
@@ -149,15 +149,15 @@ FAILED_PLATFORMS=()
 
 for platform_info in "${AVAILABLE_PLATFORMS[@]}"; do
     IFS=':' read -r platform build_dir <<< "$platform_info"
-    
+
     echo -e "\n${BLUE}Packaging $platform...${NC}"
-    
+
     # Set environment variables for the packaging script
     export PLATFORM_OVERRIDE="$platform"
     export BUILD_DIR="$build_dir"
     export VERSION="$VERSION"
     export PACKAGE_DIR="$PACKAGE_DIR"
-    
+
     # Run platform-specific packaging
     if ./scripts/package-artifacts.sh; then
         echo -e "${GREEN}✅ Successfully packaged $platform${NC}"
@@ -220,10 +220,10 @@ for platform in "${PACKAGED_PLATFORMS[@]}"; do
         echo "," >> "$COMBINED_PACKAGE/release-metadata.json"
     fi
     FIRST=false
-    
+
     # Extract platform and arch
     IFS='-' read -r plat arch <<< "$platform"
-    
+
     cat >> "$COMBINED_PACKAGE/release-metadata.json" << EOF
     "$platform": {
       "platform": "$plat",
@@ -239,9 +239,9 @@ for platform in "${MISSING_PLATFORMS[@]}"; do
         echo "," >> "$COMBINED_PACKAGE/release-metadata.json"
     fi
     FIRST=false
-    
+
     IFS='-' read -r plat arch <<< "$platform"
-    
+
     cat >> "$COMBINED_PACKAGE/release-metadata.json" << EOF
     "$platform": {
       "platform": "$plat",
@@ -343,7 +343,7 @@ echo ""
 echo "To use the extension in DuckDB:"
 echo "  1. Start DuckDB: duckdb"
 echo "  2. Load extension: LOAD 'dplyr';"
-echo "  3. Use dplyr syntax: DPLYR 'data %>% select(col)';"
+echo "  3. Example: SELECT * FROM dplyr('data %>% select(col)');"
 echo ""
 echo "For more information, see the INSTALL.md file in the platform directory."
 EOF
@@ -389,7 +389,7 @@ echo.
 echo To use the extension in DuckDB:
 echo   1. Start DuckDB: duckdb
 echo   2. Load extension: LOAD 'dplyr';
-echo   3. Use dplyr syntax: DPLYR 'data %%^>%% select^(col^)';
+echo   3. Example: SELECT * FROM dplyr('data %%^>%% select^(col^)');
 echo.
 echo For more information, see the INSTALL.md file in the platform directory.
 EOF
@@ -411,7 +411,7 @@ ARCHIVE_NAME="$EXTENSION_NAME-$VERSION-all-platforms"
 if command -v tar &> /dev/null; then
     tar -czf "$ARCHIVE_NAME.tar.gz" combined/
     echo -e "${GREEN}✅ Combined archive: $ARCHIVE_NAME.tar.gz${NC}"
-    
+
     # Generate checksum
     if command -v sha256sum &> /dev/null; then
         sha256sum "$ARCHIVE_NAME.tar.gz" > "$ARCHIVE_NAME.tar.gz.sha256"
@@ -423,7 +423,7 @@ fi
 if command -v zip &> /dev/null; then
     zip -r "$ARCHIVE_NAME.zip" combined/ > /dev/null
     echo -e "${GREEN}✅ Combined ZIP: $ARCHIVE_NAME.zip${NC}"
-    
+
     # Generate checksum
     if command -v sha256sum &> /dev/null; then
         sha256sum "$ARCHIVE_NAME.zip" > "$ARCHIVE_NAME.zip.sha256"

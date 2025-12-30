@@ -9,7 +9,7 @@ C++ 통합 테스트는 다음 요구사항을 검증합니다:
 - **R7-AC3**: 크래시 방지 및 에러 처리 테스트  
 - **R2-AC2**: 표준 SQL과의 혼용 테스트
 - **R4-AC2**: 스모크 테스트 (기본 기능 검증)
-- **R5-AC1**: DPLYR 키워드 기반 진입점 테스트
+- **R5-AC1**: `%>%` 파이프라인 기반 진입점 테스트 (DPLYR 키워드는 미지원)
 
 ## 테스트 구조
 
@@ -22,7 +22,7 @@ C++ 통합 테스트는 다음 요구사항을 검증합니다:
 
 #### 1. Extension Loading Tests (R7-AC1)
 - `ExtensionLoadingSuccess`: 확장 로딩 성공 테스트
-- `DplyrKeywordRecognition`: DPLYR 키워드 인식 테스트
+- `DplyrKeywordRecognition`: DPLYR 키워드 거부(미지원) 테스트
 - `TableFunctionEntryPoint`: 테이블 함수 진입점 테스트
 
 #### 2. SQL Integration Tests (R2-AC2)
@@ -222,7 +222,7 @@ export DPLYR_DEBUG=1
 ```cpp
 TEST_F(DuckDBExtensionTest, NewFeatureTest) {
     // R8-AC1: Test new feature requirement
-    auto result = safe_query("DPLYR 'new_feature_syntax'");
+    auto result = safe_query("SELECT * FROM dplyr('my_table %>% select(*)')");
     
     ASSERT_NE(result, nullptr) << "New feature should not crash";
     

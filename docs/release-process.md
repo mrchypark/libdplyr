@@ -104,7 +104,7 @@ duckdb -c "LOAD './test.extension'; SELECT 'OK' as status;"
 # 3. 기본 기능 테스트
 duckdb -c "
 LOAD './test.extension';
-DPLYR 'mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)';
+SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');
 "
 ```
 

@@ -7,10 +7,10 @@
 스모크 테스트는 다음 요구사항을 검증합니다:
 - **R4-AC2**: 기본 확장 기능 및 로딩 테스트
 - **R1-AC2**: 최소 연산 집합 지원 (select, filter, mutate, arrange, group_by, summarise)
-- **R5-AC1**: DPLYR 키워드 기반 진입점 테스트
+- **R5-AC1**: `%>%` 파이프라인 기반 진입점 테스트
 - **R2-AC1**: 테이블 함수 진입점 테스트
 - **R2-AC2**: 표준 SQL과의 혼용 테스트
-- **R5-AC2**: 키워드 충돌 방지 테스트
+- **R5-AC2**: 파서 충돌/오인식 방지 테스트
 
 ## 테스트 구조
 
@@ -26,8 +26,8 @@
 - 기본 SQL 기능 간섭 없음 확인
 - 표준 SQL 함수 정상 동작 확인
 
-#### 2. DPLYR Keyword-based Entry Point (R5-AC1)
-- `DPLYR 'code'` 구문 인식 테스트
+#### 2. Implicit Pipeline Entry Point (R5-AC1)
+- `%>%` 파이프라인 구문 인식 테스트
 - 기본 select 연산 테스트
 - 컬럼 이름 변경 테스트
 
@@ -49,9 +49,9 @@
 - 실제 데이터 처리 시나리오
 
 #### 6. Standard SQL Integration (R2-AC2)
-- CTE와 DPLYR 혼용
-- 서브쿼리에서 DPLYR 사용
-- JOIN과 DPLYR 결과 혼용
+- CTE와 dplyr 혼용
+- 서브쿼리에서 dplyr 사용
+- JOIN과 dplyr 결과 혼용
 
 #### 7. Error Handling and Edge Cases (R1-AC3, R7-AC3)
 - 잘못된 dplyr 구문 처리
@@ -59,9 +59,8 @@
 - NULL 입력 처리
 - 의미 있는 에러 메시지 확인
 
-#### 8. Keyword Collision Avoidance (R5-AC2)
-- DPLYR 키워드가 컬럼명과 충돌하지 않음
-- DPLYR 키워드가 테이블명과 충돌하지 않음
+#### 8. Parser Collision Avoidance (R5-AC2)
+- `%>%` 파이프라인 인식이 일반 SQL을 오인식하지 않음
 
 #### 9. Performance and Stability (R6-AC1)
 - 중간 복잡도 쿼리 실행
@@ -133,7 +132,7 @@ duckdb :memory: < ../tests/smoke.sql
 ### 부분 성공 시나리오 (구현 진행 중)
 ```
 ✓ Extension loading: SUCCESS
-⚠ DPLYR functionality tests may FAIL gracefully (not implemented yet)
+⚠ dplyr 파이프라인/테이블 함수 테스트가 FAIL 하면 에러 메시지 확인
 ✓ Standard SQL tests should PASS (no interference)
 ```
 
@@ -147,18 +146,18 @@ duckdb :memory: < ../tests/smoke.sql
 
 ### 1단계: 확장 구조만 구현
 - ✅ 확장 로딩 성공
-- ❌ DPLYR 키워드 인식 실패 (graceful)
+- ✅ DPLYR 키워드 거부 (의도된 동작)
 - ✅ 표준 SQL 정상 동작
 
 ### 2단계: 파서 확장 구현
 - ✅ 확장 로딩 성공
-- ✅ DPLYR 키워드 인식 성공
+- ✅ `%>%` 파이프라인 인식
 - ❌ 실제 변환 실패 (graceful)
 - ✅ 표준 SQL 정상 동작
 
 ### 3단계: 기본 연산 구현
 - ✅ 확장 로딩 성공
-- ✅ DPLYR 키워드 인식 성공
+- ✅ `%>%` 파이프라인 인식
 - ✅ 기본 select, filter 동작
 - ❌ 복잡한 연산 실패 (graceful)
 - ✅ 표준 SQL 정상 동작
@@ -185,17 +184,17 @@ ldd build/dplyr.duckdb_extension
 otool -L build/dplyr.duckdb_extension
 ```
 
-### DPLYR 기능 테스트 실패
+### dplyr 기능 테스트 실패
 ```bash
 # 디버그 모드 활성화
 export DPLYR_DEBUG=1
-duckdb -c "LOAD 'build/dplyr.duckdb_extension'; DPLYR 'test';"
+duckdb -c "LOAD 'build/dplyr.duckdb_extension'; CREATE TABLE __dplyr_test(x INTEGER); INSERT INTO __dplyr_test VALUES (1); SELECT * FROM dplyr('__dplyr_test %>% select(x)');"
 
 # 개별 테스트 실행
 duckdb -c "
 LOAD 'build/dplyr.duckdb_extension';
 CREATE TABLE test AS SELECT 1 as id;
-DPLYR 'test %>% select(id)';
+SELECT * FROM dplyr('test %>% select(id)');
 "
 ```
 
@@ -214,7 +213,8 @@ SELECT test FROM dplyr;
 # 시간 측정
 time duckdb -c "
 LOAD 'build/dplyr.duckdb_extension';
-DPLYR 'complex_query_here';
+CREATE TABLE perf_test AS SELECT i as id FROM range(1, 100000) as t(i);
+SELECT * FROM dplyr('perf_test %>% filter(id > 10) %>% select(id)');
 "
 
 # 메모리 사용량 확인
@@ -269,7 +269,7 @@ grep -E "E-[A-Z]+" smoke_test.log
 -- tests/smoke.sql에 추가
 -- Test XX: New functionality test
 statement maybe
-DPLYR 'new_functionality_test';
+SELECT * FROM dplyr('my_table %>% select(*)');
 ```
 
 ### 테스트 카테고리 추가

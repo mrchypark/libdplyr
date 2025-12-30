@@ -140,7 +140,7 @@
   "tags": ["dplyr", "r", "data-manipulation", "transpiler", "sql"],
   "install": {
     "load": "LOAD 'dplyr';",
-    "usage": "DPLYR 'mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)';"
+    "usage": "SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');"
   }
 }
 ```

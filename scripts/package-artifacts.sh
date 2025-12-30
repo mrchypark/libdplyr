@@ -202,7 +202,7 @@ cat > "$PLATFORM_PACKAGE/INSTALL.md" << EOF
 # DuckDB dplyr Extension Installation
 
 ## Platform: $PLATFORM_ARCH
-**Version**: $VERSION  
+**Version**: $VERSION
 **Build Date**: $BUILD_TIMESTAMP
 
 ## Prerequisites
@@ -286,21 +286,21 @@ LOAD '$EXTENSION_NAME';
 LOAD '/path/to/$(basename "$PACKAGED_EXTENSION")';
 
 -- Create sample data
-CREATE TABLE mtcars AS 
+CREATE TABLE mtcars AS
 SELECT * FROM 'https://raw.githubusercontent.com/tidyverse/dplyr/main/data-raw/mtcars.csv';
 
--- Use dplyr syntax
-DPLYR 'mtcars %>% 
-       select(mpg, cyl, hp) %>% 
-       filter(mpg > 20) %>% 
-       arrange(desc(hp))';
+-- Use implicit pipeline syntax (%>%)
+mtcars %>%
+       select(mpg, cyl, hp) %>%
+       filter(mpg > 20) %>%
+       arrange(desc(hp));
 \`\`\`
 
 ### Table Function Syntax
 \`\`\`sql
 -- Alternative syntax using table function
-SELECT * FROM dplyr('mtcars %>% 
-                     select(mpg, cyl) %>% 
+SELECT * FROM dplyr('mtcars %>%
+                     select(mpg, cyl) %>%
                      filter(cyl == 4)');
 \`\`\`
 
@@ -310,7 +310,7 @@ SELECT * FROM dplyr('mtcars %>%
 WITH high_efficiency AS (
     SELECT * FROM dplyr('mtcars %>% filter(mpg > 25)')
 )
-SELECT AVG(hp) as avg_horsepower 
+SELECT AVG(hp) as avg_horsepower
 FROM high_efficiency;
 \`\`\`
 
@@ -324,23 +324,23 @@ SELECT 'Extension loaded' as test_result;
 
 -- Test basic dplyr operation
 CREATE TABLE test_data AS SELECT 1 as id, 'test' as name;
-DPLYR 'test_data %>% select(id, name)';
+test_data %>% select(id, name);
 \`\`\`
 
 ### Performance Test
 \`\`\`sql
 -- Test performance with larger dataset
-CREATE TABLE perf_test AS 
-SELECT i as id, 'name_' || i as name, random() as value 
+CREATE TABLE perf_test AS
+SELECT i as id, 'name_' || i as name, random() as value
 FROM range(1, 10000) as t(i);
 
 -- Time a dplyr operation
 .timer on
-DPLYR 'perf_test %>% 
-       select(id, name, value) %>% 
-       filter(value > 0.5) %>% 
-       arrange(desc(value)) %>% 
-       limit(100)';
+perf_test %>%
+       select(id, name, value) %>%
+       filter(value > 0.5) %>%
+       arrange(desc(value)) %>%
+       limit(100);
 .timer off
 \`\`\`
 
@@ -446,14 +446,14 @@ cd "$PACKAGE_ROOT"
 if command -v tar &> /dev/null; then
     tar -czf "$ARCHIVE_NAME.tar.gz" "$PLATFORM_ARCH/"
     echo -e "${GREEN}✅ Archive created: $PACKAGE_ROOT/$ARCHIVE_NAME.tar.gz${NC}"
-    
+
     # Generate archive checksum
     if command -v sha256sum &> /dev/null; then
         sha256sum "$ARCHIVE_NAME.tar.gz" > "$ARCHIVE_NAME.tar.gz.sha256"
     elif command -v shasum &> /dev/null; then
         shasum -a 256 "$ARCHIVE_NAME.tar.gz" > "$ARCHIVE_NAME.tar.gz.sha256"
     fi
-    
+
     echo -e "${GREEN}✅ Archive checksum: $PACKAGE_ROOT/$ARCHIVE_NAME.tar.gz.sha256${NC}"
 fi
 
@@ -461,7 +461,7 @@ fi
 if command -v zip &> /dev/null; then
     zip -r "$ARCHIVE_NAME.zip" "$PLATFORM_ARCH/" > /dev/null
     echo -e "${GREEN}✅ ZIP archive created: $PACKAGE_ROOT/$ARCHIVE_NAME.zip${NC}"
-    
+
     # Generate zip checksum
     if command -v sha256sum &> /dev/null; then
         sha256sum "$ARCHIVE_NAME.zip" > "$ARCHIVE_NAME.zip.sha256"
@@ -506,7 +506,7 @@ cat > "$PACKAGE_ROOT/release-summary-$PLATFORM_ARCH.md" << EOF
 - **API Version**: 1
 
 ## Features
-- ✅ DPLYR keyword syntax
+- ✅ Implicit pipeline syntax (%>%)
 - ✅ Table function interface
 - ✅ Error handling with codes
 - ✅ Query result caching
@@ -516,7 +516,7 @@ cat > "$PACKAGE_ROOT/release-summary-$PLATFORM_ARCH.md" << EOF
 1. Download the appropriate archive for your platform
 2. Extract the extension binary
 3. Load in DuckDB: \`LOAD '/path/to/extension';\`
-4. Use dplyr syntax: \`DPLYR 'data %>% select(col)';\`
+4. Example: \`SELECT * FROM dplyr('data %>% select(col)');\`
 
 ## Verification
 \`\`\`bash
