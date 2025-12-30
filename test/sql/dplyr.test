@@ -16,20 +16,6 @@ SELECT * FROM dplyr('items %>% select(id) %>% arrange(id)');
 1
 2
 
-# DPLYR keyword (no wrapper) with select
-query I
-DPLYR 'items %>% select(id) %>% arrange(id)';
-----
-1
-2
-
-# DPLYR keyword with mutate
-query III
-DPLYR 'items %>% mutate(val2 = val + 1) %>% arrange(id)';
-----
-1	10	11
-2	20	21
-
 # Implicit pipeline (no keyword, no wrapper) with select
 query I
 items %>% select(id) %>% arrange(id);
@@ -43,3 +29,10 @@ items %>% mutate(val2 = val + 1) %>% arrange(id);
 ----
 1	10	11
 2	20	21
+
+# Embedded pipeline inside SQL using (| ... |)
+query I
+SELECT * FROM (| items %>% select(id) %>% arrange(id) |) AS t;
+----
+1
+2

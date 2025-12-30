@@ -1,6 +1,6 @@
 #!/bin/bash
 # DuckDB Extension C++ Integration Test Runner
-# 
+#
 # This script runs the C++ integration tests for the DuckDB dplyr extension
 # Requirements: R7-AC1, R7-AC3, R2-AC2, R5-AC1
 
@@ -64,9 +64,9 @@ run_test_category() {
     local category_name="$1"
     local test_filter="$2"
     local timeout="${3:-60}"
-    
+
     echo -e "${BLUE}Running $category_name tests...${NC}"
-    
+
     if timeout "$timeout" "$TEST_EXECUTABLE" --gtest_filter="$test_filter" --gtest_color=yes; then
         echo -e "${GREEN}✓ $category_name tests passed${NC}"
         return 0
@@ -98,7 +98,7 @@ if run_test_category "Extension Loading (R7-AC1)" \
 fi
 echo ""
 
-# R2-AC2: Standard SQL integration and mixing tests  
+# R2-AC2: Standard SQL integration and mixing tests
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 if run_test_category "SQL Integration (R2-AC2)" \
     "DuckDBExtensionTest.StandardSqlMixingWithCTE:DuckDBExtensionTest.SubqueryIntegration:DuckDBExtensionTest.JoinWithDplyrResults" \
@@ -167,7 +167,7 @@ if [ $PASSED_TESTS -eq $TOTAL_TESTS ]; then
     echo "  ✓ R7-AC3: Crash prevention and error handling"
     echo "  ✓ R2-AC2: Standard SQL integration and mixing"
     echo "  ✓ R4-AC2: Smoke tests for basic functionality"
-    echo "  ✓ R5-AC1: DPLYR keyword-based entry point"
+    echo "  ✓ R5-AC1: %>% pipeline-based entry point"
     exit 0
 else
     echo -e "${RED}✗ Some test categories failed ($PASSED_TESTS/$TOTAL_TESTS passed)${NC}"

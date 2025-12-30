@@ -4,7 +4,8 @@
 //! - Extension loading and registration (R7-AC1)
 //! - Standard SQL integration and mixing (R2-AC2)
 //! - Crash prevention and error handling (R7-AC3)
-//! - DPLYR keyword-based entry point (R5-AC1)
+//! - Implicit pipeline entry point (%>%)
+//! - Embedded pipeline entry point (|...|)
 //! - Parser extension functionality
 //! - Memory safety and FFI boundary protection
 
@@ -98,20 +99,11 @@ TEST_F(DuckDBExtensionTest, ExtensionLoadingSuccess) {
 }
 
 TEST_F(DuckDBExtensionTest, DplyrKeywordRecognition) {
-    // R5-AC1: Test DPLYR keyword-based entry point
+    // DPLYR keyword entry point is intentionally not supported; ensure it fails safely.
     auto result = safe_query("DPLYR 'mtcars %>% select(mpg)'");
     
-    if (result && !result->HasError()) {
-        // Extension successfully processed DPLYR keyword
-        EXPECT_GT(result->RowCount(), 0) << "DPLYR query should return results";
-    } else if (result) {
-        // Extension recognized keyword but had processing error
-        string error = result->GetError();
-        EXPECT_FALSE(error.empty()) 
-            << "Error should include details for DPLYR keyword handling";
-    } else {
-        FAIL() << "Query caused crash instead of returning error";
-    }
+    ASSERT_NE(result, nullptr);
+    EXPECT_TRUE(result->HasError()) << "DPLYR keyword should not be accepted";
 }
 
 TEST_F(DuckDBExtensionTest, DplyrPipelineMatchesSqlResult) {
@@ -120,14 +112,14 @@ TEST_F(DuckDBExtensionTest, DplyrPipelineMatchesSqlResult) {
     ASSERT_FALSE(
         conn->Query("INSERT INTO dplyr_numbers VALUES (1), (2), (3)")->HasError());
 
-    auto dplyr_result = safe_query("DPLYR 'dplyr_numbers %>% select(x)'");
+    auto dplyr_result = safe_query("dplyr_numbers %>% select(x)");
     auto sql_result = safe_query("SELECT x FROM dplyr_numbers");
 
     ASSERT_NE(dplyr_result, nullptr);
     ASSERT_NE(sql_result, nullptr);
 
-    ASSERT_FALSE(dplyr_result->HasError()) 
-        << "DPLYR pipeline should execute: " << dplyr_result->GetError();
+    ASSERT_FALSE(dplyr_result->HasError())
+        << "Pipeline should execute: " << dplyr_result->GetError();
     ASSERT_FALSE(sql_result->HasError()) 
         << "Baseline SQL should succeed: " << sql_result->GetError();
 
@@ -160,17 +152,11 @@ TEST_F(DuckDBExtensionTest, DplyrImplicitPipelineWithoutKeyword) {
 
 TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
     // R2-AC1: Test alternative table function entry point
-    auto result = safe_query("SELECT * FROM dplyr('data.frame(x=1:3) %>% select(x)')");
-    
-    if (result && !result->HasError()) {
-        EXPECT_GT(result->RowCount(), 0) << "Table function should return results";
-    } else if (result) {
-        // Function recognized but had processing error
-        string error = result->GetError();
-        EXPECT_FALSE(error.empty()) << "Should have meaningful error message";
-    } else {
-        FAIL() << "Table function caused crash";
-    }
+    auto result = safe_query("SELECT * FROM dplyr('mtcars %>% select(mpg)')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Table function should succeed: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
 }
 
 // ============================================================================
@@ -188,7 +174,7 @@ TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
             SELECT 3 as id, 'Charlie' as name, 20 as age
         ),
         dplyr_result AS (
-            DPLYR 'base_data %>% select(name, age) %>% filter(age > 22)'
+            (| base_data %>% select(name, age) %>% filter(age > 22) |)
         )
         SELECT COUNT(*) as result_count FROM dplyr_result
     )";
@@ -215,9 +201,10 @@ TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
 TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
     // Test dplyr in subquery context
     string query = R"(
-        SELECT outer_result.* FROM (
-            DPLYR 'data.frame(x=1:5, y=letters[1:5]) %>% select(x, y) %>% filter(x <= 3)'
-        ) as outer_result
+        WITH base AS (
+            SELECT i as x FROM range(1, 6) as t(i)
+        )
+        SELECT outer_result.* FROM (| base %>% select(x) %>% filter(x <= 3) |) as outer_result
         WHERE outer_result.x > 1
     )";
     
@@ -240,12 +227,18 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
             SELECT 1 as id, 'Product A' as product
             UNION ALL
             SELECT 2 as id, 'Product B' as product
+        ),
+        d_src AS (
+            SELECT 1 as id, 100 as value
+            UNION ALL
+            SELECT 2 as id, 200 as value
+        ),
+        d AS (
+            (| d_src %>% select(id, value) |)
         )
         SELECT s.product, d.value 
         FROM standard_table s
-        LEFT JOIN (
-            DPLYR 'data.frame(id=1:2, value=c(100, 200)) %>% select(id, value)'
-        ) d ON s.id = d.id
+        LEFT JOIN d ON s.id = d.id
     )";
     
     auto result = safe_query(query);
@@ -267,14 +260,10 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
 TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
     // Test various invalid dplyr syntax patterns
     vector<string> invalid_queries = {
-        "DPLYR 'invalid_function(test)'",
-        "DPLYR 'select()'",  // Empty select
-        "DPLYR 'filter()'",  // Empty filter
-        "DPLYR 'mutate(x = )'",  // Incomplete mutate
-        "DPLYR 'group_by() %>% summarise()'",  // Empty group_by
-        "DPLYR ''",  // Empty string
-        "DPLYR 'unclosed_string",  // Malformed string
-        "DPLYR 'select(col1 col2)'",  // Missing comma
+        "mtcars %>% unknown_function(test)",
+        "mtcars %>% filter()",
+        "mtcars %>% mutate(x = )",
+        "mtcars %>% select(col1 col2)",
     };
     
     for (const auto& query : invalid_queries) {
@@ -288,9 +277,10 @@ TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
             EXPECT_FALSE(error.empty()) << "Should have error message for: " << query;
             
             // R1-AC3: Error should include error code
-            EXPECT_TRUE(error.find("E-") != string::npos || 
-                       error.find("DPLYR") != string::npos)
-                << "Error should include error code or DPLYR context: " << error;
+            EXPECT_TRUE(error.find("E-") != string::npos ||
+                        error.find("DPLYR") != string::npos ||
+                        error.find("pipeline") != string::npos)
+                << "Error should include context: " << error;
         }
     }
 }
@@ -299,7 +289,6 @@ TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     // Test FFI boundary null pointer handling
     vector<string> null_tests = {
         "SELECT * FROM dplyr(NULL)",
-        "DPLYR NULL",
     };
     
     for (const auto& query : null_tests) {
@@ -319,14 +308,8 @@ TEST_F(DuckDBExtensionTest, NullPointerHandling) {
 
 TEST_F(DuckDBExtensionTest, LargeInputHandling) {
     // R9-AC2: Test DoS prevention with large input
-    string large_dplyr_code = "select(";
-    for (int i = 0; i < 10000; i++) {
-        large_dplyr_code += "col" + to_string(i);
-        if (i < 9999) large_dplyr_code += ", ";
-    }
-    large_dplyr_code += ")";
-    
-    string query = "DPLYR '" + large_dplyr_code + "'";
+    string large_payload(1024 * 1024 + 128, 'a'); // > 1MB
+    string query = "mtcars %>% select(" + large_payload + ")";
     
     auto result = safe_query(query);
     
@@ -356,8 +339,8 @@ TEST_F(DuckDBExtensionTest, ConcurrentAccessSafety) {
             
             for (int i = 0; i < runs; i++) {
                 try {
-                    string query = "DPLYR 'data.frame(x=" + to_string(t * 100 + i) + 
-                                 ") %>% select(x)'";
+                    (void)i;
+                    string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
                     auto result = thread_conn->Query(query);
                     
                     // Should not crash, may have errors
@@ -391,8 +374,8 @@ TEST_F(DuckDBExtensionTest, MemoryLeakPrevention) {
     const int num_iterations = 100;
     
     for (int i = 0; i < num_iterations; i++) {
-        string query = "DPLYR 'data.frame(x=" + to_string(i) + 
-                      ") %>% select(x) %>% filter(x > 0)'";
+        (void)i;
+        string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
         
         auto result = safe_query(query);
         ASSERT_NE(result, nullptr) << "Iteration " << i << " should not crash";
@@ -419,17 +402,17 @@ TEST_F(DuckDBExtensionTest, ErrorMessageQuality) {
     
     vector<ErrorTest> error_tests = {
         {
-            "DPLYR 'select()'",
+            "mtcars %>% filter()",
             "E-SYNTAX",
-            "Empty select should give syntax error"
+            "Empty filter should give syntax error"
         },
         {
-            "DPLYR 'unknown_function(x)'", 
+            "mtcars %>% unknown_function(x)", 
             "E-UNSUPPORTED",
             "Unknown function should give unsupported error"
         },
         {
-            "DPLYR 'select(col1 col2)'",
+            "mtcars %>% select(col1 col2)",
             "E-SYNTAX", 
             "Missing comma should give syntax error"
         }
@@ -464,14 +447,14 @@ TEST_F(DuckDBExtensionTest, BasicPerformanceStability) {
     // R6-AC1: Test that simple queries complete in reasonable time
     auto start_time = chrono::high_resolution_clock::now();
     
-    auto result = safe_query("DPLYR 'data.frame(x=1:10) %>% select(x) %>% filter(x > 5)'");
+    auto result = safe_query("mtcars %>% select(mpg) %>% filter(mpg > 20)");
     
     auto end_time = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::milliseconds>(end_time - start_time);
     
     // Should complete within reasonable time (generous limit for test environment)
     EXPECT_LT(duration.count(), 1000) 
-        << "Simple DPLYR query should complete within 1 second";
+        << "Simple pipeline query should complete within 1 second";
     
     if (result && !result->HasError()) {
         EXPECT_GT(result->RowCount(), 0) << "Should return filtered results";
@@ -481,20 +464,26 @@ TEST_F(DuckDBExtensionTest, BasicPerformanceStability) {
 TEST_F(DuckDBExtensionTest, ComplexQueryStability) {
     // Test more complex query patterns
     string complex_query = R"(
-        DPLYR 'data.frame(
-            id = 1:100,
-            category = rep(c("A", "B", "C", "D"), 25),
-            value = runif(100, 1, 100)
-        ) %>%
-        select(id, category, value) %>%
-        filter(value > 50) %>%
-        group_by(category) %>%
-        summarise(
-            count = n(),
-            avg_value = mean(value),
-            max_value = max(value)
-        ) %>%
-        arrange(desc(avg_value))'
+        WITH complex_data AS (
+            SELECT
+                i as id,
+                CASE (i % 4)
+                    WHEN 0 THEN 'A'
+                    WHEN 1 THEN 'B'
+                    WHEN 2 THEN 'C'
+                    ELSE 'D'
+                END AS category,
+                (i % 100) AS value
+            FROM range(1, 101) AS t(i)
+        ),
+        dplyr_result AS (
+            (| complex_data %>% select(id, category, value) %>%
+               filter(value > 50) %>%
+               group_by(category) %>%
+               summarise(count = n(), avg_value = mean(value), max_value = max(value)) %>%
+               arrange(desc(avg_value)) |)
+        )
+        SELECT * FROM dplyr_result
     )";
     
     auto result = safe_query(complex_query);
@@ -517,14 +506,8 @@ TEST_F(DuckDBExtensionTest, ComplexQueryStability) {
 TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
     // Test integration with DuckDB-specific features
     vector<string> duckdb_integration_tests = {
-        // Test with DuckDB's built-in functions
-        "SELECT duckdb_version(), (DPLYR 'data.frame(x=1) %>% select(x)').x",
-        
-        // Test with DuckDB's PRAGMA
-        "PRAGMA table_info('test_table'); DPLYR 'data.frame(info=\"test\") %>% select(info)'",
-        
-        // Test with DuckDB's array functions (if supported)
-        "DPLYR 'data.frame(arr=list(c(1,2,3))) %>% select(arr)'"
+        "SELECT duckdb_version(), (SELECT COUNT(*) FROM (| mtcars %>% select(mpg) |) AS t) AS cnt",
+        "SELECT (SELECT mpg FROM (| mtcars %>% select(mpg) %>% arrange(desc(mpg)) |) AS t LIMIT 1) AS max_mpg"
     };
     
     for (const auto& query : duckdb_integration_tests) {
@@ -550,8 +533,8 @@ TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
 TEST_F(DuckDBExtensionTest, SmokeTestBasicOperations) {
     // R4-AC2: Basic smoke test operations
     vector<string> smoke_tests = {
-        "DPLYR 'mtcars %>% select(mpg)'",
-        "DPLYR 'data.frame(x=1:3) %>% select(x) %>% filter(x > 1)'",
+        "mtcars %>% select(mpg)",
+        "SELECT * FROM (| mtcars %>% select(mpg) %>% filter(mpg > 20) |) AS t",
         "SELECT * FROM dplyr('mtcars %>% select(mpg) %>% filter(mpg > 20)')"
     };
     
@@ -582,7 +565,7 @@ int main(int argc, char** argv) {
     
     // Set up test environment
     cout << "Running DuckDB Extension Integration Tests..." << endl;
-    cout << "Testing requirements: R7-AC1, R7-AC3, R2-AC2, R5-AC1" << endl;
+    cout << "Testing requirements: R7-AC1, R7-AC3, R2-AC2" << endl;
     
     return RUN_ALL_TESTS();
 }

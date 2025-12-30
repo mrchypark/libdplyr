@@ -29,8 +29,8 @@ SELECT COUNT(*) FROM (VALUES (1), (2), (3)) as t(x);
 
 -- Test 5: Create test data for dplyr operations
 statement ok
-CREATE TABLE test_data AS 
-SELECT 
+CREATE TABLE test_data AS
+SELECT
     i as id,
     'name_' || i as name,
     (i % 5) + 18 as age,
@@ -46,20 +46,20 @@ SELECT COUNT(*) FROM test_data;
 10
 
 -- =============================================================================
--- R5-AC1: DPLYR Keyword-based Entry Point Tests
+-- Implicit Pipeline Entry Point Tests (%>%)
 -- =============================================================================
 
--- Test 6: Basic DPLYR keyword functionality - select operation
+-- Test 6: Basic implicit pipeline functionality - select operation
 -- Note: These tests expect the extension to be fully implemented
 -- If not implemented yet, they should fail gracefully with meaningful errors
 
 -- Test 6a: Simple select operation
 statement maybe
-DPLYR 'test_data %>% select(id, name)';
+test_data %>% select(id, name);
 
 -- Test 6b: Select with column renaming
 statement maybe
-DPLYR 'test_data %>% select(identifier = id, full_name = name)';
+test_data %>% select(identifier = id, full_name = name);
 
 -- =============================================================================
 -- R1-AC2: Minimum Operation Set Tests
@@ -67,23 +67,23 @@ DPLYR 'test_data %>% select(identifier = id, full_name = name)';
 
 -- Test 7: Filter operations (R1-AC2 requirement)
 statement maybe
-DPLYR 'test_data %>% filter(age > 20)';
+test_data %>% filter(age > 20);
 
 -- Test 8: Mutate operations (R1-AC2 requirement)
 statement maybe
-DPLYR 'test_data %>% mutate(age_plus_ten = age + 10)';
+test_data %>% mutate(age_plus_ten = age + 10);
 
 -- Test 9: Arrange operations (R1-AC2 requirement)
 statement maybe
-DPLYR 'test_data %>% arrange(age)';
+test_data %>% arrange(age);
 
 -- Test 10: Group by operations (R1-AC2 requirement)
 statement maybe
-DPLYR 'test_data %>% group_by(category)';
+test_data %>% group_by(category);
 
 -- Test 11: Summarise operations (R1-AC2 requirement)
 statement maybe
-DPLYR 'test_data %>% group_by(category) %>% summarise(avg_age = mean(age))';
+test_data %>% group_by(category) %>% summarise(avg_age = mean(age));
 
 -- =============================================================================
 -- R2-AC1: Table Function Entry Point Tests
@@ -103,49 +103,49 @@ SELECT * FROM dplyr('test_data %>% group_by(category) %>% summarise(count = n(),
 
 -- Test 14: Simple pipeline - select + filter
 statement maybe
-DPLYR 'test_data %>% select(id, name, age) %>% filter(age >= 20)';
+test_data %>% select(id, name, age) %>% filter(age >= 20);
 
 -- Test 15: Complex pipeline - select + filter + arrange
 statement maybe
-DPLYR 'test_data %>% select(id, name, age, value) %>% filter(age >= 20) %>% arrange(desc(value))';
+test_data %>% select(id, name, age, value) %>% filter(age >= 20) %>% arrange(desc(value));
 
 -- Test 16: Full pipeline - all operations
 statement maybe
-DPLYR 'test_data %>% 
-       select(id, name, age, category, value) %>% 
-       filter(age >= 20) %>% 
+test_data %>%
+       select(id, name, age, category, value) %>%
+       filter(age >= 20) %>%
        mutate(value_category = case_when(value > 50 ~ "high", true ~ "low")) %>%
-       group_by(category, value_category) %>% 
+       group_by(category, value_category) %>%
        summarise(count = n(), avg_age = mean(age), total_value = sum(value)) %>%
-       arrange(desc(total_value))';
+       arrange(desc(total_value));
 
 -- =============================================================================
 -- R2-AC2: Standard SQL Integration Tests
 -- =============================================================================
 
--- Test 17: CTE with DPLYR
+-- Test 17: CTE with table function
 statement maybe
 WITH base_data AS (
     SELECT id, name, age, category FROM test_data WHERE active = true
 )
 SELECT * FROM dplyr('base_data %>% select(name, age) %>% filter(age > 20)');
 
--- Test 18: DPLYR in subquery
+-- Test 18: Pipeline in subquery via table function
 statement maybe
-SELECT 
+SELECT
     category,
     (SELECT COUNT(*) FROM dplyr('test_data %>% filter(category = ' || t.category || ') %>% select(id)')) as count_in_category
 FROM (SELECT DISTINCT category FROM test_data) t;
 
--- Test 19: JOIN with DPLYR results
+-- Test 19: JOIN with pipeline results via table function
 statement maybe
-SELECT 
+SELECT
     std.category,
     std.total_count,
     dplyr_result.avg_age
 FROM (
-    SELECT category, COUNT(*) as total_count 
-    FROM test_data 
+    SELECT category, COUNT(*) as total_count
+    FROM test_data
     GROUP BY category
 ) std
 LEFT JOIN (
@@ -158,23 +158,15 @@ LEFT JOIN (
 
 -- Test 20: Invalid dplyr syntax should return meaningful error
 statement error
-DPLYR 'invalid_function(test)';
-
--- Test 21: Empty dplyr code should return meaningful error
-statement error
-DPLYR '';
+test_data %>% invalid_function(test);
 
 -- Test 22: Malformed dplyr syntax should return meaningful error
 statement error
-DPLYR 'select(col1 col2)';  -- Missing comma
+test_data %>% select(col1 col2);  -- Missing comma
 
 -- Test 23: Unknown function should return meaningful error
 statement error
-DPLYR 'test_data %>% unknown_function(x)';
-
--- Test 24: NULL input handling
-statement error
-DPLYR NULL;
+test_data %>% unknown_function(x);
 
 -- =============================================================================
 -- Performance and Stability Tests (R6-AC1)
@@ -182,13 +174,13 @@ DPLYR NULL;
 
 -- Test 25: Moderately complex query for performance verification
 statement maybe
-DPLYR 'test_data %>% 
+test_data %>%
        select(id, name, age, category, value, active) %>%
        filter(active = true & age >= 19) %>%
        mutate(
            age_group = case_when(
                age < 20 ~ "teen",
-               age < 25 ~ "young_adult", 
+               age < 25 ~ "young_adult",
                true ~ "adult"
            ),
            value_rank = row_number(desc(value))
@@ -201,23 +193,23 @@ DPLYR 'test_data %>%
            max_value = max(value),
            total_value = sum(value)
        ) %>%
-       arrange(category, desc(total_value))';
+       arrange(category, desc(total_value));
 
 -- Test 26: Repeated execution for stability
 statement maybe
-DPLYR 'test_data %>% select(id, name) %>% filter(id <= 3)';
+test_data %>% select(id, name) %>% filter(id <= 3);
 
 statement maybe
-DPLYR 'test_data %>% select(id, name) %>% filter(id <= 3)';
+test_data %>% select(id, name) %>% filter(id <= 3);
 
 statement maybe
-DPLYR 'test_data %>% select(id, name) %>% filter(id <= 3)';
+test_data %>% select(id, name) %>% filter(id <= 3);
 
 -- =============================================================================
 -- R5-AC2: Keyword Collision Avoidance Tests
 -- =============================================================================
 
--- Test 27: Verify DPLYR keyword doesn't interfere with column names
+-- Test 27: Verify extension doesn't interfere with column names
 statement ok
 CREATE TABLE dplyr_test AS SELECT 1 as dplyr_column;
 
@@ -226,7 +218,7 @@ SELECT dplyr_column FROM dplyr_test;
 ----
 1
 
--- Test 28: Verify DPLYR keyword doesn't interfere with table names
+-- Test 28: Verify extension doesn't interfere with table names
 statement ok
 CREATE TABLE DPLYR AS SELECT 1 as test_col;
 
@@ -248,14 +240,14 @@ DROP TABLE DPLYR;
 
 -- Test 29: Same query multiple times (should benefit from caching)
 statement maybe
-DPLYR 'test_data %>% select(id, name, age) %>% filter(age > 20) %>% arrange(name)';
+test_data %>% select(id, name, age) %>% filter(age > 20) %>% arrange(name);
 
 statement maybe
-DPLYR 'test_data %>% select(id, name, age) %>% filter(age > 20) %>% arrange(name)';
+test_data %>% select(id, name, age) %>% filter(age > 20) %>% arrange(name);
 
 -- Test 30: Slightly different query (should not use cache)
 statement maybe
-DPLYR 'test_data %>% select(id, name, age) %>% filter(age > 21) %>% arrange(name)';
+test_data %>% select(id, name, age) %>% filter(age > 21) %>% arrange(name);
 
 -- =============================================================================
 -- R8-AC1: Version and Metadata Tests
@@ -288,8 +280,8 @@ All smoke tests completed
 -- This smoke test file covers:
 -- ✓ R4-AC2: Basic extension loading and functionality
 -- ✓ R1-AC2: Minimum operation set (select, filter, mutate, arrange, group_by, summarise)
--- ✓ R5-AC1: DPLYR keyword-based entry point
--- ✓ R2-AC1: Table function entry point  
+-- ✓ Implicit pipeline entry point (%>%)
+-- ✓ R2-AC1: Table function entry point
 -- ✓ R2-AC2: Standard SQL integration and mixing
 -- ✓ R1-AC3: Error handling with meaningful messages
 -- ✓ R7-AC3: Crash prevention (graceful error handling)

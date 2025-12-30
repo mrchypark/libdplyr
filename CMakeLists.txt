@@ -471,7 +471,7 @@ configure_file(
 enable_testing()
 
 # R4-AC2: Test configuration
-set(EXTENSION_BINARY_PATH "${CMAKE_BINARY_DIR}/extension/${DUCKDB_EXTENSION_NAME}/${DUCKDB_EXTENSION_NAME}.duckdb_extension")
+set(EXTENSION_BINARY_PATH "${CMAKE_BINARY_DIR}/${DUCKDB_EXTENSION_NAME}.duckdb_extension")
 set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
 
 # R4-AC2: Smoke test - basic extension loading
@@ -479,7 +479,7 @@ add_test(
     NAME smoke_test_load
     COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-        duckdb -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
+        duckdb -unsigned -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
 )
 set_tests_properties(smoke_test_load PROPERTIES TIMEOUT ${TEST_TIMEOUT})
 
@@ -490,7 +490,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_comprehensive
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb ":memory:" -c ".read ${CMAKE_SOURCE_DIR}/tests/smoke.sql"
+            duckdb -unsigned ":memory:" -c "
+                LOAD '${EXTENSION_BINARY_PATH}';
+                CREATE TABLE test_data AS SELECT i as id, (i % 5) + 18 as age FROM range(1, 6) as t(i);
+                -- Table function entry point (works in CLI scripts reliably)
+                SELECT * FROM dplyr('test_data %>% select(id) %>% arrange(id)');
+            "
     )
     set_tests_properties(smoke_test_comprehensive PROPERTIES
         TIMEOUT 120
@@ -502,19 +507,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_minimum_operations
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb ":memory:" -c "
+            duckdb -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_ops AS SELECT i as id, 'name_' || i as name, (i % 5) + 18 as age FROM range(1, 6) as t(i);
-                -- Test each minimum operation (may fail gracefully if not implemented)
-                .mode csv
-                .once /dev/null
-                SELECT 'Testing select operation' as test;
-                SELECT 'Testing filter operation' as test;
-                SELECT 'Testing mutate operation' as test;
-                SELECT 'Testing arrange operation' as test;
-                SELECT 'Testing group_by operation' as test;
-                SELECT 'Testing summarise operation' as test;
-                SELECT 'Minimum operations test completed' as result;
+                -- Test each minimum operation via table function entry point
+                SELECT * FROM dplyr('test_ops %>% select(id)');
+                SELECT * FROM dplyr('test_ops %>% filter(age > 20)');
+                SELECT * FROM dplyr('test_ops %>% mutate(age_plus_one = age + 1)');
+                SELECT * FROM dplyr('test_ops %>% arrange(desc(age))');
+                SELECT * FROM dplyr('test_ops %>% group_by(age) %>% summarise(count = n())');
             "
     )
     set_tests_properties(smoke_test_minimum_operations PROPERTIES
@@ -522,16 +523,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         LABELS "smoke;minimum_ops"
     )
 
-    # R5-AC1: DPLYR keyword entry point test
+    # Embedded pipeline entry point test
     add_test(
         NAME smoke_test_dplyr_keyword
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb ":memory:" -c "
+            duckdb -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_keyword AS SELECT 1 as id, 'test' as name;
-                -- Test DPLYR keyword (should fail gracefully if not implemented)
-                SELECT 'DPLYR keyword test completed' as result;
+                SELECT COUNT(*) FROM dplyr('test_keyword %>% select(id)') AS t;
             "
     )
     set_tests_properties(smoke_test_dplyr_keyword PROPERTIES

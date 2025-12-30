@@ -1,6 +1,6 @@
 @echo off
 REM DuckDB Extension Smoke Test Runner (Windows)
-REM 
+REM
 REM This script runs the smoke tests for the DuckDB dplyr extension
 REM Requirements: R4-AC2, R1-AC2
 
@@ -139,16 +139,16 @@ if %EXTENSION_LOAD_OK% equ 1 if %BASIC_SQL_OK% equ 1 (
     echo   3. Check for missing dependencies ^(libdplyr_c^)
     echo   4. Review build logs for errors
     echo.
-    echo If DPLYR functionality tests fail:
-    echo   1. This is expected if the extension is not fully implemented
-    echo   2. Check that errors are graceful ^(no crashes^)
+    echo If dplyr pipeline/table-function tests fail:
+    echo   1. Check the extension was loaded in this session
+    echo   2. Confirm the pipeline starts with a table name ^(e.g., my_table %%^>%% ...^)
     echo   3. Verify error messages include error codes ^(E-*^)
-    echo   4. Ensure the extension returns to DuckDB properly
+    echo   4. Ensure failures are graceful ^(no crashes^)
     echo.
     echo If standard SQL tests fail:
     echo   1. This indicates the extension interferes with DuckDB
     echo   2. Check parser extension implementation
-    echo   3. Verify keyword collision avoidance
+    echo   3. Verify parser collision avoidance
     echo   4. Review extension registration code
     echo.
     echo For debugging:

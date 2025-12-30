@@ -153,7 +153,7 @@ fn bench_extension_loading(c: &mut Criterion) {
                     .arg(":memory:")
                     .arg("-c")
                     .arg(format!(
-                        "LOAD '{}'; DPLYR 'select(1 as test)';",
+                        "LOAD '{}'; CREATE TABLE __dplyr_bench(x INTEGER); INSERT INTO __dplyr_bench VALUES (1); SELECT * FROM dplyr('__dplyr_bench %>% select(x)');",
                         extension_path
                     ))
                     .output();
@@ -337,7 +337,7 @@ mod extension_loading_tests {
             .arg(":memory:")
             .arg("-c")
             .arg(format!(
-                "LOAD '{}'; DPLYR 'select(1 as test_col)';",
+                "LOAD '{}'; CREATE TABLE __dplyr_test(test_col INTEGER); INSERT INTO __dplyr_test VALUES (1); SELECT * FROM dplyr('__dplyr_test %>% select(test_col)');",
                 extension_path
             ))
             .output()

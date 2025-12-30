@@ -1,6 +1,6 @@
 @echo off
 REM DuckDB Extension C++ Integration Test Runner (Windows)
-REM 
+REM
 REM This script runs the C++ integration tests for the DuckDB dplyr extension
 REM Requirements: R7-AC1, R7-AC3, R2-AC2, R5-AC1
 
@@ -159,7 +159,7 @@ if !PASSED_TESTS! equ !TOTAL_TESTS! (
     echo   ✓ R7-AC3: Crash prevention and error handling
     echo   ✓ R2-AC2: Standard SQL integration and mixing
     echo   ✓ R4-AC2: Smoke tests for basic functionality
-    echo   ✓ R5-AC1: DPLYR keyword-based entry point
+    echo   ✓ R5-AC1: %%^>%% pipeline-based entry point
     exit /b 0
 ) else (
     echo ✗ Some test categories failed (!PASSED_TESTS!/!TOTAL_TESTS! passed)

@@ -1,6 +1,6 @@
 #!/bin/bash
 # DuckDB Extension Smoke Test Runner
-# 
+#
 # This script runs the smoke tests for the DuckDB dplyr extension
 # Requirements: R4-AC2, R1-AC2
 
@@ -73,7 +73,7 @@ run_smoke_tests() {
     echo "Extension path: $EXTENSION_PATH"
     echo "Test file: $SMOKE_TEST_FILE"
     echo ""
-    
+
     # Run the smoke tests with timeout
     if timeout "$TEST_TIMEOUT" duckdb "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
         echo ""
@@ -95,31 +95,31 @@ run_smoke_tests() {
 analyze_results() {
     echo ""
     echo -e "${BLUE}Analyzing test results...${NC}"
-    
+
     # Count different types of test outcomes
     local total_tests=0
     local passed_tests=0
     local failed_tests=0
     local maybe_tests=0
-    
+
     # Parse the smoke.sql file to count tests
     while IFS= read -r line; do
         if [[ $line =~ ^--\ Test\ [0-9]+: ]]; then
             ((total_tests++))
         fi
     done < "$SMOKE_TEST_FILE"
-    
+
     echo "Total test cases defined: $total_tests"
-    
+
     # Provide guidance based on current implementation status
     echo ""
     echo -e "${YELLOW}Note: Test results depend on implementation status:${NC}"
     echo "  • Extension loading tests should PASS"
-    echo "  • DPLYR functionality tests may FAIL gracefully (not implemented yet)"
+    echo "  • dplyr pipeline/table-function tests should PASS"
     echo "  • Error handling tests should return meaningful error messages"
     echo "  • Standard SQL tests should PASS (no interference)"
     echo ""
-    
+
     # Check if extension loaded successfully by looking for specific patterns
     if duckdb "$TEMP_DB" -c "LOAD '$EXTENSION_PATH'; SELECT 'Extension loaded' as status;" 2>/dev/null | grep -q "Extension loaded"; then
         echo -e "${GREEN}✓ Extension loading: SUCCESS${NC}"
@@ -127,7 +127,7 @@ analyze_results() {
         echo -e "${RED}✗ Extension loading: FAILED${NC}"
         return 1
     fi
-    
+
     # Test basic SQL functionality
     if duckdb "$TEMP_DB" -c "SELECT 1 as test;" 2>/dev/null | grep -q "1"; then
         echo -e "${GREEN}✓ Basic SQL functionality: SUCCESS${NC}"
@@ -135,7 +135,7 @@ analyze_results() {
         echo -e "${RED}✗ Basic SQL functionality: FAILED${NC}"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -144,28 +144,28 @@ provide_guidance() {
     echo ""
     echo -e "${BLUE}Troubleshooting Guidance:${NC}"
     echo ""
-    
+
     echo "If extension loading fails:"
     echo "  1. Check that the extension was built successfully"
     echo "  2. Verify DuckDB version compatibility"
     echo "  3. Check for missing dependencies (libdplyr_c)"
     echo "  4. Review build logs for errors"
     echo ""
-    
-    echo "If DPLYR functionality tests fail:"
-    echo "  1. This is expected if the extension is not fully implemented"
-    echo "  2. Check that errors are graceful (no crashes)"
+
+    echo "If dplyr pipeline/table-function tests fail:"
+    echo "  1. Check the extension was loaded in this session"
+    echo "  2. Confirm the pipeline starts with a table name (e.g., my_table %>% ...)"
     echo "  3. Verify error messages include error codes (E-*)"
-    echo "  4. Ensure the extension returns to DuckDB properly"
+    echo "  4. Ensure failures are graceful (no crashes)"
     echo ""
-    
+
     echo "If standard SQL tests fail:"
     echo "  1. This indicates the extension interferes with DuckDB"
     echo "  2. Check parser extension implementation"
-    echo "  3. Verify keyword collision avoidance"
+    echo "  3. Verify parser collision avoidance"
     echo "  4. Review extension registration code"
     echo ""
-    
+
     echo "For debugging:"
     echo "  • Set DPLYR_DEBUG=1 for verbose logging"
     echo "  • Use 'duckdb -c \"LOAD '$EXTENSION_PATH'; .help\"' to test loading"

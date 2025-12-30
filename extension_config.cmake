@@ -319,7 +319,8 @@ set(EXTENSION_PRIORITY "normal")     # Loading priority
 
 # R8-AC1: Extension entry points (from R2-AC1)
 set(EXTENSION_ENTRY_POINTS
-    "DPLYR keyword"             # Primary parser extension entry point
+    "implicit pipeline (%>%)"   # Parser extension entry point
+    "embedded pipeline (| |)"   # Pipeline embedding inside normal SQL
     "dplyr() table function"    # Optional table function entry point
 )
 

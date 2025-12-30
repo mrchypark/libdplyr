@@ -30,6 +30,7 @@
 #include <cctype> // for ::tolower
 #include <vector>
 #include <chrono> // for timestamps
+#include <ctime> // for localtime_r/localtime_s
 #include <iomanip> // for std::put_time
 #include <optional>
 
@@ -310,8 +311,13 @@ public:
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             now.time_since_epoch()) % 1000;
         
+        std::tm tm_snapshot{};
+        if (!try_get_local_time(time_t, tm_snapshot)) {
+            tm_snapshot = {};
+        }
+
         std::stringstream timestamp;
-        timestamp << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+        timestamp << std::put_time(&tm_snapshot, "%Y-%m-%d %H:%M:%S");
         timestamp << "." << std::setfill('0') << std::setw(3) << ms.count();
         
         string level_str = log_level_to_string(level);
@@ -407,6 +413,14 @@ public:
     }
 
 private:
+    static bool try_get_local_time(std::time_t t, std::tm &out) {
+#ifdef _WIN32
+        return localtime_s(&out, &t) == 0;
+#else
+        return localtime_r(&t, &out) != nullptr;
+#endif
+    }
+
     /**
      * @brief Convert log level to string
      * 
@@ -700,197 +714,6 @@ private:
     }
 };
 
-/**
- * @brief Keyword processor for DPLYR syntax validation
- * 
- * Implements R5-AC2: Keyword validation and false positive prevention
- * Implements R5-AC3: Clear error reporting on validation failure
- */
-class DplyrKeywordProcessor {
-public:
-    /**
-     * @brief Validate DPLYR keyword and extract code from SQL string
-     * 
-     * @param sql_string The complete SQL string to parse
-     * @return Extracted dplyr code string
-     * @throws ParserException if validation fails
-     */
-    static string validate_and_extract_from_string(const string& sql_string) {
-        // R5-AC1: Simple string-based parsing for DPLYR keyword
-        // Look for pattern: DPLYR 'code'
-        
-        // Trim whitespace and convert to uppercase for comparison
-        string trimmed = sql_string;
-        StringUtil::Trim(trimmed);
-        string upper_sql = StringUtil::Upper(trimmed);
-        
-        // Check if it starts with DPLYR
-        if (!StringUtil::StartsWith(upper_sql, "DPLYR")) {
-            throw ParserException("Expected DPLYR keyword at start of statement");
-        }
-        
-        // Find the start of the string literal
-        size_t quote_start = trimmed.find('\'', 5); // Start after "DPLYR"
-        if (quote_start == string::npos) {
-            throw ParserException("DPLYR keyword must be followed by a string literal containing dplyr code");
-        }
-        
-        // Find the end of the string literal
-        size_t quote_end = trimmed.find('\'', quote_start + 1);
-        if (quote_end == string::npos) {
-            throw ParserException("Unterminated string literal in DPLYR statement");
-        }
-        
-        // Extract the dplyr code
-        string dplyr_code = trimmed.substr(quote_start + 1, quote_end - quote_start - 1);
-        
-        // Handle escaped quotes in the string
-        dplyr_code = StringUtil::Replace(dplyr_code, "''", "'");
-        
-        // R5-AC2: Comprehensive validation of dplyr code content
-        validate_dplyr_code_content(dplyr_code);
-        
-        return dplyr_code;
-    }
-    
-    /**
-     * @brief Perform pre-validation of dplyr code (R5-AC2)
-     * 
-     * @param code dplyr code to validate
-     * @return true if validation passes, false otherwise
-     */
-    static bool pre_validate_dplyr_code(const string& code) {
-        try {
-            validate_dplyr_code_content(code);
-            return true;
-        } catch (const ParserException&) {
-            return false;
-        }
-    }
-
-private:
-    /**
-     * @brief Validate dplyr code content for basic correctness
-     * 
-     * @param code Code string to validate
-     * @throws ParserException if validation fails
-     */
-    static void validate_dplyr_code_content(const string& code) {
-        // R5-AC2: Basic validation of dplyr code content
-        if (code.empty()) {
-            DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::PARSER, 
-                "Empty DPLYR string literal");
-            throw ParserException("DPLYR string literal cannot be empty");
-        }
-        
-        DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::PARSER, 
-            "Validating dplyr code: " + std::to_string(code.length()) + " characters");
-        
-        // Check for minimum length (prevent trivial inputs)
-        if (code.length() < 3) {
-            throw ParserException("DPLYR code too short - must contain valid dplyr operations");
-        }
-        
-        // Check for maximum length (DoS prevention)
-        if (code.length() > dplyr_max_input_length()) {
-            throw ParserException("DPLYR code too long - exceeds maximum input length of " + 
-                                std::to_string(dplyr_max_input_length()) + " characters");
-        }
-        
-        // Check for suspicious patterns that might indicate SQL injection attempts
-        if (contains_suspicious_patterns(code)) {
-            throw ParserException("DPLYR code contains suspicious patterns - use proper dplyr syntax");
-        }
-        
-        // Warn if no dplyr patterns detected (but don't fail - let transpiler handle it)
-        if (!contains_dplyr_patterns(code)) {
-            // Log warning in debug mode
-            const char* debug_env = std::getenv("DPLYR_DEBUG");
-            if (debug_env && (std::string(debug_env) == "1" || std::string(debug_env) == "true")) {
-                dplyr_cache_log_stats("DPLYR_WARNING: No common dplyr patterns detected in input");
-            }
-        }
-    }
-    
-    /**
-     * @brief Check if string contains common dplyr patterns
-     * 
-     * @param code Code string to check
-     * @return true if likely dplyr code, false otherwise
-     */
-    static bool contains_dplyr_patterns(const string& code) {
-        // Look for common dplyr functions or pipe operator
-        return code.find("%>%") != string::npos ||
-               code.find("select(") != string::npos ||
-               code.find("filter(") != string::npos ||
-               code.find("mutate(") != string::npos ||
-               code.find("arrange(") != string::npos ||
-               code.find("summarise(") != string::npos ||
-               code.find("summarize(") != string::npos ||
-               code.find("group_by(") != string::npos ||
-               code.find("slice(") != string::npos ||
-               code.find("distinct(") != string::npos ||
-               code.find("rename(") != string::npos ||
-               code.find("left_join(") != string::npos ||
-               code.find("right_join(") != string::npos ||
-               code.find("inner_join(") != string::npos ||
-               code.find("full_join(") != string::npos;
-    }
-    
-    /**
-     * @brief Check for suspicious patterns that might indicate attacks
-     * 
-     * @param code Code string to check
-     * @return true if suspicious patterns found, false otherwise
-     */
-    static bool contains_suspicious_patterns(const string& code) {
-        // Convert to lowercase for case-insensitive checking
-        string lower_code = code;
-        std::transform(lower_code.begin(), lower_code.end(), lower_code.begin(), ::tolower);
-        
-        // Check for SQL injection patterns
-        vector<string> suspicious_patterns = {
-            "drop table", "drop database", "delete from", "truncate",
-            "insert into", "update set", "create table", "alter table",
-            "union select", "union all", "information_schema",
-            "pg_", "mysql.", "sqlite_", "sys.", "master.",
-            "xp_", "sp_", "exec(", "execute(",
-            "script", "<script", "javascript:", "vbscript:",
-            "onload=", "onerror=", "onclick=",
-            "eval(", "settimeout(", "setinterval(",
-            "document.", "window.", "alert(",
-            "/*", "*/", "--", "@@", "char(",
-            "waitfor delay", "benchmark(", "sleep(",
-            "load_file(", "into outfile", "into dumpfile"
-        };
-        
-        for (const auto& pattern : suspicious_patterns) {
-            if (lower_code.find(pattern) != string::npos) {
-                return true;
-            }
-        }
-        
-        // Check for excessive special characters that might indicate obfuscation
-        size_t special_char_count = 0;
-        for (char c : code) {
-            if (!std::isalnum(c) && !std::isspace(c) && 
-                c != '(' && c != ')' && c != ',' && c != '.' && 
-                c != '_' && c != '%' && c != '>' && c != '=' && 
-                c != '"' && c != '\'' && c != '+' && c != '-' && 
-                c != '*' && c != '/' && c != '<' && c != '!') {
-                special_char_count++;
-            }
-        }
-        
-        // If more than 20% of characters are suspicious special characters
-        if (code.length() > 0 && (special_char_count * 100 / code.length()) > 20) {
-            return true;
-        }
-        
-        return false;
-    }
-};
-
 // DplyrParseData and DplyrState are defined in the header
 
 static string TranspileDplyrCode(const string& dplyr_code) {
@@ -955,37 +778,141 @@ static string ExtractLeadingTableName(const string& dplyr_code) {
     return valid ? prefix : "";
 }
 
+static string StripTrailingSemicolon(string input) {
+    StringUtil::Trim(input);
+    while (!input.empty() && input.back() == ';') {
+        input.pop_back();
+        StringUtil::Trim(input);
+    }
+    return input;
+}
+
+static bool FindEmbeddedStartMarker(const string& query, size_t from, size_t &marker_start, size_t &content_start) {
+    for (size_t i = from; i < query.size(); i++) {
+        if (query[i] != '(') {
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < query.size() && std::isspace(static_cast<unsigned char>(query[j]))) {
+            j++;
+        }
+        if (j < query.size() && query[j] == '|') {
+            marker_start = i;
+            content_start = j + 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool FindEmbeddedEndMarker(const string& query, size_t from, size_t &content_end, size_t &marker_end) {
+    for (size_t i = from; i < query.size(); i++) {
+        if (query[i] != '|') {
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < query.size() && std::isspace(static_cast<unsigned char>(query[j]))) {
+            j++;
+        }
+        if (j < query.size() && query[j] == ')') {
+            content_end = i;
+            marker_end = j;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool ContainsEmbeddedPipelines(const string& query) {
+    size_t marker_start = 0;
+    size_t content_start = 0;
+    return FindEmbeddedStartMarker(query, 0, marker_start, content_start);
+}
+
+static string ReplaceEmbeddedPipelines(const string& query) {
+    string output;
+    output.reserve(query.size());
+
+    size_t cursor = 0;
+    while (cursor < query.size()) {
+        size_t marker_start = 0;
+        size_t content_start = 0;
+        if (!FindEmbeddedStartMarker(query, cursor, marker_start, content_start)) {
+            output.append(query.substr(cursor));
+            break;
+        }
+
+        output.append(query.substr(cursor, marker_start - cursor));
+
+        size_t content_end = 0;
+        size_t marker_end = 0;
+        if (!FindEmbeddedEndMarker(query, content_start, content_end, marker_end)) {
+            throw ParserException("Unterminated embedded dplyr segment: expected '|)'");
+        }
+
+        string embedded = query.substr(content_start, content_end - content_start);
+        StringUtil::Trim(embedded);
+        embedded = StripTrailingSemicolon(std::move(embedded));
+
+        if (embedded.empty()) {
+            throw ParserException("Embedded dplyr segment cannot be empty");
+        }
+        if (embedded.find("%>%") == string::npos) {
+            throw ParserException("Embedded dplyr segment must contain a %>% pipeline");
+        }
+
+        auto table_name = ExtractLeadingTableName(embedded);
+        if (table_name.empty()) {
+            throw ParserException("DPLYR pipeline must start with a table name");
+        }
+
+        DplyrInputValidator::validate_input_security(embedded);
+        auto sql = TranspileDplyrCode(embedded);
+
+        output.append("(");
+        output.append(sql);
+        output.append(")");
+
+        cursor = marker_end + 1;
+    }
+
+    return output;
+}
+
 ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& query) {
     
     string trimmed = query;
     StringUtil::Trim(trimmed);
-    string upper_sql = StringUtil::Upper(trimmed);
-
-    bool has_keyword = StringUtil::StartsWith(upper_sql, "DPLYR");
     bool looks_like_pipeline = trimmed.find("%>%") != string::npos;
     
-    if (!has_keyword && !looks_like_pipeline) {
+    if (!looks_like_pipeline) {
         return ParserExtensionParseResult(); // Not for this extension
     }
 
     try {
-        string dplyr_code;
-        if (has_keyword) {
-            dplyr_code = DplyrKeywordProcessor::validate_and_extract_from_string(trimmed);
-        } else {
-            if (trimmed.empty()) {
-                return ParserExtensionParseResult("DPLYR pipeline cannot be empty");
-            }
-            dplyr_code = trimmed;
+        if (trimmed.empty()) {
+            return ParserExtensionParseResult("DPLYR pipeline cannot be empty");
         }
 
-        DplyrInputValidator::validate_input_security(dplyr_code);
-        string table_hint = ExtractLeadingTableName(dplyr_code);
-        string sql = TranspileDplyrCode(dplyr_code);
-        
-        if (!table_hint.empty()) {
-            string quoted = "\"" + table_hint + "\"";
-            sql = StringUtil::Replace(sql, "\"data\"", quoted);
+        const bool has_embedded = ContainsEmbeddedPipelines(trimmed);
+
+        string sql;
+        if (has_embedded) {
+            sql = ReplaceEmbeddedPipelines(trimmed);
+            if (sql.find("%>%") != string::npos) {
+                return ParserExtensionParseResult(
+                    "Unprocessed %>% pipeline remains. Wrap pipelines with (| ... |) or provide a pure pipeline statement.");
+            }
+        } else {
+            string dplyr_code = StripTrailingSemicolon(trimmed);
+
+            auto table_name = ExtractLeadingTableName(dplyr_code);
+            if (table_name.empty()) {
+                return ParserExtensionParseResult("DPLYR pipeline must start with a table name");
+            }
+
+            DplyrInputValidator::validate_input_security(dplyr_code);
+            sql = TranspileDplyrCode(dplyr_code);
         }
 
         Parser parser;
@@ -1068,16 +995,12 @@ struct DplyrTableFunctionData : public TableFunctionData {
     string sql;
     vector<string> names;
     vector<LogicalType> types;
-    unique_ptr<ColumnDataCollection> collection;
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<DplyrTableFunctionData>();
         copy->sql = sql;
         copy->names = names;
         copy->types = types;
-        if (collection) {
-            copy->collection = make_uniq<ColumnDataCollection>(*collection);
-        }
         return copy;
     }
 
@@ -1088,7 +1011,8 @@ struct DplyrTableFunctionData : public TableFunctionData {
 };
 
 struct DplyrTableFunctionState : public GlobalTableFunctionState {
-    explicit DplyrTableFunctionState(ColumnDataCollection &collection_p) : collection(&collection_p) {
+    explicit DplyrTableFunctionState(unique_ptr<ColumnDataCollection> collection_p)
+        : collection(std::move(collection_p)) {
         collection->InitializeScan(scan_state);
     }
 
@@ -1096,7 +1020,7 @@ struct DplyrTableFunctionState : public GlobalTableFunctionState {
         return 1;
     }
 
-    ColumnDataCollection *collection;
+    unique_ptr<ColumnDataCollection> collection;
     ColumnDataScanState scan_state;
 };
 
@@ -1107,106 +1031,59 @@ static string GetDplyrQuery(const TableFunctionBindInput &input) {
     return StringValue::Get(input.inputs[0]);
 }
 
-static std::optional<string> SimpleMutateFallback(const string &dplyr_code) {
-    auto pipe_pos = dplyr_code.find("%>%");
-    if (pipe_pos == string::npos) {
-        return {};
-    }
-
-    auto mutate_pos = dplyr_code.find("mutate", pipe_pos);
-    if (mutate_pos == string::npos) {
-        return {};
-    }
-
-    auto open = dplyr_code.find('(', mutate_pos);
-    auto close = dplyr_code.rfind(')');
-    if (open == string::npos || close == string::npos || close <= open + 1) {
-        return {};
-    }
-
-    auto base_sql = dplyr_code.substr(0, pipe_pos);
-    auto mutate_body = dplyr_code.substr(open + 1, close - open - 1);
-    StringUtil::Trim(base_sql);
-    StringUtil::Trim(mutate_body);
-    if (base_sql.empty() || mutate_body.empty()) {
-        return {};
-    }
-
-    auto equal_pos = mutate_body.find('=');
-    if (equal_pos != string::npos) {
-        auto lhs = mutate_body.substr(0, equal_pos);
-        auto rhs = mutate_body.substr(equal_pos + 1);
-        StringUtil::Trim(lhs);
-        StringUtil::Trim(rhs);
-        if (!lhs.empty() && !rhs.empty()) {
-            mutate_body = rhs + " AS " + lhs;
-        }
-    }
-
-    string sql = "WITH dplyr_base AS (" + base_sql + ") SELECT dplyr_base.*, " + mutate_body + " FROM dplyr_base";
-    return sql;
-}
-
 static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
-    auto dplyr_code = GetDplyrQuery(input);
+    auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
+    DplyrInputValidator::validate_input_security(dplyr_code);
+
+    auto table_name = ExtractLeadingTableName(dplyr_code);
+    if (table_name.empty()) {
+        throw InvalidInputException("dplyr() pipeline must start with a table name");
+    }
+
     auto &db = DatabaseInstance::GetDatabase(context);
     Connection conn(db);
-    string sql;
-    string error_message;
 
-    auto run_query = [&](const string &query) -> unique_ptr<QueryResult> {
-        auto res = conn.Query(query);
-        if (res->HasError()) {
-            error_message = res->GetError();
-            return nullptr;
-        }
-        return res;
-    };
+    string sql = TranspileDplyrCode(dplyr_code);
 
-    // Try full transpilation first
-    try {
-        sql = TranspileDplyrCode(dplyr_code);
-    } catch (const std::exception &ex) {
-        error_message = ex.what();
+    // Bind should be lightweight: infer schema without materializing rows.
+    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
+    auto schema_result = conn.Query(schema_query);
+    if (schema_result->HasError()) {
+        throw InvalidInputException(
+            "dplyr() schema inference failed: %s",
+            schema_result->GetError().c_str());
     }
 
-    auto result = sql.empty() ? nullptr : run_query(sql);
-
-    // Fallback: simple mutate-only pipeline if transpilation failed
-    if (!result) {
-        auto fallback_sql = SimpleMutateFallback(dplyr_code);
-        if (!fallback_sql) {
-            throw InvalidInputException("dplyr() failed to transpile or execute: %s", error_message.c_str());
-        }
-        sql = *fallback_sql;
-        error_message.clear();
-        result = run_query(sql);
-        if (!result) {
-            throw InvalidInputException("dplyr() fallback failed to execute: %s", error_message.c_str());
-        }
-    }
-
-    auto &materialized = result->Cast<MaterializedQueryResult>();
-    auto collection = materialized.TakeCollection();
+    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
 
     auto bind_data = make_uniq<DplyrTableFunctionData>();
     bind_data->sql = sql;
     bind_data->names = materialized.names;
     bind_data->types = materialized.types;
-    bind_data->collection = std::move(collection);
 
     names = bind_data->names;
     return_types = bind_data->types;
     return bind_data;
 }
 
-static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &, TableFunctionInitInput &input) {
+static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {
     auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
-    if (!data.collection) {
-        throw InternalException("dplyr() bind data missing result collection");
+    auto &db = DatabaseInstance::GetDatabase(context);
+    Connection conn(db);
+
+    auto result = conn.Query(data.sql);
+    if (result->HasError()) {
+        throw InvalidInputException("dplyr() failed to execute: %s", result->GetError().c_str());
     }
-    return make_uniq<DplyrTableFunctionState>(*data.collection);
+
+    auto &materialized = result->Cast<MaterializedQueryResult>();
+    auto collection = materialized.TakeCollection();
+    if (!collection) {
+        throw InternalException("dplyr() execution returned no result collection");
+    }
+
+    return make_uniq<DplyrTableFunctionState>(std::move(collection));
 }
 
 static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output) {
