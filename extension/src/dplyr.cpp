@@ -714,7 +714,7 @@ private:
     }
 };
 
-// DplyrParseData and DplyrState are defined in the header
+// DplyrParseData is defined in the header
 
 static string TranspileDplyrCode(const string& dplyr_code) {
     char* sql_output = nullptr;
@@ -921,9 +921,14 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& quer
         if (parser.statements.empty()) {
             return ParserExtensionParseResult("DPLYR generated SQL could not be parsed");
         }
+        if (parser.statements.size() != 1) {
+            return ParserExtensionParseResult("DPLYR generated multiple SQL statements; only a single statement is supported");
+        }
+        if (parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
+            return ParserExtensionParseResult("DPLYR generated a non-SELECT statement; only SELECT is supported");
+        }
 
-        return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(
-            std::move(parser.statements[0])));
+        return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(std::move(sql)));
     } catch (const Exception& ex) {
         return ParserExtensionParseResult(ex.what());
     } catch (const std::exception& ex) {
@@ -935,55 +940,32 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& quer
 
 // (Removed duplicate Load implementation)
 
+static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output);
+static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
+                                                  vector<LogicalType> &return_types, vector<string> &names);
+static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
+
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& context,
                                      unique_ptr<ParserExtensionParseData> parse_data) {
-    auto state = make_shared_ptr<DplyrState>(std::move(parse_data));
-    context.registered_state->Remove("dplyr");
-    context.registered_state->Insert("dplyr", state);
-    throw BinderException("Use dplyr_bind instead");
-}
-
-BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtensionInfo *,
-                          SQLStatement& statement) {
-    
-    if (statement.type == StatementType::EXTENSION_STATEMENT) {
-        // Use static_cast instead of dynamic_cast to avoid ABI issues
-        // Type is already verified by statement.type check
-        auto& extension_statement = static_cast<ExtensionStatement&>(statement);
-        
-        if (extension_statement.extension.parse_function == dplyr_parse) {
-            
-            auto lookup = context.registered_state->Get<DplyrState>("dplyr");
-            if (lookup) {
-                auto dplyr_state = (DplyrState*)lookup.get();
-                auto dplyr_binder = Binder::CreateBinder(context, &binder);
-                auto dplyr_parse_data = static_cast<DplyrParseData*>(dplyr_state->parse_data.get());
-                return dplyr_binder->Bind(*dplyr_parse_data->statement);
-            }
-            throw BinderException("Registered DPLYR state not found");
-        }
+    if (!parse_data) {
+        throw InternalException("DPLYR plan called without parse data");
     }
-    return {};
-}
 
-// Implementations for DplyrState
-// (Already defined in header, so we don't need to redefine the class here)
-// But wait, DplyrState is a class, so we can implement its methods if they are not inline.
-// In the header, I defined it inline. So I should remove the redefinition here.
+    auto *dplyr_data = static_cast<DplyrParseData *>(parse_data.get());
+
+    ParserExtensionPlanResult result;
+    result.function = TableFunction("dplyr_query", {LogicalType::VARCHAR}, DplyrTableFunction, DplyrSqlTableBind,
+                                    DplyrTableInit);
+    result.parameters.emplace_back(dplyr_data->sql);
+    result.requires_valid_transaction = true;
+    result.return_type = StatementReturnType::QUERY_RESULT;
+    return result;
+}
 
 // Implementations for DplyrParserExtension
 DplyrParserExtension::DplyrParserExtension() : ParserExtension() {
     parse_function = dplyr_parse;
     plan_function = dplyr_plan;
-}
-
-// Implementations for DplyrOperatorExtension
-DplyrOperatorExtension::DplyrOperatorExtension() : OperatorExtension() {
-    Bind = dplyr_bind;
-}
-
-unique_ptr<LogicalExtensionOperator> DplyrOperatorExtension::Deserialize(Deserializer &) {
-    throw InternalException("dplyr operator should not be serialized");
 }
 
 struct DplyrTableFunctionData : public TableFunctionData {
@@ -1062,6 +1044,39 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
     return bind_data;
 }
 
+static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
+                                                  vector<LogicalType> &return_types, vector<string> &names) {
+    if (input.inputs.empty() || input.inputs[0].IsNull()) {
+        throw InvalidInputException("dplyr_query() requires a non-null SQL string");
+    }
+
+    string sql = StringValue::Get(input.inputs[0]);
+    sql = StripTrailingSemicolon(std::move(sql));
+    if (sql.empty()) {
+        throw InvalidInputException("dplyr_query() requires a non-empty SQL string");
+    }
+
+    auto &db = DatabaseInstance::GetDatabase(context);
+    Connection conn(db);
+
+    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
+    auto schema_result = conn.Query(schema_query);
+    if (schema_result->HasError()) {
+        throw InvalidInputException("dplyr_query() schema inference failed: %s", schema_result->GetError().c_str());
+    }
+
+    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
+
+    auto bind_data = make_uniq<DplyrTableFunctionData>();
+    bind_data->sql = std::move(sql);
+    bind_data->names = materialized.names;
+    bind_data->types = materialized.types;
+
+    names = bind_data->names;
+    return_types = bind_data->types;
+    return bind_data;
+}
+
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {
     auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
     auto &db = DatabaseInstance::GetDatabase(context);
@@ -1094,7 +1109,6 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);
     config.parser_extensions.push_back(DplyrParserExtension());
-    config.operator_extensions.push_back(make_uniq<DplyrOperatorExtension>());
     
     TableFunction dplyr_function("dplyr",
         {LogicalType::VARCHAR},
