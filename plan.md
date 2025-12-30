@@ -12,3 +12,9 @@ Tasks/Tests:
 - [x] Verify: Configure the project locally to confirm the Rust toolchain detection no longer errors.
 - [x] Metadata: Align extension compatibility metadata (min/tested versions, public header) to DuckDB v1.4.2 baseline.
 - [x] Verify: Reconfigure CMake to confirm the compatibility banner reports 1.4.2.
+- [x] ParserExtension: Trigger only on `%>%` (remove `DPLYR '...'` keyword entry).
+- [x] ParserExtension: Support embedded pipelines using `(| ... |)` replacement inside normal SQL.
+- [x] Extension: Require explicit table name (no `"data"` placeholder/rewrite).
+- [x] Extension: Make debug logger timestamp thread-safe.
+- [x] Table function: Defer materialization (bind only infers schema; init executes).
+- [x] Table function: Remove unsafe/incorrect fallback SQL path.
