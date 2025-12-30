@@ -56,12 +56,27 @@ fi
 
 # Check if extension is built
 EXTENSION_BUILT=false
-if [ -f "build/dplyr.duckdb_extension" ] || [ -f "build/Release/dplyr.duckdb_extension" ]; then
-    EXTENSION_BUILT=true
-    echo -e "${GREEN}✅ Extension binary found${NC}"
+EXTENSION_FILE=""
+for candidate in \
+    "build/dplyr.duckdb_extension" \
+    "build/Release/dplyr.duckdb_extension" \
+    "build/Debug/dplyr.duckdb_extension" \
+    "build/release/extension/dplyr/dplyr.duckdb_extension" \
+    "build/debug/extension/dplyr/dplyr.duckdb_extension"
+do
+    if [ -f "$candidate" ]; then
+        EXTENSION_FILE="$candidate"
+        EXTENSION_BUILT=true
+        break
+    fi
+done
+
+if [ "$EXTENSION_BUILT" = true ]; then
+    echo -e "${GREEN}✅ Extension binary found (${EXTENSION_FILE})${NC}"
 else
     echo -e "${YELLOW}⚠️ Extension binary not found - extension loading tests will be skipped${NC}"
     echo "Build the extension first with: cmake --build build --config Release"
+    echo "Or build via Makefile target: make release"
 fi
 
 echo -e "${GREEN}✅ Pre-flight checks completed${NC}"
@@ -120,6 +135,7 @@ fi
 # Run extension loading benchmarks (if possible)
 if [ "$DUCKDB_AVAILABLE" = true ] && [ "$EXTENSION_BUILT" = true ]; then
     echo "Running extension loading benchmarks..."
+    export DPLYR_EXTENSION_FILE="${EXTENSION_FILE}"
     if cargo bench --bench extension_loading_benchmark -- --output-format html; then
         echo -e "${GREEN}✅ Extension loading benchmarks completed${NC}"
     else
@@ -136,13 +152,13 @@ fi
 if [ "$GENERATE_REPORTS" = true ]; then
     echo -e "\n${BLUE}📈 Generating Reports${NC}"
     echo "---------------------"
-    
+
     # Copy benchmark results
     if [ -d "target/criterion" ]; then
         cp -r target/criterion "../${OUTPUT_DIR}/"
         echo -e "${GREEN}✅ Benchmark results copied to ${OUTPUT_DIR}/criterion${NC}"
     fi
-    
+
     # Generate summary report
     cat > "../${OUTPUT_DIR}/performance-summary.md" << EOF
 # Performance Test Summary
@@ -188,7 +204,7 @@ fi)
 The benchmarks validate that the implementation meets all performance requirements:
 
 1. **R6-AC1 Simple Query Target (<2ms P95)**: ✅
-   - All simple operations (select, filter, mutate, arrange, group_by, summarise) 
+   - All simple operations (select, filter, mutate, arrange, group_by, summarise)
    - Consistently under target across different query patterns
 
 2. **R6-AC1 Complex Query Target (<15ms P95)**: ✅
@@ -212,7 +228,7 @@ The benchmarks validate that the implementation meets all performance requiremen
 - Validate performance under concurrent load in production
 
 EOF
-    
+
     echo -e "${GREEN}✅ Performance summary generated${NC}"
 fi
 
@@ -229,11 +245,11 @@ CURRENT_RESULTS="../${OUTPUT_DIR}/current-results.json"
 
 if [ -f "$PREVIOUS_RESULTS" ]; then
     echo "Comparing with previous results..."
-    
+
     # Extract key metrics from current run (simplified)
     # In a real implementation, you'd parse the Criterion JSON output
     echo '{"simple_query_p95_ms": 1.5, "complex_query_p95_ms": 12.0, "extension_loading_p95_ms": 35.0}' > "$CURRENT_RESULTS"
-    
+
     # Simple comparison (in practice, you'd use a proper JSON parser)
     echo "Performance comparison:"
     echo "- Current results saved to: $CURRENT_RESULTS"

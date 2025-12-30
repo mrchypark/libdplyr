@@ -8,6 +8,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use std::path::Path;
+use std::{env, path::PathBuf};
 
 // R6-AC1: Extension loading target <50ms
 #[allow(dead_code)]
@@ -15,14 +16,24 @@ const EXTENSION_LOADING_TARGET_MS: f64 = 50.0;
 
 // Helper function to find the extension binary
 fn find_extension_binary() -> Option<String> {
+    if let Ok(path) = env::var("DPLYR_EXTENSION_FILE") {
+        if Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
     // Common build paths
     let possible_paths = [
         "build/dplyr.duckdb_extension",
         "build/Release/dplyr.duckdb_extension",
         "build/Debug/dplyr.duckdb_extension",
+        "build/release/extension/dplyr/dplyr.duckdb_extension",
+        "build/debug/extension/dplyr/dplyr.duckdb_extension",
         "../build/dplyr.duckdb_extension",
         "../build/Release/dplyr.duckdb_extension",
         "../build/Debug/dplyr.duckdb_extension",
+        "../build/release/extension/dplyr/dplyr.duckdb_extension",
+        "../build/debug/extension/dplyr/dplyr.duckdb_extension",
         "target/debug/build/libdplyr_c-*/out/dplyr.duckdb_extension",
         "target/release/build/libdplyr_c-*/out/dplyr.duckdb_extension",
     ];
@@ -38,6 +49,20 @@ fn find_extension_binary() -> Option<String> {
         for path in entries.flatten() {
             if path.exists() {
                 return Some(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    for pattern in [
+        "../build/**/dplyr.duckdb_extension",
+        "build/**/dplyr.duckdb_extension",
+    ] {
+        if let Ok(entries) = glob::glob(pattern) {
+            for path in entries.flatten() {
+                let path = PathBuf::from(path);
+                if path.exists() {
+                    return Some(path.to_string_lossy().to_string());
+                }
             }
         }
     }
