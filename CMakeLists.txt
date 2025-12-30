@@ -409,6 +409,9 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
     # R4-AC1: Compiler-specific optimizations and warnings
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${EXT_TARGET} PRIVATE
+            # DuckDB builds with RTTI disabled; extensions must match or they will
+            # reference missing base class typeinfo symbols at load time.
+            -fno-rtti
             -Wall -Wextra -Wpedantic -Wno-unused-parameter
             $<$<CONFIG:Release>:-O3 -DNDEBUG>
             $<$<CONFIG:Debug>:-g -O0>
@@ -637,6 +640,7 @@ if(BUILD_CPP_TESTS)
     # Compiler-specific test settings
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(duckdb_extension_integration_test PRIVATE
+            -fno-rtti
             -Wall -Wextra -Wpedantic -Wno-unused-parameter
             $<$<CONFIG:Debug>:-g -O0>
         )

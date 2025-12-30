@@ -957,12 +957,7 @@ BoundStatement dplyr_bind(ClientContext& context, Binder& binder, OperatorExtens
             if (lookup) {
                 auto dplyr_state = (DplyrState*)lookup.get();
                 auto dplyr_binder = Binder::CreateBinder(context, &binder);
-                auto dplyr_parse_data =
-                    dynamic_cast<DplyrParseData*>(dplyr_state->parse_data.get());
-                    
-                if (!dplyr_parse_data) {
-                    throw BinderException("Invalid DPLYR parse data");
-                }
+                auto dplyr_parse_data = static_cast<DplyrParseData*>(dplyr_state->parse_data.get());
                 return dplyr_binder->Bind(*dplyr_parse_data->statement);
             }
             throw BinderException("Registered DPLYR state not found");
