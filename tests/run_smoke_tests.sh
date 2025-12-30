@@ -94,7 +94,9 @@ run_smoke_tests() {
     # Run the smoke tests with timeout
     local exit_code=0
     if [ ${#TIMEOUT_CMD[@]} -gt 0 ]; then
-        if "${TIMEOUT_CMD[@]}" duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
+        if "${TIMEOUT_CMD[@]}" duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" \
+            -cmd "LOAD '$EXTENSION_PATH';" \
+            -f "$SMOKE_TEST_FILE"; then
             echo ""
             echo -e "${GREEN}✓ Smoke tests completed successfully${NC}"
             return 0
@@ -102,7 +104,9 @@ run_smoke_tests() {
             exit_code=$?
         fi
     else
-        if duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
+        if duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" \
+            -cmd "LOAD '$EXTENSION_PATH';" \
+            -f "$SMOKE_TEST_FILE"; then
             echo ""
             echo -e "${GREEN}✓ Smoke tests completed successfully${NC}"
             return 0
