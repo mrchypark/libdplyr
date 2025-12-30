@@ -162,25 +162,6 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
-      - name: Patch DuckDB CMakeLists.txt for ASan
-        if: matrix.language == 'cpp'
-        run: |
-          # Ensure LD_PRELOAD is available (it should be set by CodeQL init)
-          if [[ -z "${LD_PRELOAD}" ]]; then
-            echo "LD_PRELOAD is not set by CodeQL. Cannot apply patch."
-            # Exit with failure, as the build will likely fail anyway
-            exit 1
-          fi
-          
-          # The DuckDB source is fetched into build/_deps/duckdb-src
-          DUCKDB_CMAKELIST_PATH="${{ github.workspace }}/build/_deps/duckdb-src/CMakeLists.txt"
-          
-          # Prepend 'env LD_PRELOAD="${LD_PRELOAD}"' to the COMMAND that executes duckdb_platform_binary
-          # This specifically targets the add_custom_command for duckdb_platform_out
-          sed -i 's|COMMAND \$<TARGET_FILE:duckdb_platform_binary>|COMMAND "${CODEQL_ACTION_RUNNER}" \$<TARGET_FILE:duckdb_platform_binary>|g' "$DUCKDB_CMAKELIST_PATH"
-          
-          echo "Patched DuckDB CMakeLists.txt to include LD_PRELOAD in custom command."
-
       - name: Setup build environment
         if: matrix.language == 'cpp'
         run: |
@@ -193,8 +174,12 @@ jobs:
 
       - name: Build for CodeQL (C++)
         if: matrix.language == 'cpp'
+        env:
+          # CodeQL sets LD_PRELOAD for tracing; DuckDB's platform-detection binary can be ASan-instrumented,
+          # which aborts when another library is preloaded before libasan. Disable the link-order check.
+          ASAN_OPTIONS: verify_asan_link_order=0
         run: |
-          mkdir build
+          mkdir -p build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON -DDUCKDB_PLATFORM=linux-x86_64
           cmake --build . --parallel 1

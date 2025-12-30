@@ -170,30 +170,28 @@ jobs:
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'
         run: |
-          mkdir build
+          mkdir -p build
           cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
             -G "${{ matrix.cmake-generator }}" \
-            -DRust_CARGO_TARGET="${{ matrix.target }}" \
-            -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/duckdb
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
             # ▲ [변경] RUSTC_EXECUTABLE 제거하고, 명시적인 타겟 지정 추가
             # Corrosion이 PATH에 있는 cargo를 자동으로 감지합니다.
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         run: |
-          mkdir build
+          if (-not (Test-Path -Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
           cd build
           cmake .. `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_CPP_TESTS=ON `
             -DBUILD_DUCKDB=ON `
             -G "${{ matrix.cmake-generator }}" `
-            -DRust_CARGO_TARGET="${{ matrix.target }}" `
-            -DDUCKDB_MODULE_BASE_DIR="${{ github.workspace }}/duckdb"
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'
