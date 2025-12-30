@@ -131,12 +131,23 @@ mod tests {
         let options = DplyrOptions::default();
         let query = "select(mpg, cyl) %>% filter(mpg > 20)";
 
+        // Ensure a clean baseline for this test (tests may run in parallel).
+        assert_eq!(crate::dplyr_cache_clear(), 0);
+        assert_eq!(crate::dplyr_cache_get_hits(), 0);
+        assert_eq!(crate::dplyr_cache_get_misses(), 0);
+
         // First call (cache miss)
         let start = Instant::now();
         let result1 = safe_dplyr_compile_test(query, &options);
         let cache_miss_duration = start.elapsed();
 
         assert!(result1.is_ok(), "First query should succeed");
+        assert_eq!(crate::dplyr_cache_get_misses(), 1, "First call should miss");
+        assert_eq!(
+            crate::dplyr_cache_get_hits(),
+            0,
+            "First call should not hit"
+        );
 
         // Second call (cache hit)
         let start = Instant::now();
@@ -144,6 +155,12 @@ mod tests {
         let cache_hit_duration = start.elapsed();
 
         assert!(result2.is_ok(), "Second query should succeed");
+        assert_eq!(
+            crate::dplyr_cache_get_misses(),
+            1,
+            "Second call should not add misses"
+        );
+        assert_eq!(crate::dplyr_cache_get_hits(), 1, "Second call should hit");
         assert_eq!(
             result1.unwrap(),
             result2.unwrap(),
@@ -153,15 +170,6 @@ mod tests {
         println!(
             "Cache miss: {:?}, Cache hit: {:?}",
             cache_miss_duration, cache_hit_duration
-        );
-
-        // R6-AC2: Cache should provide significant speedup
-        // Cache hit should be at least 2x faster than cache miss
-        assert!(
-            cache_hit_duration.as_nanos() * 2 < cache_miss_duration.as_nanos(),
-            "Cache not effective: miss={:?}, hit={:?}",
-            cache_miss_duration,
-            cache_hit_duration
         );
     }
 
