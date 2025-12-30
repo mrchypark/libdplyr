@@ -436,9 +436,13 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
     # DuckDB ships with RTTI disabled; extensions must match or they can reference
     # missing base class typeinfo symbols at load time (e.g. GlobalTableFunctionState).
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${EXT_TARGET} PRIVATE -fno-rtti)
+        # Also disable DuckDB's RTTI-based debug assertions to keep headers
+        # compatible with -fno-rtti (e.g. D_ASSERT(typeid(...))).
+        target_compile_options(${EXT_TARGET} PRIVATE -fno-rtti -UDEBUG)
+        target_compile_definitions(${EXT_TARGET} PRIVATE NDEBUG)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        target_compile_options(${EXT_TARGET} PRIVATE /GR-)
+        target_compile_options(${EXT_TARGET} PRIVATE /GR- /UDEBUG)
+        target_compile_definitions(${EXT_TARGET} PRIVATE NDEBUG)
     endif()
 
     # R4-AC1: Security hardening flags
@@ -656,9 +660,11 @@ if(BUILD_CPP_TESTS)
     endif()
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(duckdb_extension_integration_test PRIVATE -fno-rtti)
+        target_compile_options(duckdb_extension_integration_test PRIVATE -fno-rtti -UDEBUG)
+        target_compile_definitions(duckdb_extension_integration_test PRIVATE NDEBUG)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        target_compile_options(duckdb_extension_integration_test PRIVATE /GR-)
+        target_compile_options(duckdb_extension_integration_test PRIVATE /GR- /UDEBUG)
+        target_compile_definitions(duckdb_extension_integration_test PRIVATE NDEBUG)
     endif()
 
     # R7-AC1: DuckDB extension loading and functionality tests
