@@ -117,6 +117,12 @@ jobs:
           # Windows dependencies are handled by vcpkg or pre-built libraries
           echo "Windows dependencies configured"
 
+      - name: Setup MSVC toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       # -------------------------------------------------------------------------
       # DuckDB Installation
       # -------------------------------------------------------------------------
@@ -207,6 +213,8 @@ jobs:
             -DBUILD_CPP_TESTS=ON `
             -DBUILD_DUCKDB=ON `
             -G "${{ matrix.cmake-generator }}" `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Create Swap Space

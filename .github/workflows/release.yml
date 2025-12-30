@@ -113,6 +113,12 @@ jobs:
           # Windows dependencies handled by vcpkg
           echo "Windows dependencies configured"
 
+      - name: Setup MSVC toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       # -------------------------------------------------------------------------
       # Version Information
       # -------------------------------------------------------------------------
@@ -168,6 +174,8 @@ jobs:
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
               -G "Ninja" \
+              -DCMAKE_C_COMPILER=cl \
+              -DCMAKE_CXX_COMPILER=cl \
               -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src \
               -DRust_CARGO_TARGET="${{ matrix.target }}"
           else
