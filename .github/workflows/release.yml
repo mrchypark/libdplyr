@@ -193,9 +193,9 @@ jobs:
           export DUCKDB_EXTENSION_PATH=$(pwd)
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            duckdb.exe :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            duckdb.exe -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
           else
-            duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
           fi
 
       # -------------------------------------------------------------------------
@@ -249,7 +249,7 @@ jobs:
           ### Usage
           \`\`\`sql
           -- Example usage
-          DPLYR 'mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)';
+          SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');
           \`\`\`
 
           ### Verification
@@ -403,11 +403,11 @@ jobs:
           -- Load the extension
           LOAD '/path/to/dplyr-platform.duckdb_extension';
 
-          -- Use dplyr syntax
-          DPLYR 'mtcars %>%
+          -- Use implicit pipeline syntax (%>%)
+          mtcars %>%
                  select(mpg, cyl, hp) %>%
                  filter(mpg > 20) %>%
-                 arrange(desc(hp))';
+                 arrange(desc(hp));
           \`\`\`
 
           ## ✅ Verification

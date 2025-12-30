@@ -29,6 +29,14 @@ for /f "tokens=*" %%i in ('duckdb --version 2^>nul') do set DUCKDB_VERSION=%%i
 if "%DUCKDB_VERSION%"=="" set DUCKDB_VERSION=unknown
 echo ✓ DuckDB found: %DUCKDB_VERSION%
 
+REM Prefer running DuckDB with unsigned extension loading enabled (DuckDB >= 1.4.2)
+set DUCKDB_UNSIGNED_ARG=
+duckdb -unsigned --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set DUCKDB_UNSIGNED_ARG=-unsigned
+    echo ✓ DuckDB unsigned extension loading: enabled
+)
+
 REM Check if build directory exists
 if not exist "%BUILD_DIR%" (
     echo Error: Build directory '%BUILD_DIR%' not found
@@ -70,7 +78,7 @@ echo.
 
 REM Run the smoke tests
 echo Running smoke tests...
-duckdb "%TEMP_DB%" < "%SMOKE_TEST_FILE%"
+duckdb %DUCKDB_UNSIGNED_ARG% "%TEMP_DB%" < "%SMOKE_TEST_FILE%"
 set SMOKE_TEST_RESULT=%errorlevel%
 
 echo.
@@ -85,7 +93,7 @@ echo Analyzing test results...
 
 REM Test extension loading
 echo Testing extension loading...
-duckdb "%TEMP_DB%" -c "LOAD '%EXTENSION_PATH%'; SELECT 'Extension loaded' as status;" >nul 2>&1
+duckdb %DUCKDB_UNSIGNED_ARG% "%TEMP_DB%" -c "LOAD '%EXTENSION_PATH%'; SELECT 'Extension loaded' as status;" >nul 2>&1
 if %errorlevel% equ 0 (
     echo ✓ Extension loading: SUCCESS
     set EXTENSION_LOAD_OK=1
@@ -96,7 +104,7 @@ if %errorlevel% equ 0 (
 
 REM Test basic SQL functionality
 echo Testing basic SQL functionality...
-duckdb "%TEMP_DB%" -c "SELECT 1 as test;" >nul 2>&1
+duckdb %DUCKDB_UNSIGNED_ARG% "%TEMP_DB%" -c "SELECT 1 as test;" >nul 2>&1
 if %errorlevel% equ 0 (
     echo ✓ Basic SQL functionality: SUCCESS
     set BASIC_SQL_OK=1

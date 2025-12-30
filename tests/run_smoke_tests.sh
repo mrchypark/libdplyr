@@ -34,6 +34,13 @@ fi
 DUCKDB_VERSION=$(duckdb --version 2>/dev/null || echo "unknown")
 echo -e "${GREEN}✓ DuckDB found: $DUCKDB_VERSION${NC}"
 
+# Prefer running DuckDB with unsigned extension loading enabled (DuckDB >= 1.4.2).
+DUCKDB_UNSIGNED_ARGS=()
+if duckdb -unsigned :memory: -c "SELECT 1;" >/dev/null 2>&1; then
+    DUCKDB_UNSIGNED_ARGS=(-unsigned)
+    echo -e "${GREEN}✓ DuckDB unsigned extension loading: enabled${NC}"
+fi
+
 # Check if build directory exists
 if [ ! -d "$BUILD_DIR" ]; then
     echo -e "${RED}Error: Build directory '$BUILD_DIR' not found${NC}"
@@ -60,6 +67,16 @@ echo -e "${GREEN}✓ Extension found: $EXTENSION_PATH${NC}"
 echo -e "${GREEN}✓ Smoke test file found: $SMOKE_TEST_FILE${NC}"
 echo ""
 
+# Prefer a portable timeout implementation (macOS runners may only have gtimeout).
+TIMEOUT_CMD=()
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=(timeout "$TEST_TIMEOUT")
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=(gtimeout "$TEST_TIMEOUT")
+else
+    echo -e "${YELLOW}⚠ timeout command not found; running without timeout${NC}"
+fi
+
 # Set environment variables
 export DUCKDB_EXTENSION_PATH="$BUILD_DIR"
 
@@ -75,20 +92,31 @@ run_smoke_tests() {
     echo ""
 
     # Run the smoke tests with timeout
-    if timeout "$TEST_TIMEOUT" duckdb "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
-        echo ""
-        echo -e "${GREEN}✓ Smoke tests completed successfully${NC}"
-        return 0
-    else
-        local exit_code=$?
-        echo ""
-        if [ $exit_code -eq 124 ]; then
-            echo -e "${RED}✗ Smoke tests timed out after ${TEST_TIMEOUT}s${NC}"
+    local exit_code=0
+    if [ ${#TIMEOUT_CMD[@]} -gt 0 ]; then
+        if "${TIMEOUT_CMD[@]}" duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
+            echo ""
+            echo -e "${GREEN}✓ Smoke tests completed successfully${NC}"
+            return 0
         else
-            echo -e "${RED}✗ Smoke tests failed (exit code: $exit_code)${NC}"
+            exit_code=$?
         fi
-        return $exit_code
+    else
+        if duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" < "$SMOKE_TEST_FILE"; then
+            echo ""
+            echo -e "${GREEN}✓ Smoke tests completed successfully${NC}"
+            return 0
+        else
+            exit_code=$?
+        fi
     fi
+    echo ""
+    if [ $exit_code -eq 124 ]; then
+        echo -e "${RED}✗ Smoke tests timed out after ${TEST_TIMEOUT}s${NC}"
+    else
+        echo -e "${RED}✗ Smoke tests failed (exit code: $exit_code)${NC}"
+    fi
+    return $exit_code
 }
 
 # Function to analyze test results
@@ -121,7 +149,7 @@ analyze_results() {
     echo ""
 
     # Check if extension loaded successfully by looking for specific patterns
-    if duckdb "$TEMP_DB" -c "LOAD '$EXTENSION_PATH'; SELECT 'Extension loaded' as status;" 2>/dev/null | grep -q "Extension loaded"; then
+    if duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" -c "LOAD '$EXTENSION_PATH'; SELECT 'Extension loaded' as status;" 2>/dev/null | grep -q "Extension loaded"; then
         echo -e "${GREEN}✓ Extension loading: SUCCESS${NC}"
     else
         echo -e "${RED}✗ Extension loading: FAILED${NC}"
@@ -129,7 +157,7 @@ analyze_results() {
     fi
 
     # Test basic SQL functionality
-    if duckdb "$TEMP_DB" -c "SELECT 1 as test;" 2>/dev/null | grep -q "1"; then
+    if duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" "$TEMP_DB" -c "SELECT 1 as test;" 2>/dev/null | grep -q "1"; then
         echo -e "${GREEN}✓ Basic SQL functionality: SUCCESS${NC}"
     else
         echo -e "${RED}✗ Basic SQL functionality: FAILED${NC}"
@@ -168,7 +196,7 @@ provide_guidance() {
 
     echo "For debugging:"
     echo "  • Set DPLYR_DEBUG=1 for verbose logging"
-    echo "  • Use 'duckdb -c \"LOAD '$EXTENSION_PATH'; .help\"' to test loading"
+    echo "  • Use 'duckdb ${DUCKDB_UNSIGNED_ARGS[*]} -c \"LOAD '$EXTENSION_PATH'; .help\"' to test loading"
     echo "  • Check DuckDB logs for extension-related messages"
     echo "  • Run individual test queries manually"
 }

@@ -261,7 +261,7 @@ jobs:
           cd build
           export DUCKDB_EXTENSION_PATH=$(pwd)
           valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
-            duckdb :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
+            duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
 
       # -------------------------------------------------------------------------
       # Artifact Collection
