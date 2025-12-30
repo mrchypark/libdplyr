@@ -105,6 +105,12 @@ jobs:
           brew install pkg-config openssl
           echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
+      - name: Install Rosetta (macOS x86_64 on ARM runners)
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
@@ -172,12 +178,22 @@ jobs:
         run: |
           mkdir -p build
           cd build
+
+          OSX_ARCH=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            case "${{ matrix.target }}" in
+              x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
+              aarch64-apple-darwin) OSX_ARCH="arm64" ;;
+            esac
+          fi
+
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
             -G "${{ matrix.cmake-generator }}" \
-            -DRust_CARGO_TARGET="${{ matrix.target }}"
+            -DRust_CARGO_TARGET="${{ matrix.target }}" \
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
             # ▲ [변경] RUSTC_EXECUTABLE 제거하고, 명시적인 타겟 지정 추가
             # Corrosion이 PATH에 있는 cargo를 자동으로 감지합니다.
 
@@ -216,7 +232,11 @@ jobs:
         run: |
           export BUILD_DIR=build
           chmod +x tests/run_smoke_tests.sh
-          ./tests/run_smoke_tests.sh
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./tests/run_smoke_tests.sh
+          else
+            ./tests/run_smoke_tests.sh
+          fi
 
       - name: Run smoke tests (Windows)
         if: runner.os == 'Windows'
@@ -237,7 +257,11 @@ jobs:
             ./Release/duckdb_extension_integration_test.exe --gtest_color=yes
           else
             export DUCKDB_EXTENSION_PATH=$(pwd)
-            ./duckdb_extension_integration_test --gtest_color=yes
+            if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+              arch -x86_64 ./duckdb_extension_integration_test --gtest_color=yes
+            else
+              ./duckdb_extension_integration_test --gtest_color=yes
+            fi
           fi
 
       # -------------------------------------------------------------------------
@@ -250,7 +274,11 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             ctest -C Release --output-on-failure --timeout 300
           else
-            ctest --output-on-failure --timeout 300
+            if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+              arch -x86_64 ctest --output-on-failure --timeout 300
+            else
+              ctest --output-on-failure --timeout 300
+            fi
           fi
 
       - name: Memory leak check (Linux only)

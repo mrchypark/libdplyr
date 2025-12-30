@@ -142,11 +142,25 @@ jobs:
           cd libdplyr_c
           cargo build --release --target ${{ matrix.target }}
 
+      - name: Install Rosetta (macOS x86_64 on ARM runners)
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+
       - name: Configure CMake (Release)
         shell: bash
         run: |
           mkdir build
           cd build
+
+          OSX_ARCH=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            case "${{ matrix.target }}" in
+              x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
+              aarch64-apple-darwin) OSX_ARCH="arm64" ;;
+            esac
+          fi
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             cmake .. \
@@ -154,13 +168,16 @@ jobs:
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
               -G "Ninja" \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src \
+              -DRust_CARGO_TARGET="${{ matrix.target }}"
           else
             cmake .. \
               -DCMAKE_BUILD_TYPE=Release \
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src
+              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src \
+              -DRust_CARGO_TARGET="${{ matrix.target }}" \
+              ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
           fi
 
       - name: Build extension (Release)
@@ -199,6 +216,8 @@ jobs:
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             duckdb.exe -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+          elif [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
           else
             duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
           fi
