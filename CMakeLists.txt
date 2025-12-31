@@ -380,6 +380,7 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
             PRIVATE
             WIN32_LEAN_AND_MEAN NOMINMAX
             DUCKDB_EXTENSION_MAIN
+            DUCKDB_STATIC_BUILD
             DUCKDB_VERSION="${DUCKDB_VERSION}"
         )
 
