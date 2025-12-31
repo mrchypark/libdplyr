@@ -147,10 +147,12 @@ private:
         // R1-AC3: Include error code, cause, position, and alternatives
         string formatted = error_message;
         
-        // Add error code information
         string error_name = dplyr_error_code_name(error_code);
         if (!error_name.empty()) {
-            formatted = "[" + error_name + "] " + formatted;
+            formatted = "[";
+            formatted.append(error_name);
+            formatted.append("] ");
+            formatted.append(error_message);
         }
         
         // Add context information for syntax errors
@@ -193,7 +195,7 @@ private:
      * @param error_message Error message
      * @return Suggestion string
      */
-    static string get_error_suggestions(int error_code, const string& error_message) {
+    static string get_error_suggestions(int error_code, [[maybe_unused]] const string& error_message) {
         string suggestions;
         
         switch (error_code) {
@@ -267,7 +269,7 @@ public:
      */
     static bool is_debug_enabled() {
         const char* debug_env = std::getenv("DPLYR_DEBUG");
-        return debug_env && (std::string(debug_env) == "1" || std::string(debug_env) == "true");
+        return debug_env != nullptr && (std::string(debug_env) == "1" || std::string(debug_env) == "true");
     }
     
     /**
@@ -277,18 +279,28 @@ public:
      */
     static LogLevel get_log_level() {
         const char* level_env = std::getenv("DPLYR_LOG_LEVEL");
-        if (!level_env) {
+        if (level_env == nullptr) {
             return is_debug_enabled() ? LogLevel::DEBUG : LogLevel::WARNING;
         }
         
         std::string level_str = level_env;
         std::transform(level_str.begin(), level_str.end(), level_str.begin(), ::toupper);
         
-        if (level_str == "ERROR") return LogLevel::ERROR;
-        if (level_str == "WARNING" || level_str == "WARN") return LogLevel::WARNING;
-        if (level_str == "INFO") return LogLevel::INFO;
-        if (level_str == "DEBUG") return LogLevel::DEBUG;
-        if (level_str == "TRACE") return LogLevel::TRACE;
+        if (level_str == "ERROR") {
+            return LogLevel::ERROR;
+        }
+        if (level_str == "WARNING" || level_str == "WARN") {
+            return LogLevel::WARNING;
+        }
+        if (level_str == "INFO") {
+            return LogLevel::INFO;
+        }
+        if (level_str == "DEBUG") {
+            return LogLevel::DEBUG;
+        }
+        if (level_str == "TRACE") {
+            return LogLevel::TRACE;
+        }
         
         return LogLevel::WARNING; // Default
     }
@@ -320,14 +332,14 @@ public:
         timestamp << std::put_time(&tm_snapshot, "%Y-%m-%d %H:%M:%S");
         timestamp << "." << std::setfill('0') << std::setw(3) << ms.count();
         
-        string level_str = log_level_to_string(level);
-        string category_str = log_category_to_string(category);
+        const string level_str = log_level_to_string(level);
+        const string category_str = log_category_to_string(category);
         
         // Format: [TIMESTAMP] [LEVEL] [CATEGORY] MESSAGE
         std::cerr << "[" << timestamp.str() << "] "
                   << "[" << level_str << "] "
                   << "[DPLYR:" << category_str << "] "
-                  << message << std::endl;
+                  << message << '\n';
     }
     
     /**
@@ -732,7 +744,7 @@ static string TranspileDplyrCode(const string& dplyr_code) {
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    double duration_ms = duration.count() / 1000.0;
+    double duration_ms = static_cast<double>(duration.count()) / 1000.0;
 
     if (!dplyr_is_success(result)) {
         string error_msg = error_output ? string(error_output) : "Unknown dplyr compilation error";
