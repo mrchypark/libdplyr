@@ -495,6 +495,16 @@ pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     c"0.1.0".as_ptr()
 }
 
+/// Get libdplyr version string (simple version)
+///
+/// # Returns
+/// Static version string (no need to free)
+#[no_mangle]
+pub extern "C" fn dplyr_version() -> *const c_char {
+    // R8-AC1: Version information - static string management
+    c"0.1.0".as_ptr()
+}
+
 /// Get detailed version information including build info
 ///
 /// # Returns
