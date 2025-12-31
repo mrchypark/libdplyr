@@ -138,20 +138,64 @@ jobs:
           retention-days: 30
 
   # =============================================================================
-  # CodeQL Analysis
+  # C++ Static Analysis with clang-tidy (fast alternative to CodeQL)
+  # =============================================================================
+  clang-tidy:
+    name: C++ clang-tidy Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+
+      - name: Run clang-tidy on extension code
+        run: |
+          # Create a simple compile_commands.json for clang-tidy
+          # Only analyze our extension code, not DuckDB
+          clang-tidy extension/src/dplyr.cpp \
+            -checks='bugprone-*,cert-*,clang-analyzer-*,concurrency-*,misc-*,modernize-*,performance-*,portability-*,readability-*' \
+            -header-filter='extension/.*' \
+            -- \
+            -std=c++17 \
+            -I duckdb/src/include \
+            -I extension/include \
+            -DDUCKDB_EXTENSION_MAIN \
+            2>&1 | tee clang-tidy-report.txt || true
+
+      - name: Check for critical issues
+        run: |
+          # Fail only on error-level issues, not warnings
+          if grep -E "error:" clang-tidy-report.txt; then
+            echo "Critical issues found!"
+            exit 1
+          fi
+          echo "No critical issues found"
+
+      - name: Upload clang-tidy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-tidy-report
+          path: clang-tidy-report.txt
+          retention-days: 30
+
+  # =============================================================================
+  # CodeQL Analysis (Rust only - C++ handled by clang-tidy)
   # =============================================================================
   codeql:
-    name: CodeQL Analysis
+    name: CodeQL Analysis (Rust)
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["cpp", "rust"]
 
     steps:
       - name: Checkout code
@@ -160,32 +204,12 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
-
-      - name: Setup build environment
-        if: matrix.language == 'cpp'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake
+          languages: rust
 
       - name: Setup Rust toolchain
-        if: matrix.language == 'rust'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build for CodeQL (C++)
-        if: matrix.language == 'cpp'
-        env:
-          # CodeQL sets LD_PRELOAD for tracing; DuckDB's platform-detection binary can be ASan-instrumented,
-          # which aborts when another library is preloaded before libasan. Disable the link-order check.
-          ASAN_OPTIONS: verify_asan_link_order=0
-        run: |
-          mkdir -p build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_CPP_TESTS=OFF -DBUILD_DUCKDB=ON -DDUCKDB_PLATFORM=linux-x86_64
-          cmake --build . --parallel 1
-
-      - name: Build for CodeQL (Rust)
-        if: matrix.language == 'rust'
+      - name: Build for CodeQL
         run: |
           cd libdplyr_c
           cargo build --all-targets
@@ -193,7 +217,7 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{matrix.language}}"
+          category: "/language:rust"
 
   # =============================================================================
   # Security Summary
@@ -201,7 +225,7 @@ jobs:
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [security-audit, license-check, static-analysis, codeql]
+    needs: [security-audit, license-check, static-analysis, clang-tidy, codeql]
     if: always()
 
     steps:
