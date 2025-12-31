@@ -36,20 +36,20 @@ extern "C" {
 #define DPLYR_SUCCESS 0
 
 /** @brief FFI-related errors (invalid parameters, encoding issues) */
-#define DPLYR_ERROR_NULL_POINTER -1
-#define DPLYR_ERROR_INVALID_UTF8 -2
+#define DPLYR_ERROR_NULL_POINTER (-1)
+#define DPLYR_ERROR_INVALID_UTF8 (-2)
 
 /** @brief Input validation errors (DoS prevention) */
-#define DPLYR_ERROR_INPUT_TOO_LARGE -3
-#define DPLYR_ERROR_TIMEOUT -4
+#define DPLYR_ERROR_INPUT_TOO_LARGE (-3)
+#define DPLYR_ERROR_TIMEOUT (-4)
 
 /** @brief Transpilation errors (syntax, unsupported operations) */
-#define DPLYR_ERROR_SYNTAX -5
-#define DPLYR_ERROR_UNSUPPORTED -6
+#define DPLYR_ERROR_SYNTAX (-5)
+#define DPLYR_ERROR_UNSUPPORTED (-6)
 
 /** @brief Internal errors (panic, system issues) */
-#define DPLYR_ERROR_INTERNAL -7
-#define DPLYR_ERROR_PANIC -8
+#define DPLYR_ERROR_INTERNAL (-7)
+#define DPLYR_ERROR_PANIC (-8)
 
 /* ========================================================================
  * DATA STRUCTURES

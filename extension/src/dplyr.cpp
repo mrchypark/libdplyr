@@ -32,7 +32,7 @@
 #include <chrono> // for timestamps
 #include <ctime> // for localtime_r/localtime_s
 #include <iomanip> // for std::put_time
-#include <optional>
+// #include <optional> - removed unused header
 
 using namespace duckdb;
 
@@ -245,7 +245,7 @@ private:
  */
 class DplyrDebugLogger {
 public:
-    enum class LogLevel {
+    enum class LogLevel : uint8_t {
         ERROR = 0,
         WARNING = 1,
         INFO = 2,
@@ -253,7 +253,7 @@ public:
         TRACE = 4
     };
     
-    enum class LogCategory {
+    enum class LogCategory : uint8_t {
         GENERAL,
         PARSER,
         TRANSPILER,
@@ -320,8 +320,9 @@ public:
         // R10-AC1: Timestamp and category-based logging
         auto now = std::chrono::system_clock::now();
         auto time_t = std::chrono::system_clock::to_time_t(now);
+        const int MS_PER_SECOND = 1000;
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now.time_since_epoch()) % 1000;
+            now.time_since_epoch()) % MS_PER_SECOND;
         
         std::tm tm_snapshot{};
         if (!try_get_local_time(time_t, tm_snapshot)) {
@@ -531,11 +532,15 @@ private:
      * @throws ParserException if unsafe characters found
      */
     static void validate_character_safety(const string& code) {
+        const int ASCII_CONTROL_LIMIT = 32;
+        const int ASCII_MAX = 127;
+        const int ASCII_EXTENDED_START = 128;
+        
         for (size_t i = 0; i < code.length(); ++i) {
             unsigned char c = static_cast<unsigned char>(code[i]);
             
             // Check for control characters (except common whitespace)
-            if (c < 32 && c != '\t' && c != '\n' && c != '\r') {
+            if (c < ASCII_CONTROL_LIMIT && c != '\t' && c != '\n' && c != '\r') {
                 DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
                     "Control character detected", 
                     "Position: " + std::to_string(i) + ", Code: " + std::to_string(c));
@@ -545,11 +550,11 @@ private:
             }
             
             // Check for potential encoding issues (high-bit characters in suspicious contexts)
-            if (c > 127) {
+            if (c > ASCII_MAX) {
                 // Allow UTF-8 sequences, but be cautious about isolated high-bit chars
                 if (i + 1 < code.length()) {
                     unsigned char next = static_cast<unsigned char>(code[i + 1]);
-                    if (next < 128) {
+                    if (next < ASCII_EXTENDED_START) {
                         DplyrDebugLogger::log_warning(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
                             "Potential encoding issue detected", 
                             "Position: " + std::to_string(i));
@@ -744,7 +749,7 @@ static string TranspileDplyrCode(const string& dplyr_code) {
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    double duration_ms = static_cast<double>(duration.count()) / 1000.0;
+    double duration_ms = static_cast<double>(duration.count()) / 1000.0; // NOLINT(bugprone-narrowing-conversions)
 
     if (!dplyr_is_success(result)) {
         string error_msg = error_output ? string(error_output) : "Unknown dplyr compilation error";
