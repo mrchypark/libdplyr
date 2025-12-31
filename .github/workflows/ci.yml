@@ -197,11 +197,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
+            -DEXTENSION_STATIC_BUILD=ON \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
-            # ▲ [변경] RUSTC_EXECUTABLE 제거하고, 명시적인 타겟 지정 추가
-            # Corrosion이 PATH에 있는 cargo를 자동으로 감지합니다.
+            # ▲ EXTENSION_STATIC_BUILD=ON ensures loadable extension links DuckDB statically
+            # This is required for Linux where DuckDB symbols are not exported dynamically
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -212,6 +213,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_CPP_TESTS=ON `
             -DBUILD_DUCKDB=ON `
+            -DEXTENSION_STATIC_BUILD=ON `
             -G "${{ matrix.cmake-generator }}" `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
