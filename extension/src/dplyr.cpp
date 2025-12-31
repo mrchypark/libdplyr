@@ -791,7 +791,7 @@ static string ExtractLeadingTableName(const string& dplyr_code) {
     }
 
     bool valid = std::all_of(prefix.begin(), prefix.end(), [](char c) {
-        return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '.';
+        return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '.';
     });
 
     return valid ? prefix : "";
@@ -898,7 +898,7 @@ static string ReplaceEmbeddedPipelines(const string& query) {
     return output;
 }
 
-ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *, const string& query) {
+ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const string& query) {
     
     string trimmed = query;
     StringUtil::Trim(trimmed);
@@ -960,7 +960,7 @@ static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableF
                                                   vector<LogicalType> &return_types, vector<string> &names);
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
 
-ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& context,
+ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientContext& context,
                                      unique_ptr<ParserExtensionParseData> parse_data) {
     if (!parse_data) {
         throw InternalException("DPLYR plan called without parse data");
@@ -978,7 +978,7 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo *, ClientContext& conte
 }
 
 // Implementations for DplyrParserExtension
-DplyrParserExtension::DplyrParserExtension() : ParserExtension() {
+DplyrParserExtension::DplyrParserExtension() : ParserExtension() { // NOLINT(modernize-use-equals-default)
     parse_function = dplyr_parse;
     plan_function = dplyr_plan;
 }
@@ -1123,7 +1123,7 @@ static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &contex
     return make_uniq<DplyrTableFunctionState>(std::move(collection));
 }
 
-static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output) {
+static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &input, DataChunk &output) {
     auto &state = input.global_state->Cast<DplyrTableFunctionState>();
     if (!state.collection->Scan(state.scan_state, output)) {
         output.SetCardinality(0);
