@@ -985,6 +985,12 @@ struct DplyrTableFunctionData : public TableFunctionData {
         auto &other_data = other.Cast<DplyrTableFunctionData>();
         return sql == other_data.sql && types == other_data.types;
     }
+
+    // DuckDB 1.4.2+ requires this method - return false to disable statement caching
+    // for this table function since results depend on current catalog state
+    bool SupportStatementCache() const override {
+        return false;
+    }
 };
 
 struct DplyrTableFunctionState : public GlobalTableFunctionState {
@@ -1127,8 +1133,4 @@ string DplyrExtension::Name() {
 extern "C" DUCKDB_EXTENSION_API void dplyr_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
     dplyr::DplyrExtension ext;
     ext.Load(loader);
-}
-
-extern "C" DUCKDB_EXTENSION_API const char* dplyr_version() {
-    return ::dplyr_version_detailed();
 }
