@@ -165,8 +165,8 @@ jobs:
             --quiet \
             -- \
             -std=c++17 \
-            -I duckdb/src/include \
             -I extension/include \
+            -isystem duckdb/src/include \
             -DDUCKDB_EXTENSION_MAIN \
             -w \
             2>&1 | grep -v "file not found" | grep -v "clang-diagnostic-error" | tee clang-tidy-report.txt || true
