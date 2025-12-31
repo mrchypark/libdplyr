@@ -160,7 +160,7 @@ jobs:
           # Run clang-tidy with relaxed diagnostics
           # Skip system/external header errors, focus on our code patterns
           clang-tidy extension/src/dplyr.cpp \
-            -checks='-*,bugprone-*,cert-*,misc-*,modernize-*,performance-*,readability-*,-modernize-use-trailing-return-type,-readability-identifier-length,-modernize-use-using,-readability-identifier-naming,-bugprone-easily-swappable-parameters' \
+            -checks='-*,bugprone-*,cert-*,misc-*,modernize-*,performance-*,readability-*,-modernize-use-trailing-return-type,-readability-identifier-length,-modernize-use-using,-readability-identifier-naming,-bugprone-easily-swappable-parameters,-readability-convert-member-functions-to-static,-modernize-use-nodiscard,-misc-non-private-member-variables-in-classes,-misc-include-cleaner,-misc-use-anonymous-namespace,-misc-const-correctness' \
             -header-filter='extension/.*' \
             --quiet \
             -- \

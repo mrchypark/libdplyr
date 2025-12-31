@@ -21,6 +21,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "../include/dplyr.h"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <sstream>
@@ -537,7 +538,7 @@ private:
         const int ASCII_EXTENDED_START = 128;
         
         for (size_t i = 0; i < code.length(); ++i) {
-            unsigned char c = static_cast<unsigned char>(code[i]);
+            auto c = static_cast<unsigned char>(code[i]);
             
             // Check for control characters (except common whitespace)
             if (c < ASCII_CONTROL_LIMIT && c != '\t' && c != '\n' && c != '\r') {
@@ -553,7 +554,7 @@ private:
             if (c > ASCII_MAX) {
                 // Allow UTF-8 sequences, but be cautious about isolated high-bit chars
                 if (i + 1 < code.length()) {
-                    unsigned char next = static_cast<unsigned char>(code[i + 1]);
+                    auto next = static_cast<unsigned char>(code[i + 1]);
                     if (next < ASCII_EXTENDED_START) {
                         DplyrDebugLogger::log_warning(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
                             "Potential encoding issue detected", 
@@ -749,18 +750,19 @@ static string TranspileDplyrCode(const string& dplyr_code) {
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    double duration_ms = static_cast<double>(duration.count()) / 1000.0; // NOLINT(bugprone-narrowing-conversions)
+    const double MS_TO_SEC = 1000.0;
+    double duration_ms = static_cast<double>(duration.count()) / MS_TO_SEC; // NOLINT(bugprone-narrowing-conversions)
 
     if (!dplyr_is_success(result)) {
-        string error_msg = error_output ? string(error_output) : "Unknown dplyr compilation error";
-        if (error_output) {
+        string error_msg = (error_output != nullptr) ? string(error_output) : "Unknown dplyr compilation error";
+        if (error_output != nullptr) {
             dplyr_free_string(error_output);
         }
         DplyrErrorHandler::handle_error(result, error_msg, dplyr_code);
     }
 
-    string sql = sql_output ? string(sql_output) : "";
-    if (sql_output) {
+    string sql = (sql_output != nullptr) ? string(sql_output) : "";
+    if (sql_output != nullptr) {
         dplyr_free_string(sql_output);
     }
 
