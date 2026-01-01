@@ -284,84 +284,35 @@ endif()
 message(STATUS "Found Cargo: ${CARGO_VERSION_OUTPUT}")
 
 # Emscripten support for wasm builds (matches duckdb-prql)
+# R4-AC1: Configure Cargo flags using config.toml
+# This is more robust than ENV{RUSTFLAGS} which might not propagate to the cargo process
+set(CARGO_CONFIG_CONTENT "")
+
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
+    string(APPEND CARGO_CONFIG_CONTENT "[target.wasm32-unknown-emscripten]\n")
+    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\"]\n\n")
 endif()
 
 # Workaround for missing libgcc_eh in Rtools MinGW environment
 if(MINGW)
     # Create a dummy libgcc_eh.a because Rust insists on linking it for x86_64-pc-windows-gnu
-    # but Rtools environment doesn't provide it separate from libgcc.
-    # We use panic=abort so we don't need real EH symbols.
     file(WRITE ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c "")
     execute_process(COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c -o ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
     execute_process(COMMAND ${CMAKE_AR} cr ${CMAKE_BINARY_DIR}/libgcc_eh.a ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
     
-    # Pass the library path directly to the linker via link-arg
-    # Note: We use forward slashes for the path to avoid escaping issues
     file(TO_CMAKE_PATH "${CMAKE_BINARY_DIR}" CMAKE_BINARY_DIR_POSIX)
-    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C panic=abort -L native=${CMAKE_BINARY_DIR_POSIX}")
-    message(STATUS "MinGW RUSTFLAGS configured: $ENV{RUSTFLAGS}")
+    string(APPEND CARGO_CONFIG_CONTENT "[target.x86_64-pc-windows-gnu]\n")
+    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"panic=abort\", \"-L\", \"native=${CMAKE_BINARY_DIR_POSIX}\"]\n\n")
 endif()
 
-# R4-AC1: Setup Corrosion for Rust-CMake integration
-find_package(corrosion QUIET)
-if(NOT corrosion_FOUND)
-    message(STATUS "Corrosion not found, downloading...")
-    include(FetchContent)
-    FetchContent_Declare(
-        Corrosion
-        GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-        GIT_TAG v0.5.1
-        GIT_SHALLOW TRUE
-    )
-
-    # Check if fetch was successful
-    FetchContent_GetProperties(Corrosion)
-    if(NOT corrosion_POPULATED)
-        message(STATUS "Downloading Corrosion...")
-        FetchContent_Populate(Corrosion)
-
-        # Verify Corrosion was downloaded
-        if(NOT EXISTS "${corrosion_SOURCE_DIR}/CMakeLists.txt")
-            message(FATAL_ERROR "Failed to download Corrosion")
-        endif()
-
-        add_subdirectory(${corrosion_SOURCE_DIR} ${corrosion_BINARY_DIR})
-    endif()
-
-    message(STATUS "Successfully configured Corrosion for Rust integration")
-else()
-    message(STATUS "Found existing Corrosion installation")
-endif()
-# R4-AC1: Configure Rust build environment
-set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
-set(ENV{CARGO_TARGET_DIR} ${RUST_TARGET_DIR})
-
-# Verify Rust crate exists
-set(RUST_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml")
-if(NOT EXISTS ${RUST_MANIFEST_PATH})
-    message(FATAL_ERROR
-        "Rust crate manifest not found at ${RUST_MANIFEST_PATH}. "
-        "Please ensure the libdplyr_c crate is properly set up.")
-endif()
-
-# R4-AC1: Import libdplyr_c Rust crate
-message(STATUS "Importing Rust crate: libdplyr_c")
-corrosion_import_crate(
-    MANIFEST_PATH ${RUST_MANIFEST_PATH}
-    CRATES libdplyr_c
-)
-
-# Verify the crate was imported successfully
-if(NOT TARGET libdplyr_c)
-    message(FATAL_ERROR "Failed to import Rust crate libdplyr_c")
-endif()
-
-message(STATUS "Successfully imported Rust crate: libdplyr_c")
-
-if(EMSCRIPTEN)
-    target_link_options(libdplyr_c INTERFACE "LINKER:-sSIDE_MODULE=1")
+# Write the config.toml file if we have content
+if(CARGO_CONFIG_CONTENT)
+    set(CARGO_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/.cargo")
+    file(MAKE_DIRECTORY ${CARGO_CONFIG_DIR})
+    file(WRITE "${CARGO_CONFIG_DIR}/config.toml" "${CARGO_CONFIG_CONTENT}")
+    message(STATUS "Generated Cargo config at ${CARGO_CONFIG_DIR}/config.toml")
+    message(STATUS "Config content:\n${CARGO_CONFIG_CONTENT}")
 endif()
 
 # R4-AC1: Set Rust compilation flags based on build type
