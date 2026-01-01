@@ -283,6 +283,11 @@ endif()
 
 message(STATUS "Found Cargo: ${CARGO_VERSION_OUTPUT}")
 
+# Emscripten support for wasm builds (matches duckdb-prql)
+if(EMSCRIPTEN)
+    set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
+endif()
+
 # R4-AC1: Setup Corrosion for Rust-CMake integration
 find_package(corrosion QUIET)
 if(NOT corrosion_FOUND)
