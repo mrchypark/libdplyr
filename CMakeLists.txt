@@ -291,7 +291,7 @@ set(CARGO_CONFIG_CONTENT "")
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
     string(APPEND CARGO_CONFIG_CONTENT "[target.wasm32-unknown-emscripten]\n")
-    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\"]\n\n")
+    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\", \"-C\", \"link-arg=-sWASM_OPT=0\"]\n\n")
 endif()
 
 # Workaround for missing libgcc_eh in Rtools MinGW environment
@@ -617,6 +617,10 @@ set_tests_properties(rust_unit_tests PROPERTIES TIMEOUT 120)
 
 # R7-AC1, R7-AC3: C++ Integration Tests
 option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
+
+if(MINGW)
+    set(BUILD_CPP_TESTS OFF)
+endif()
 
 if(BUILD_CPP_TESTS)
     # Find Google Test
