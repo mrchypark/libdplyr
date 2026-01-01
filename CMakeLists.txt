@@ -290,8 +290,20 @@ set(CARGO_CONFIG_CONTENT "")
 
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
-    set(ENV{EMCC_SKIP_WASM_OPT} "1")
+    
+    # Create a wrapper script for emcc to inject EMCC_SKIP_WASM_OPT=1
+    # This is necessary because setting the env var in CMake doesn't always propagate 
+    # to the linker process spawned by cargo/rustc
+    set(EMCC_WRAPPER_PATH "${CMAKE_BINARY_DIR}/emcc_wrapper.sh")
+    file(WRITE "${EMCC_WRAPPER_PATH}" 
+"#!/bin/sh
+export EMCC_SKIP_WASM_OPT=1
+exec emcc \"$@\"
+")
+    execute_process(COMMAND chmod +x "${EMCC_WRAPPER_PATH}")
+
     string(APPEND CARGO_CONFIG_CONTENT "[target.wasm32-unknown-emscripten]\n")
+    string(APPEND CARGO_CONFIG_CONTENT "linker = \"${EMCC_WRAPPER_PATH}\"\n")
     string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\"]\n\n")
 endif()
 
