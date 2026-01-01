@@ -288,6 +288,11 @@ if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
 endif()
 
+# Workaround for missing libgcc_eh in Rtools MinGW environment
+if(MINGW)
+    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C link-arg=-lgcc")
+endif()
+
 # R4-AC1: Setup Corrosion for Rust-CMake integration
 find_package(corrosion QUIET)
 if(NOT corrosion_FOUND)
