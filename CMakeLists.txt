@@ -290,8 +290,9 @@ set(CARGO_CONFIG_CONTENT "")
 
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
+    set(ENV{EMCC_SKIP_WASM_OPT} "1")
     string(APPEND CARGO_CONFIG_CONTENT "[target.wasm32-unknown-emscripten]\n")
-    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\", \"-C\", \"link-arg=-sWASM_OPT=0\"]\n\n")
+    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"link-arg=-sSIDE_MODULE=1\"]\n\n")
 endif()
 
 # Workaround for missing libgcc_eh in Rtools MinGW environment
