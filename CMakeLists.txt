@@ -631,10 +631,15 @@ if(BUILD_CPP_TESTS)
         PRIVATE
         gtest_main
         gtest
-        ${DUCKDB_LIBRARIES}
         libdplyr_c
         ${DUCKDB_EXTENSION_STATIC_TARGET}
     )
+
+    if(WIN32 AND TARGET duckdb_static)
+        target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
+    else()
+        target_link_libraries(duckdb_extension_integration_test PRIVATE ${DUCKDB_LIBRARIES})
+    endif()
 
     # Platform-specific test linking
     if(WIN32)
