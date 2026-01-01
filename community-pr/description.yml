@@ -1,0 +1,21 @@
+# This file should be submitted to duckdb/community-extensions repository
+# Path: extensions/dplyr/description.yml
+
+docs:
+  extended_description: |
+    dplyr is a DuckDB extension that adds R dplyr syntax support.
+    It transpiles dplyr pipeline syntax (like `table %>% filter(x > 5) %>% select(a, b)`) to SQL.
+    For more information, see the [GitHub repository](https://github.com/mrchypark/libdplyr).
+extension:
+  build: cmake
+  description: R dplyr syntax support for DuckDB
+  language: C++
+  license: MIT
+  maintainers:
+    - mrchypark
+  name: dplyr
+  requires_toolchains: rust
+  version: '0.1.0'
+repo:
+  github: mrchypark/libdplyr
+  ref: main

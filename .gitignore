@@ -41,3 +41,6 @@ build-codeql/
 # Test artifacts
 tests/check_version
 tests/check_version.cpp
+
+build_static/
+clang-tidy-report.txt
