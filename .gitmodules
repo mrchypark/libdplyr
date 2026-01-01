@@ -3,8 +3,8 @@
     url = https://github.com/corrosion-rs/corrosion.git
 
 [submodule "duckdb"]
-    path = duckdb
-    url = https://github.com/duckdb/duckdb.git
+	path = duckdb
+	url = https://github.com/duckdb/duckdb.git
 
 [submodule "extension-ci-tools"]
     path = extension-ci-tools
