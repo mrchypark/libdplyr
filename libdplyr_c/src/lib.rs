@@ -489,6 +489,10 @@ pub unsafe extern "C" fn dplyr_is_valid_string_pointer(s: *const c_char) -> bool
 ///
 /// # Returns
 /// Static version string (no need to free)
+#[cfg(target_family = "wasm")]
+#[no_mangle]
+pub extern "C" fn main() {}
+
 #[no_mangle]
 pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management

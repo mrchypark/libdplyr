@@ -65,6 +65,9 @@ harness = false
 name = "libdplyr"
 path = "src/lib.rs"
 
+[profile.release]
+panic = "abort"
+
 [workspace]
 members = [
     ".",
