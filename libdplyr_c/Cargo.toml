@@ -12,11 +12,6 @@ build = "build.rs"
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
 
-[profile.release]
-panic = "abort"
-lto = true
-codegen-units = 1
-
 [dependencies]
 # 기존 libdplyr 크레이트 의존성
 libdplyr = { path = ".." }

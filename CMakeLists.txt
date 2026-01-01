@@ -290,7 +290,14 @@ endif()
 
 # Workaround for missing libgcc_eh in Rtools MinGW environment
 if(MINGW)
-    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C link-arg=-lgcc")
+    # Create a dummy libgcc_eh.a because Rust insists on linking it for x86_64-pc-windows-gnu
+    # but Rtools environment doesn't provide it separate from libgcc.
+    # We use panic=abort so we don't need real EH symbols.
+    file(WRITE ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c "")
+    execute_process(COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c -o ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
+    execute_process(COMMAND ${CMAKE_AR} cr ${CMAKE_BINARY_DIR}/libgcc_eh.a ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
+    
+    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C panic=abort -L native=${CMAKE_BINARY_DIR}")
 endif()
 
 # R4-AC1: Setup Corrosion for Rust-CMake integration
