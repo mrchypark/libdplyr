@@ -45,7 +45,20 @@ if not exist "%BUILD_DIR%" (
 )
 
 REM Check if extension was built
-set EXTENSION_PATH=%BUILD_DIR%\%EXTENSION_NAME%.duckdb_extension
+set EXTENSION_FILENAME=%EXTENSION_NAME%.duckdb_extension
+set EXTENSION_PATH=%BUILD_DIR%\%EXTENSION_FILENAME%
+
+if not exist "%EXTENSION_PATH%" (
+    REM Try Release folder (MSVC default)
+    if exist "%BUILD_DIR%\Release\%EXTENSION_FILENAME%" (
+        set EXTENSION_PATH=%BUILD_DIR%\Release\%EXTENSION_FILENAME%
+    ) else (
+        REM Try source structure (Ninja/Make default sometimes)
+        if exist "%BUILD_DIR%\extension\dplyr\%EXTENSION_FILENAME%" (
+            set EXTENSION_PATH=%BUILD_DIR%\extension\dplyr\%EXTENSION_FILENAME%
+        )
+    )
+)
 if not exist "%EXTENSION_PATH%" (
     echo Error: Extension not found at '%EXTENSION_PATH%'
     echo Please build the extension first with 'cmake --build .' in the build directory
