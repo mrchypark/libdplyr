@@ -91,7 +91,7 @@ echo.
 
 REM Run the smoke tests
 echo Running smoke tests...
-duckdb %DUCKDB_UNSIGNED_ARG% "%TEMP_DB%" < "%SMOKE_TEST_FILE%"
+duckdb %DUCKDB_UNSIGNED_ARG% "%TEMP_DB%" -cmd "LOAD '%EXTENSION_PATH%';" < "%SMOKE_TEST_FILE%"
 set SMOKE_TEST_RESULT=%errorlevel%
 
 echo.
