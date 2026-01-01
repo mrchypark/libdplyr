@@ -130,15 +130,19 @@ pub enum TranspileError {
 }
 
 // Import ValidationError for From implementation
+#[cfg(not(target_family = "wasm"))]
 use crate::cli::output_formatter::FormatError;
+#[cfg(not(target_family = "wasm"))]
 use crate::cli::validator::ValidationError;
 
+#[cfg(not(target_family = "wasm"))]
 impl From<ValidationError> for TranspileError {
     fn from(error: ValidationError) -> Self {
         TranspileError::ValidationError(error.to_string())
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl From<FormatError> for TranspileError {
     fn from(error: FormatError) -> Self {
         TranspileError::IoError(format!("Output formatting error: {error}"))
