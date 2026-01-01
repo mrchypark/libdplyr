@@ -15,7 +15,6 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 [dependencies]
 # 기존 libdplyr 크레이트 의존성
 libdplyr = { path = ".." }
-libc = "0.2"
 thiserror = "1.0"
 
 # R9-AC1: panic 안전성을 위한 의존성
@@ -28,6 +27,10 @@ lazy_static = "1.4"
 
 # R9-AC2: 입력 검증 및 보안을 위한 의존성
 once_cell = "1.19"
+
+# libc is only available on non-wasm targets
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+libc = "0.2"
 
 [features]
 default = []

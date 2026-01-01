@@ -10,25 +10,18 @@ keywords = ["dplyr", "sql", "transpiler", "r", "database"]
 categories = ["command-line-utilities", "parser-implementations"]
 
 [dependencies]
-# Dependencies for CLI interface
-clap = { version = "4.0", features = ["derive"] }
-
-# Dependencies for error handling
+# Core dependencies (wasm-compatible)
 thiserror = "1.0"
-
-# Dependencies for static initialization
 lazy_static = "1.4"
-
-# Dependencies for terminal detection
-is-terminal = "0.4"
-
-# Dependencies for signal handling
-signal-hook = { version = "0.3", features = ["iterator"], default-features = false }
-libc = "0.2"
-
-# Serialization support
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# CLI-only dependencies (not available on wasm)
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+clap = { version = "4.0", features = ["derive"] }
+is-terminal = "0.4"
+signal-hook = { version = "0.3", features = ["iterator"], default-features = false }
+libc = "0.2"
 colored = "2.0"
 
 # Windows-specific dependencies

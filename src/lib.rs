@@ -277,7 +277,8 @@ pub mod parser;
 pub mod performance;
 pub mod sql_generator;
 
-// CLI module (included when building binary)
+// CLI module (excluded on wasm targets - no signal handling or terminal support)
+#[cfg(not(target_family = "wasm"))]
 pub mod cli;
 
 // Re-export public API
