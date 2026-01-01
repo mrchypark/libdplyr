@@ -288,19 +288,24 @@ jobs:
       # -------------------------------------------------------------------------
       # Additional Quality Checks
       # -------------------------------------------------------------------------
-      - name: Run CMake tests
+      - name: Run CMake tests (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            ctest -C Release --output-on-failure --timeout 300
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ctest --output-on-failure --timeout 300
           else
-            if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-              arch -x86_64 ctest --output-on-failure --timeout 300
-            else
-              ctest --output-on-failure --timeout 300
-            fi
+            ctest --output-on-failure --timeout 300
           fi
+
+      - name: Run CMake tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
+          cd build
+          ctest -C Release --output-on-failure --timeout 300
 
       - name: Memory leak check (Linux only)
         if: runner.os == 'Linux' && env.VALGRIND_AVAILABLE == '1'
