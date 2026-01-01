@@ -197,12 +197,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
-            -DEXTENSION_STATIC_BUILD=ON \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
-            # ▲ EXTENSION_STATIC_BUILD=ON ensures loadable extension links DuckDB statically
-            # This is required for Linux where DuckDB symbols are not exported dynamically
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
