@@ -1151,7 +1151,15 @@ string DplyrExtension::Name() {
 
 } // namespace dplyr
 
-extern "C" DUCKDB_EXTENSION_API void dplyr_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+// On Windows with DUCKDB_STATIC_BUILD, DUCKDB_EXTENSION_API is empty.
+// We need explicit dllexport to ensure the entrypoint is visible in the DLL.
+#if defined(_WIN32) || defined(_MSC_VER)
+#define DPLYR_ENTRYPOINT_EXPORT __declspec(dllexport)
+#else
+#define DPLYR_ENTRYPOINT_EXPORT
+#endif
+
+extern "C" DPLYR_ENTRYPOINT_EXPORT DUCKDB_EXTENSION_API void dplyr_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
     dplyr::DplyrExtension ext;
     ext.Load(loader);
 }
