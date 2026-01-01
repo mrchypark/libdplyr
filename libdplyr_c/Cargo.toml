@@ -7,16 +7,12 @@ license = "MIT"
 authors = ["libdplyr contributors"]
 build = "build.rs"
 
-# R3-AC1: C ABI 호환성을 위한 정적/동적 라이브러리 생성
-# rlib 추가: 벤치마크 및 Rust 테스트에서 crate import 가능하도록
-# For non-Wasm: use all crate types (rlib for Rust tests, staticlib, cdylib)
-# For Wasm: only staticlib is supported (cdylib doesn't work with Emscripten)
+# R3-AC1: C ABI 호환성을 위한 정적 라이브러리 생성
+# staticlib: DuckDB C++ extension과 링크하기 위한 정적 라이브러리
+# rlib: Rust 테스트 및 벤치마크용
+# Note: cdylib 제거 - Wasm/Emscripten에서 .so 파일 복사 오류 발생
 [lib]
-crate-type = ["rlib", "staticlib", "cdylib"]
-
-# Wasm/Emscripten only supports staticlib, remove cdylib to prevent file copy errors
-[target.'cfg(target_family = "wasm")'.lib]
-crate-type = ["staticlib"]
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 # 기존 libdplyr 크레이트 의존성
