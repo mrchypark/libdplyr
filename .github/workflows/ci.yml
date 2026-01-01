@@ -265,7 +265,17 @@ jobs:
           cd build
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             export DUCKDB_EXTENSION_PATH=$(pwd)
-            ./Release/duckdb_extension_integration_test.exe --gtest_color=yes
+            export DUCKDB_EXTENSION_PATH=$(pwd)
+            # Dynamically find the test executable (Ninja puts it in root or tests/, MSVC in Release/)
+            TEST_EXE=$(find . -name "duckdb_extension_integration_test.exe" -type f | head -n 1)
+            if [[ -n "$TEST_EXE" ]]; then
+              echo "Found test executable: $TEST_EXE"
+              "$TEST_EXE" --gtest_color=yes
+            else
+              echo "Error: duckdb_extension_integration_test.exe not found"
+              find . -name "*.exe" # Debug output
+              exit 1
+            fi
           else
             export DUCKDB_EXTENSION_PATH=$(pwd)
             if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
@@ -328,7 +338,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          cp build/Release/dplyr.duckdb_extension artifacts/
+          mkdir -p artifacts
+          # Dynamically find the extension binary
+          EXT_BIN=$(find build -name "dplyr.duckdb_extension" -type f | head -n 1)
+          if [[ -n "$EXT_BIN" ]]; then
+            echo "Found extension binary: $EXT_BIN"
+            cp "$EXT_BIN" artifacts/
+          else
+            echo "Error: dplyr.duckdb_extension not found"
+            find build -name "*.duckdb_extension" # Debug output
+            exit 1
+          fi
           cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
 
           # Create metadata file
