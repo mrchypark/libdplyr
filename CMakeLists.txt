@@ -388,9 +388,17 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
             PRIVATE
             WIN32_LEAN_AND_MEAN NOMINMAX
             DUCKDB_EXTENSION_MAIN
-            DUCKDB_STATIC_BUILD
             DUCKDB_VERSION="${DUCKDB_VERSION}"
         )
+
+        # DUCKDB_STATIC_BUILD must only be defined for the static target.
+        # For the loadable extension (DLL), we need DUCKDB_BUILD_LIBRARY to ensure dllexport.
+        if(EXT_TARGET STREQUAL DUCKDB_EXTENSION_STATIC_TARGET)
+            target_compile_definitions(${EXT_TARGET} PRIVATE DUCKDB_STATIC_BUILD)
+        else()
+            # Loadable extension needs dllexport for entrypoint function
+            target_compile_definitions(${EXT_TARGET} PRIVATE DUCKDB_BUILD_LIBRARY)
+        endif()
 
     elseif(APPLE)
         target_link_libraries(${EXT_TARGET}
