@@ -286,7 +286,6 @@ message(STATUS "Found Cargo: ${CARGO_VERSION_OUTPUT}")
 # Emscripten support for wasm builds (matches duckdb-prql)
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
-    target_link_options(libdplyr_c INTERFACE "LINKER:-sSIDE_MODULE=1")
 endif()
 
 # Workaround for missing libgcc_eh in Rtools MinGW environment
@@ -301,7 +300,8 @@ if(MINGW)
     # Pass the library path directly to the linker via link-arg
     # Note: We use forward slashes for the path to avoid escaping issues
     file(TO_CMAKE_PATH "${CMAKE_BINARY_DIR}" CMAKE_BINARY_DIR_POSIX)
-    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C panic=abort -C link-arg=-L${CMAKE_BINARY_DIR_POSIX}")
+    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C panic=abort -L native=${CMAKE_BINARY_DIR_POSIX}")
+    message(STATUS "MinGW RUSTFLAGS configured: $ENV{RUSTFLAGS}")
 endif()
 
 # R4-AC1: Setup Corrosion for Rust-CMake integration
@@ -359,6 +359,10 @@ if(NOT TARGET libdplyr_c)
 endif()
 
 message(STATUS "Successfully imported Rust crate: libdplyr_c")
+
+if(EMSCRIPTEN)
+    target_link_options(libdplyr_c INTERFACE "LINKER:-sSIDE_MODULE=1")
+endif()
 
 # R4-AC1: Set Rust compilation flags based on build type
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
