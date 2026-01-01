@@ -252,6 +252,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
           set BUILD_DIR=build
           tests\run_smoke_tests.bat
 
