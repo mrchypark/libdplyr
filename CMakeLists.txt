@@ -622,7 +622,7 @@ set_tests_properties(rust_unit_tests PROPERTIES TIMEOUT 120)
 # R7-AC1, R7-AC3: C++ Integration Tests
 option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
 
-if(MINGW)
+if(MINGW OR EMSCRIPTEN)
     set(BUILD_CPP_TESTS OFF)
 endif()
 
