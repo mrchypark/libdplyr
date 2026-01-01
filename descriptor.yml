@@ -1,0 +1,26 @@
+extension:
+  name: dplyr
+  description: R dplyr syntax support for DuckDB - transpiles dplyr pipeline syntax to SQL
+  version: 0.1.0
+  language: C++
+  build: cmake
+  license: MIT
+  maintainers:
+    - mrchypark
+
+repo:
+  github: mrchypark/libdplyr
+  ref: main # 안정화 후 태그(예: v0.1.0)로 변경 가능
+
+requires_toolchains:
+  - rust # libdplyr_c Rust 크레이트 필요
+
+duckdb:
+  minimum_version: "1.4.0"
+
+# 지원 플랫폼 (CI에서 빌드 테스트 완료)
+platforms:
+  - linux-amd64
+  - osx-arm64
+  - osx-amd64
+  - windows-amd64
