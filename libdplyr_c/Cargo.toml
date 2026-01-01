@@ -9,8 +9,14 @@ build = "build.rs"
 
 # R3-AC1: C ABI 호환성을 위한 정적/동적 라이브러리 생성
 # rlib 추가: 벤치마크 및 Rust 테스트에서 crate import 가능하도록
+# For non-Wasm: use all crate types (rlib for Rust tests, staticlib, cdylib)
+# For Wasm: only staticlib is supported (cdylib doesn't work with Emscripten)
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
+
+# Wasm/Emscripten only supports staticlib, remove cdylib to prevent file copy errors
+[target.'cfg(target_family = "wasm")'.lib]
+crate-type = ["staticlib"]
 
 [dependencies]
 # 기존 libdplyr 크레이트 의존성
