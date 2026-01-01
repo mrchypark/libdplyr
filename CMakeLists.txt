@@ -315,6 +315,62 @@ if(CARGO_CONFIG_CONTENT)
     message(STATUS "Config content:\n${CARGO_CONFIG_CONTENT}")
 endif()
 
+# R4-AC1: Setup Corrosion for Rust-CMake integration
+find_package(corrosion QUIET)
+if(NOT corrosion_FOUND)
+    message(STATUS "Corrosion not found, downloading...")
+    include(FetchContent)
+    FetchContent_Declare(
+        Corrosion
+        GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+        GIT_TAG v0.5.1
+        GIT_SHALLOW TRUE
+    )
+
+    # Check if fetch was successful
+    FetchContent_GetProperties(Corrosion)
+    if(NOT corrosion_POPULATED)
+        message(STATUS "Downloading Corrosion...")
+        FetchContent_Populate(Corrosion)
+
+        # Verify Corrosion was downloaded
+        if(NOT EXISTS "${corrosion_SOURCE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR "Failed to download Corrosion")
+        endif()
+
+        add_subdirectory(${corrosion_SOURCE_DIR} ${corrosion_BINARY_DIR})
+    endif()
+
+    message(STATUS "Successfully configured Corrosion for Rust integration")
+else()
+    message(STATUS "Found existing Corrosion installation")
+endif()
+
+# R4-AC1: Configure Rust build environment
+set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust_target")
+set(ENV{CARGO_TARGET_DIR} ${RUST_TARGET_DIR})
+
+# Verify Rust crate exists
+set(RUST_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml")
+if(NOT EXISTS ${RUST_MANIFEST_PATH})
+    message(FATAL_ERROR
+        "Rust crate manifest not found at ${RUST_MANIFEST_PATH}. "
+        "Please ensure the libdplyr_c crate is properly set up.")
+endif()
+
+# R4-AC1: Import libdplyr_c Rust crate
+message(STATUS "Importing Rust crate: libdplyr_c")
+corrosion_import_crate(
+    MANIFEST_PATH ${RUST_MANIFEST_PATH}
+    CRATES libdplyr_c
+)
+
+# Verify the crate was imported successfully
+if(NOT TARGET libdplyr_c)
+    message(FATAL_ERROR "Failed to import Rust crate libdplyr_c")
+endif()
+
+message(STATUS "Successfully imported Rust crate: libdplyr_c")
 # R4-AC1: Set Rust compilation flags based on build type
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(ENV{RUST_BACKTRACE} "1")
