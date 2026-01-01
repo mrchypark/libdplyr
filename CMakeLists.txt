@@ -498,7 +498,9 @@ configure_file(
 enable_testing()
 
 # R4-AC2: Test configuration
-set(EXTENSION_BINARY_PATH "${CMAKE_BINARY_DIR}/${DUCKDB_EXTENSION_NAME}.duckdb_extension")
+# Use generator expression to get the actual output path of the loadable extension
+# This works correctly regardless of build generator (Ninja, MSVC, Makefiles)
+set(EXTENSION_BINARY_PATH "$<TARGET_FILE:${DUCKDB_EXTENSION_TARGET}>")
 set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
 
 # R4-AC2: Smoke test - basic extension loading
