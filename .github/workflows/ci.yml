@@ -223,6 +223,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_RC_COMPILER_LAUNCHER="" `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Create Swap Space
