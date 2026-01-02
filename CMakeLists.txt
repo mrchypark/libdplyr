@@ -367,6 +367,7 @@ message(STATUS "Importing Rust crate: libdplyr_c")
 corrosion_import_crate(
     MANIFEST_PATH ${RUST_MANIFEST_PATH}
     CRATES libdplyr_c
+    CRATE_TYPES staticlib
 )
 
 # Verify the crate was imported successfully
