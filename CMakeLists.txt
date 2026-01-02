@@ -21,7 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Match DuckDB's official Linux binary ABI (old ABI) globally
 # This must be set before any targets are created to ensure consistency
-if(UNIX)
+if(UNIX AND NOT APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
 endif()
 
