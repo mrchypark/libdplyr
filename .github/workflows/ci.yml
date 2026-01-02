@@ -195,6 +195,12 @@ jobs:
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
             # Match DuckDB's official Linux binary ABI (old ABI)
             LINUX_ABI_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"
+            # Bypass legacy ABI check in platform.hpp by setting explicit platform
+            if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+                LINUX_ABI_FLAGS="$LINUX_ABI_FLAGS -DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
+            else
+                LINUX_ABI_FLAGS="$LINUX_ABI_FLAGS -DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+            fi
           fi
 
           cmake .. \
