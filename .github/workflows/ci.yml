@@ -201,13 +201,6 @@ jobs:
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
 
-      - name: Setup Ccache
-        if: runner.os == 'Windows'
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          variant: sccache
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -221,9 +214,8 @@ jobs:
             -G "${{ matrix.cmake-generator }}" `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_RC_COMPILER_LAUNCHER="" `
+            -DCMAKE_C_COMPILER_LAUNCHER="" `
+            -DCMAKE_CXX_COMPILER_LAUNCHER="" `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Create Swap Space
