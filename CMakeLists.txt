@@ -453,7 +453,8 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
 
         # Match DuckDB's official Linux binary ABI (old ABI)
         # Required to avoid undefined symbol errors when loading the extension
-        target_compile_definitions(${EXT_TARGET} PRIVATE _GLIBCXX_USE_CXX11_ABI=0)
+        # Using add_compile_definitions to apply globally to all targets (including tests and static libs)
+        add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
     endif()
 
     # R4-AC1: Compiler-specific optimizations and warnings
