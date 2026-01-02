@@ -187,6 +187,7 @@ jobs:
 
           OSX_ARCH=""
           LINUX_ABI_FLAGS=""
+          LINUX_PLATFORM_FLAG=""
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             case "${{ matrix.target }}" in
               x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
@@ -195,11 +196,11 @@ jobs:
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
             # Match DuckDB's official Linux binary ABI (old ABI)
             LINUX_ABI_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"
-            # Bypass legacy ABI check in platform.hpp by setting explicit platform
+            # Bypass legacy ABI check in platform.hpp by setting explicit platform (CMake variable)
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-                LINUX_ABI_FLAGS="$LINUX_ABI_FLAGS -DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
+                LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
             else
-                LINUX_ABI_FLAGS="$LINUX_ABI_FLAGS -DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+                LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
             fi
           fi
 
@@ -208,6 +209,7 @@ jobs:
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
             -DCMAKE_CXX_FLAGS="${LINUX_ABI_FLAGS}" \
+            ${LINUX_PLATFORM_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
