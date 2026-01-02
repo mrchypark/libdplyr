@@ -214,6 +214,8 @@ jobs:
             -G "${{ matrix.cmake-generator }}" `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER= `
+            -DCMAKE_CXX_COMPILER_LAUNCHER= `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Create Swap Space
