@@ -1,0 +1,7 @@
+[target.wasm32-unknown-emscripten]
+linker = "emcc"
+rustflags = [
+    "-C", "link-arg=-sSIDE_MODULE=1",
+    "-C", "link-arg=-sEXPORT_ALL=1", 
+    "-C", "link-arg=-fPIC"
+]
