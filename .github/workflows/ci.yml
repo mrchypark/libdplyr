@@ -186,17 +186,22 @@ jobs:
           cd build
 
           OSX_ARCH=""
+          LINUX_ABI_FLAGS=""
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             case "${{ matrix.target }}" in
               x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
               aarch64-apple-darwin) OSX_ARCH="arm64" ;;
             esac
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            # Match DuckDB's official Linux binary ABI (old ABI)
+            LINUX_ABI_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"
           fi
 
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
+            -DCMAKE_CXX_FLAGS="${LINUX_ABI_FLAGS}" \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
