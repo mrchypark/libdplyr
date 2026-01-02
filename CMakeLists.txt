@@ -19,6 +19,12 @@ set(DUCKDB_EXTENSION_NAME "dplyr")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Match DuckDB's official Linux binary ABI (old ABI) globally
+# This must be set before any targets are created to ensure consistency
+if(UNIX)
+    add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
+endif()
+
 # R4-AC1: Build configuration
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
@@ -451,10 +457,6 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
             -fPIC
         )
 
-        # Match DuckDB's official Linux binary ABI (old ABI)
-        # Required to avoid undefined symbol errors when loading the extension
-        # Using add_compile_definitions to apply globally to all targets (including tests and static libs)
-        add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
     endif()
 
     # R4-AC1: Compiler-specific optimizations and warnings
