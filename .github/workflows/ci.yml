@@ -221,7 +221,6 @@ jobs:
           cd build
 
           OSX_ARCH=""
-          LINUX_ABI_FLAGS=""
           LINUX_PLATFORM_FLAG=""
           LINUX_STATIC_FLAG=""
           if [[ "${{ runner.os }}" == "macOS" ]]; then
@@ -230,8 +229,6 @@ jobs:
               aarch64-apple-darwin) OSX_ARCH="arm64" ;;
             esac
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            # Match DuckDB's official Linux binary ABI (old ABI)
-            LINUX_ABI_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"
             # Bypass legacy ABI check in platform.hpp by setting explicit platform (CMake variable)
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
                 LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
@@ -246,7 +243,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_CPP_TESTS=ON \
             -DBUILD_DUCKDB=ON \
-            -DCMAKE_CXX_FLAGS="${LINUX_ABI_FLAGS}" \
             ${LINUX_PLATFORM_FLAG} \
             ${LINUX_STATIC_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
