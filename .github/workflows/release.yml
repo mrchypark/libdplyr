@@ -28,43 +28,71 @@ jobs:
   # R4-AC3: Multi-platform Release Build
   # =============================================================================
   build-release:
-    name: Build Release (${{ matrix.os }})
+    name: Build Release (${{ matrix.os }} / ${{ matrix.duckdb_version }})
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
+          # DuckDB v1.4.0 (minimum supported)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
-            artifact-name: dplyr-linux-x86_64
-            extension-name: dplyr-linux-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
-
-          # macOS x86_64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-linux-x86_64
+            extension-name: dplyr-v1.4.0-linux-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
-            artifact-name: dplyr-macos-x86_64
-            extension-name: dplyr-macos-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-
-          # macOS ARM64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-macos-x86_64
+            extension-name: dplyr-v1.4.0-macos-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
-            artifact-name: dplyr-macos-arm64
-            extension-name: dplyr-macos-arm64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-
-          # Windows x86_64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-macos-arm64
+            extension-name: dplyr-v1.4.0-macos-arm64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
-            artifact-name: dplyr-windows-x86_64
-            extension-name: dplyr-windows-x86_64.duckdb_extension
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-windows-x86_64
+            extension-name: dplyr-v1.4.0-windows-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
+
+          # DuckDB v1.4.2 (tested)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            rust-toolchain: stable
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-linux-x86_64
+            extension-name: dplyr-v1.4.2-linux-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
+          - os: macos-14
+            target: x86_64-apple-darwin
+            rust-toolchain: stable
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-macos-x86_64
+            extension-name: dplyr-v1.4.2-macos-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            rust-toolchain: stable
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-macos-arm64
+            extension-name: dplyr-v1.4.2-macos-arm64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-toolchain: stable
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-windows-x86_64
+            extension-name: dplyr-v1.4.2-windows-x86_64.duckdb_extension
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
 
     steps:
@@ -76,6 +104,13 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Pin DuckDB submodule to ${{ matrix.duckdb_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C duckdb fetch --tags --force
+          git -C duckdb checkout "${{ matrix.duckdb_version }}"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -161,11 +196,21 @@ jobs:
           cd build
 
           OSX_ARCH=""
+          LINUX_ABI_FLAGS=""
+          LINUX_PLATFORM_FLAG=""
+          LINUX_STATIC_FLAG=""
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             case "${{ matrix.target }}" in
               x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
               aarch64-apple-darwin) OSX_ARCH="arm64" ;;
             esac
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            # Match DuckDB's official Linux binary ABI (old ABI)
+            LINUX_ABI_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"
+            # Bypass legacy ABI check in platform.hpp by setting explicit platform (CMake variable)
+            LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+            # Build loadable extensions in static mode for distribution
+            LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
           fi
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
@@ -176,14 +221,15 @@ jobs:
               -G "Ninja" \
               -DCMAKE_C_COMPILER=cl \
               -DCMAKE_CXX_COMPILER=cl \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src \
               -DRust_CARGO_TARGET="${{ matrix.target }}"
           else
             cmake .. \
               -DCMAKE_BUILD_TYPE=Release \
               -DBUILD_CPP_TESTS=OFF \
               -DBUILD_DUCKDB=ON \
-              -DDUCKDB_MODULE_BASE_DIR=${{ github.workspace }}/build/_deps/duckdb-src \
+              -DCMAKE_CXX_FLAGS="${LINUX_ABI_FLAGS}" \
+              ${LINUX_PLATFORM_FLAG} \
+              ${LINUX_STATIC_FLAG} \
               -DRust_CARGO_TARGET="${{ matrix.target }}" \
               ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
           fi
@@ -222,12 +268,23 @@ jobs:
           cd build
           export DUCKDB_EXTENSION_PATH=$(pwd)
 
+          DUCKDB_UNSIGNED_ARGS=()
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            duckdb.exe -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
-          elif [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            arch -x86_64 duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            if duckdb.exe -unsigned :memory: -c "SELECT 1;" >/dev/null 2>&1; then
+              DUCKDB_UNSIGNED_ARGS=(-unsigned)
+            fi
           else
-            duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            if duckdb -unsigned :memory: -c "SELECT 1;" >/dev/null 2>&1; then
+              DUCKDB_UNSIGNED_ARGS=(-unsigned)
+            fi
+          fi
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            duckdb.exe "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+          elif [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+          else
+            duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
           fi
 
       # -------------------------------------------------------------------------
@@ -256,7 +313,8 @@ jobs:
             "git_ref": "${{ github.ref }}",
             "rust_version": "$(rustc --version)",
             "cmake_version": "$(cmake --version | head -n1)",
-            "duckdb_compatibility": ">=1.4.2",
+            "duckdb_version": "${{ matrix.duckdb_version }}",
+            "duckdb_compatibility": "==${{ matrix.duckdb_version }}",
             "extension_size": "$(stat -c%s release-package/${{ matrix.extension-name }} 2>/dev/null || stat -f%z release-package/${{ matrix.extension-name }})"
           }
           EOF
@@ -268,7 +326,7 @@ jobs:
           ## Platform: ${{ matrix.os }} (${{ matrix.target }})
 
           ### Prerequisites
-          - DuckDB 1.4.2 or later
+          - DuckDB ${{ matrix.duckdb_version }} (exact)
 
           ### Installation
           1. Download the extension file: \`${{ matrix.extension-name }}\`
@@ -333,11 +391,20 @@ jobs:
         run: |
           mkdir -p final-release
 
-          # Collect all extension binaries and metadata
+          # Collect all extension binaries and checksums (already uniquely named)
           find release-artifacts -name "*.duckdb_extension" -exec cp {} final-release/ \;
           find release-artifacts -name "*.sha256" -exec cp {} final-release/ \;
-          find release-artifacts -name "metadata.json" -exec cp {} final-release/ \;
-          find release-artifacts -name "INSTALL.md" -exec cp {} final-release/ \;
+
+          # Collect per-artifact metadata without clobbering
+          while IFS= read -r -d '' meta_path; do
+            artifact_dir="$(basename "$(dirname "$meta_path")")"
+            cp "$meta_path" "final-release/${artifact_dir}.metadata.json"
+          done < <(find release-artifacts -name "metadata.json" -print0)
+
+          while IFS= read -r -d '' install_path; do
+            artifact_dir="$(basename "$(dirname "$install_path")")"
+            cp "$install_path" "final-release/${artifact_dir}.INSTALL.md"
+          done < <(find release-artifacts -name "INSTALL.md" -print0)
 
           # Create combined checksums file
           cd final-release
@@ -349,13 +416,9 @@ jobs:
             "version": "${{ github.event.release.tag_name || github.event.inputs.version }}",
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "git_commit": "${{ github.sha }}",
-            "supported_platforms": [
-              "linux-x86_64",
-              "macos-x86_64",
-              "macos-arm64",
-              "windows-x86_64"
-            ],
-            "duckdb_compatibility": ">=1.4.2",
+            "duckdb_min_version": "1.4.0",
+            "duckdb_tested_versions": ["1.4.2"],
+            "duckdb_versions_built": ["v1.4.0", "v1.4.2"],
             "total_artifacts": $(ls -1 *.duckdb_extension | wc -l),
             "release_notes_url": "${{ github.event.release.html_url || 'Manual release' }}"
           }
@@ -380,12 +443,21 @@ jobs:
               *)          echo "Unsupported platform"; exit 1;;
           esac
 
-          EXTENSION_FILE="dplyr-${PLATFORM}.duckdb_extension"
+          if [[ -z "${DUCKDB_VERSION:-}" ]]; then
+              echo "This release contains DuckDB-version-specific binaries."
+              echo "Set DUCKDB_VERSION to the exact DuckDB version you are using (e.g., v1.4.0 or v1.4.2)."
+              echo ""
+              echo "Available binaries for platform $PLATFORM:"
+              ls -1 "dplyr-"*"-${PLATFORM}.duckdb_extension" 2>/dev/null || ls -1 *.duckdb_extension
+              exit 1
+          fi
+
+          EXTENSION_FILE="dplyr-${DUCKDB_VERSION}-${PLATFORM}.duckdb_extension"
 
           if [[ ! -f "$EXTENSION_FILE" ]]; then
-              echo "Extension file for platform $PLATFORM not found!"
-              echo "Available files:"
-              ls -1 *.duckdb_extension
+              echo "Extension file for platform $PLATFORM and DuckDB $DUCKDB_VERSION not found!"
+              echo "Available binaries for platform $PLATFORM:"
+              ls -1 "dplyr-"*"-${PLATFORM}.duckdb_extension" 2>/dev/null || ls -1 *.duckdb_extension
               exit 1
           fi
 
@@ -420,14 +492,21 @@ jobs:
           2. Run the installation script: \`./install.sh\`
           3. Load in DuckDB: \`LOAD '/path/to/extension';\`
 
-          ### Platform-specific Downloads
-          - **Linux x86_64**: \`dplyr-linux-x86_64.duckdb_extension\`
-          - **macOS x86_64**: \`dplyr-macos-x86_64.duckdb_extension\`
-          - **macOS ARM64**: \`dplyr-macos-arm64.duckdb_extension\`
-          - **Windows x86_64**: \`dplyr-windows-x86_64.duckdb_extension\`
+          ### Platform- and DuckDB-version-specific Downloads
+          - **DuckDB v1.4.0**
+            - \`dplyr-v1.4.0-linux-x86_64.duckdb_extension\`
+            - \`dplyr-v1.4.0-macos-x86_64.duckdb_extension\`
+            - \`dplyr-v1.4.0-macos-arm64.duckdb_extension\`
+            - \`dplyr-v1.4.0-windows-x86_64.duckdb_extension\`
+          - **DuckDB v1.4.2**
+            - \`dplyr-v1.4.2-linux-x86_64.duckdb_extension\`
+            - \`dplyr-v1.4.2-macos-x86_64.duckdb_extension\`
+            - \`dplyr-v1.4.2-macos-arm64.duckdb_extension\`
+            - \`dplyr-v1.4.2-windows-x86_64.duckdb_extension\`
 
           ## 🔧 Requirements
-          - DuckDB 1.4.2 or later
+          - DuckDB 1.4.0 (minimum) / 1.4.2 (tested)
+          - Load the binary that matches your exact DuckDB version
           - Compatible operating system (Linux, macOS, Windows)
 
           ## 📊 Usage Example
