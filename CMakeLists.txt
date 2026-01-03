@@ -59,7 +59,7 @@ if(STANDALONE_BUILD)
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-            GIT_TAG v1.4.2
+            GIT_TAG v1.4.0
             GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(duckdb)
@@ -101,6 +101,25 @@ if(NOT DUCKDB_INCLUDE_DIR OR NOT DUCKDB_LIBRARIES)
     message(FATAL_ERROR "DuckDB headers/libs not provided. Set DUCKDB_INCLUDE_DIR and DUCKDB_LIBRARIES or build standalone.")
 endif()
 
+# When using the DuckDB submodule, prefer deriving the DuckDB version from its git tag.
+# This keeps the extension metadata footer aligned with the DuckDB version it was built against.
+if(STANDALONE_BUILD AND DEFINED DUCKDB_LOCAL_SOURCE AND EXISTS "${DUCKDB_LOCAL_SOURCE}/.git")
+    if(NOT DEFINED DUCKDB_NORMALIZED_VERSION OR DUCKDB_NORMALIZED_VERSION STREQUAL "")
+        execute_process(
+            COMMAND git -C "${DUCKDB_LOCAL_SOURCE}" describe --tags --exact-match --match "v*"
+            OUTPUT_VARIABLE _duckdb_exact_tag
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _duckdb_exact_tag_result
+        )
+        if(_duckdb_exact_tag_result EQUAL 0 AND _duckdb_exact_tag MATCHES "^v[0-9]+\\.[0-9]+\\.[0-9]+$")
+            set(DUCKDB_NORMALIZED_VERSION "${_duckdb_exact_tag}")
+            if(NOT DEFINED DUCKDB_VERSION OR DUCKDB_VERSION STREQUAL "unknown")
+                string(REGEX REPLACE "^v" "" DUCKDB_VERSION "${_duckdb_exact_tag}")
+            endif()
+        endif()
+    endif()
+endif()
+
 if(NOT DEFINED DUCKDB_VERSION)
     set(_duckdb_header_candidates
         "${DUCKDB_INCLUDE_DIR}/duckdb.hpp"
@@ -109,7 +128,7 @@ if(NOT DEFINED DUCKDB_VERSION)
     foreach(_duckdb_header IN LISTS _duckdb_header_candidates)
         if(EXISTS "${_duckdb_header}")
             file(READ "${_duckdb_header}" DUCKDB_HEADER_CONTENT)
-            string(REGEX MATCH "#define DUCKDB_VERSION \"([0-9]+\\.[0-9]+\\.[0-9]+)\""
+            string(REGEX MATCH "#define DUCKDB_VERSION \"v?([0-9]+\\.[0-9]+\\.[0-9]+)\""
                    DUCKDB_VERSION_MATCH "${DUCKDB_HEADER_CONTENT}")
             if(DUCKDB_VERSION_MATCH)
                 set(DUCKDB_VERSION ${CMAKE_MATCH_1})
@@ -137,9 +156,31 @@ else()
     message(STATUS "Extension will use runtime feature detection for compatibility")
 endif()
 
-# Ensure a normalized DuckDB version is available for extension metadata
+# Ensure a normalized DuckDB version is available for extension metadata.
+# DuckDB's extension metadata footer uses DUCKDB_NORMALIZED_VERSION for CPP ABI builds.
+# When DuckDB is built as a subdirectory, its version variables live in that directory
+# scope, so we query them explicitly.
 if(NOT DEFINED DUCKDB_NORMALIZED_VERSION OR DUCKDB_NORMALIZED_VERSION STREQUAL "")
-    if(DEFINED DUCKDB_VERSION AND NOT DUCKDB_VERSION STREQUAL "unknown")
+    if(STANDALONE_BUILD)
+        set(_duckdb_query_dir "")
+        if(DEFINED DUCKDB_LOCAL_SOURCE AND EXISTS "${DUCKDB_LOCAL_SOURCE}/CMakeLists.txt")
+            set(_duckdb_query_dir "${DUCKDB_LOCAL_SOURCE}")
+        elseif(DEFINED duckdb_SOURCE_DIR AND EXISTS "${duckdb_SOURCE_DIR}/CMakeLists.txt")
+            set(_duckdb_query_dir "${duckdb_SOURCE_DIR}")
+        endif()
+
+        if(NOT _duckdb_query_dir STREQUAL "")
+            get_directory_property(_duckdb_normalized_version
+                                   DIRECTORY "${_duckdb_query_dir}"
+                                   DEFINITION DUCKDB_NORMALIZED_VERSION)
+            if(DEFINED _duckdb_normalized_version AND NOT _duckdb_normalized_version STREQUAL "")
+                set(DUCKDB_NORMALIZED_VERSION "${_duckdb_normalized_version}")
+            endif()
+        endif()
+    endif()
+
+    if((NOT DEFINED DUCKDB_NORMALIZED_VERSION OR DUCKDB_NORMALIZED_VERSION STREQUAL "") AND
+       (DEFINED DUCKDB_VERSION AND NOT DUCKDB_VERSION STREQUAL "unknown"))
         set(DUCKDB_NORMALIZED_VERSION "v${DUCKDB_VERSION}")
     endif()
 endif()
@@ -292,7 +333,7 @@ set(CARGO_CONFIG_CONTENT "")
 
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
-    
+
     # Use -O0 to disable wasm-opt which is crashing during the build
     # wasm-opt is only run at -O1 and higher optimization levels
     # Note: This produces larger/slower Wasm but enables successful builds
@@ -306,7 +347,7 @@ if(MINGW)
     file(WRITE ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c "")
     execute_process(COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_BINARY_DIR}/dummy_gcc_eh.c -o ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
     execute_process(COMMAND ${CMAKE_AR} cr ${CMAKE_BINARY_DIR}/libgcc_eh.a ${CMAKE_BINARY_DIR}/dummy_gcc_eh.o)
-    
+
     file(TO_CMAKE_PATH "${CMAKE_BINARY_DIR}" CMAKE_BINARY_DIR_POSIX)
     string(APPEND CARGO_CONFIG_CONTENT "[target.x86_64-pc-windows-gnu]\n")
     string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"panic=abort\", \"-L\", \"native=${CMAKE_BINARY_DIR_POSIX}\"]\n\n")

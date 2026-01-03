@@ -1001,8 +1001,7 @@ struct DplyrTableFunctionData : public TableFunctionData {
         return sql == other_data.sql && types == other_data.types;
     }
 
-    // DuckDB 1.4.2+ requires this method - return false to disable statement caching
-    // for this table function since results depend on current catalog state
+    // Disable statement caching for this table function since results depend on current catalog state.
     bool SupportStatementCache() const override {
         return false;
     }
