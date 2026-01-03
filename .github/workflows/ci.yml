@@ -17,43 +17,71 @@ jobs:
   # R4-AC1: Multi-platform Build Matrix
   # =============================================================================
   build-and-test:
-    name: Build and Test (${{ matrix.os }})
+    name: Build and Test (${{ matrix.os }} / ${{ matrix.duckdb_version }})
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
+          # DuckDB v1.4.0 (minimum supported)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
-
-          # macOS x86_64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-
-          # macOS ARM64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
-
-          # Windows x86_64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
             cmake-generator: "Ninja"
-            artifact-name: dplyr-windows-x86_64
+            duckdb_version: v1.4.0
+            artifact-name: dplyr-v1.4.0-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
+
+          # DuckDB v1.4.2 (tested)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            rust-toolchain: stable
+            cmake-generator: "Unix Makefiles"
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
+          - os: macos-14
+            target: x86_64-apple-darwin
+            rust-toolchain: stable
+            cmake-generator: "Unix Makefiles"
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            rust-toolchain: stable
+            cmake-generator: "Unix Makefiles"
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-toolchain: stable
+            cmake-generator: "Ninja"
+            duckdb_version: v1.4.2
+            artifact-name: dplyr-v1.4.2-windows-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
 
     steps:
@@ -65,6 +93,13 @@ jobs:
         with:
           fetch-depth: 0 # Full history for version detection
           submodules: recursive
+
+      - name: Pin DuckDB submodule to ${{ matrix.duckdb_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C duckdb fetch --tags --force
+          git -C duckdb checkout "${{ matrix.duckdb_version }}"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -188,6 +223,7 @@ jobs:
           OSX_ARCH=""
           LINUX_ABI_FLAGS=""
           LINUX_PLATFORM_FLAG=""
+          LINUX_STATIC_FLAG=""
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             case "${{ matrix.target }}" in
               x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
@@ -202,6 +238,8 @@ jobs:
             else
                 LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
             fi
+            # Build loadable extensions in static mode for distribution
+            LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
           fi
 
           cmake .. \
@@ -210,6 +248,7 @@ jobs:
             -DBUILD_DUCKDB=ON \
             -DCMAKE_CXX_FLAGS="${LINUX_ABI_FLAGS}" \
             ${LINUX_PLATFORM_FLAG} \
+            ${LINUX_STATIC_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
             ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
@@ -343,6 +382,7 @@ jobs:
           {
             "platform": "${{ matrix.os }}",
             "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ matrix.duckdb_version }}",
             "rust_version": "$(rustc --version)",
             "cmake_version": "$(cmake --version | head -n1)",
             "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -374,6 +414,7 @@ jobs:
           {
             "platform": "${{ matrix.os }}",
             "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ matrix.duckdb_version }}",
             "rust_version": "$(rustc --version)",
             "cmake_version": "$(cmake --version | head -n1)",
             "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -462,20 +503,20 @@ jobs:
         run: |
           mkdir -p release-package
 
-          # Collect all extension binaries
-          find release-artifacts -name "*.duckdb_extension" -exec cp {} release-package/ \;
+          # Collect extension binaries, keeping DuckDB version in the filename
+          while IFS= read -r -d '' ext_path; do
+            artifact_dir="$(basename "$(dirname "$ext_path")")"
+            cp "$ext_path" "release-package/${artifact_dir}.duckdb_extension"
+          done < <(find release-artifacts -name "dplyr.duckdb_extension" -print0)
 
-          # Rename with platform suffixes
-          cd release-package
-          for ext in *.duckdb_extension; do
-            if [[ -f "$ext" ]]; then
-              # Extract platform info from artifact structure
-              platform=$(echo "$ext" | sed 's/.*dplyr-\([^/]*\).*/\1/')
-              mv "$ext" "dplyr-${platform}.duckdb_extension"
-            fi
-          done
+          # Collect build metadata alongside binaries (optional)
+          while IFS= read -r -d '' info_path; do
+            artifact_dir="$(basename "$(dirname "$info_path")")"
+            cp "$info_path" "release-package/${artifact_dir}.build-info.json"
+          done < <(find release-artifacts -name "build-info.json" -print0)
 
           # Create checksums
+          cd release-package
           sha256sum *.duckdb_extension > checksums.sha256
 
           # Create release info
@@ -484,13 +525,9 @@ jobs:
             "version": "${{ github.event.release.tag_name }}",
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "git_commit": "${{ github.sha }}",
-            "supported_platforms": [
-              "linux-x86_64",
-              "macos-x86_64",
-              "macos-arm64",
-              "windows-x86_64"
-            ],
-            "duckdb_compatibility": ">=1.4.2",
+            "duckdb_min_version": "1.4.0",
+            "duckdb_tested_versions": ["1.4.2"],
+            "duckdb_versions_built": ["v1.4.0", "v1.4.2"],
             "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
           }
           EOF
