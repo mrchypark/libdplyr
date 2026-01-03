@@ -505,7 +505,8 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
         )
 
         # Link-time optimization for release builds
-        if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        # Disable on musl (Alpine) due to conflicts with fortify-headers and always_inline functions
+        if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT "$ENV{DUCKDB_PLATFORM}" MATCHES ".*musl.*")
             target_compile_options(${EXT_TARGET} PRIVATE -flto)
             target_link_options(${EXT_TARGET} PRIVATE -flto)
         endif()
