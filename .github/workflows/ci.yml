@@ -465,11 +465,11 @@ jobs:
 
       - name: Security audit
         run: |
-          cargo audit --manifest-path libdplyr_c/Cargo.toml
+          cargo audit
 
       - name: License and dependency check
         run: |
-          cargo deny check --manifest-path libdplyr_c/Cargo.toml
+          cargo deny check
 
       - name: Documentation check
         run: |
