@@ -37,8 +37,7 @@ jobs:
 
       - name: Run security audit
         run: |
-          cargo audit --manifest-path libdplyr_c/Cargo.toml --json > libdplyr_c/audit-results.json || true
-          cargo audit --manifest-path libdplyr_c/Cargo.toml
+          cargo audit
 
       - name: Upload audit results
         if: always()
@@ -72,11 +71,11 @@ jobs:
 
       - name: Check licenses and dependencies
         run: |
-          cargo deny check --manifest-path libdplyr_c/Cargo.toml
+          cargo deny check
 
       - name: Generate license report
         run: |
-          cargo deny list --manifest-path libdplyr_c/Cargo.toml --format json > libdplyr_c/license-report.json
+          cargo deny list --format json > libdplyr_c/license-report.json
 
       - name: Upload license report
         uses: actions/upload-artifact@v4
