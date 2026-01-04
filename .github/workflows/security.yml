@@ -37,9 +37,8 @@ jobs:
 
       - name: Run security audit
         run: |
-          cd libdplyr_c
-          cargo audit --json > audit-results.json || true
-          cargo audit
+          cargo audit --manifest-path libdplyr_c/Cargo.toml --json > libdplyr_c/audit-results.json || true
+          cargo audit --manifest-path libdplyr_c/Cargo.toml
 
       - name: Upload audit results
         if: always()
@@ -73,13 +72,11 @@ jobs:
 
       - name: Check licenses and dependencies
         run: |
-          cd libdplyr_c
-          cargo deny check
+          cargo deny check --manifest-path libdplyr_c/Cargo.toml
 
       - name: Generate license report
         run: |
-          cd libdplyr_c
-          cargo deny list --format json > license-report.json
+          cargo deny list --manifest-path libdplyr_c/Cargo.toml --format json > libdplyr_c/license-report.json
 
       - name: Upload license report
         uses: actions/upload-artifact@v4
@@ -111,8 +108,7 @@ jobs:
 
       - name: Run Clippy with security lints
         run: |
-          cd libdplyr_c
-          cargo clippy --workspace --all-targets --all-features -- \
+          cargo clippy --manifest-path libdplyr_c/Cargo.toml --workspace --all-targets --all-features -- \
             -A unknown_lints \
             -W clippy::all \
             -W clippy::suspicious \
@@ -125,9 +121,8 @@ jobs:
 
       - name: Run cargo-geiger (unsafe code analysis)
         run: |
-          cd libdplyr_c
-          cargo geiger --format json > geiger-report.json || true
-          cargo geiger || true
+          cargo geiger --manifest-path libdplyr_c/Cargo.toml --format json > libdplyr_c/geiger-report.json || true
+          cargo geiger --manifest-path libdplyr_c/Cargo.toml || true
 
       - name: Upload static analysis results
         if: always()
@@ -217,8 +212,7 @@ jobs:
 
       - name: Build for CodeQL
         run: |
-          cd libdplyr_c
-          cargo build --all-targets
+          cargo build --manifest-path libdplyr_c/Cargo.toml --all-targets
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

@@ -202,13 +202,11 @@ jobs:
 
       - name: Build Rust components
         run: |
-          cd libdplyr_c
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
 
       - name: Run Rust unit tests
         run: |
-          cd libdplyr_c
-          cargo test --release --target ${{ matrix.target }}
+          cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
 
       # -------------------------------------------------------------------------
       # R4-AC1: CMake Build Configuration
@@ -467,18 +465,15 @@ jobs:
 
       - name: Security audit
         run: |
-          cd libdplyr_c
-          cargo audit
+          cargo audit --manifest-path libdplyr_c/Cargo.toml
 
       - name: License and dependency check
         run: |
-          cd libdplyr_c
-          cargo deny check
+          cargo deny check --manifest-path libdplyr_c/Cargo.toml
 
       - name: Documentation check
         run: |
-          cd libdplyr_c
-          cargo doc --no-deps --document-private-items
+          cargo doc --manifest-path libdplyr_c/Cargo.toml --no-deps --document-private-items
 
   # =============================================================================
   # Release Preparation (on tags)

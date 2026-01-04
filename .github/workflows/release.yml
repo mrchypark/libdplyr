@@ -180,8 +180,7 @@ jobs:
       # -------------------------------------------------------------------------
       - name: Build Rust components (Release)
         run: |
-          cd libdplyr_c
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
 
       - name: Install Rosetta (macOS x86_64 on ARM runners)
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
