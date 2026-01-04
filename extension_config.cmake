@@ -197,6 +197,7 @@ set(EXTENSION_SUPPORTED_OPERATIONS
     "select"               # Column selection
     "filter"               # Row filtering
     "mutate"               # Column transformation
+    "rename"               # Column renaming
     "arrange"              # Row ordering
     "summarise"            # Aggregation
     "group_by"             # Grouping

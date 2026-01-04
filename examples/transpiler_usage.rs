@@ -247,6 +247,9 @@ fn inspect_ast(ast: &DplyrNode) {
                     libdplyr::DplyrOperation::Mutate { assignments, .. } => {
                         println!("     {}. Mutate: {} assignments", i + 1, assignments.len());
                     }
+                    libdplyr::DplyrOperation::Rename { renames, .. } => {
+                        println!("     {}. Rename: {} renames", i + 1, renames.len());
+                    }
                     libdplyr::DplyrOperation::Arrange { columns, .. } => {
                         println!("     {}. Arrange: {} columns", i + 1, columns.len());
                     }

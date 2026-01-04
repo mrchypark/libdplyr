@@ -303,6 +303,14 @@ impl DplyrValidator {
                 }
                 *complexity_score += 2;
             }
+            DplyrOperation::Rename { renames, .. } => {
+                operations.push("rename".to_string());
+                for rename in renames {
+                    columns.insert(rename.old_name.clone());
+                    columns.insert(rename.new_name.clone());
+                }
+                *complexity_score += 1;
+            }
             DplyrOperation::Arrange { columns: cols, .. } => {
                 operations.push("arrange".to_string());
                 for col in cols {

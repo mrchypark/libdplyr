@@ -571,6 +571,53 @@ mod tests {
     }
 
     #[test]
+    fn test_transpile_mutate_then_select_includes_mutated_expression() {
+        let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
+        let dplyr_code =
+            "iris %>% mutate(sepal_ratio = sepal_length / sepal_width) %>% select(species, sepal_ratio)";
+
+        let result = transpiler.transpile(dplyr_code);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
+
+        let sql = result.unwrap();
+        assert!(
+            sql.contains("FROM \"iris\""),
+            "table source should be iris: {sql}"
+        );
+        assert!(
+            sql.contains("\"sepal_length\" / \"sepal_width\""),
+            "mutated expression should be inlined: {sql}"
+        );
+        assert!(
+            sql.contains("AS \"sepal_ratio\""),
+            "mutated column alias should be defined: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_transpile_with_rename() {
+        let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
+        let dplyr_code = "iris %>% rename(sp = species)";
+
+        let result = transpiler.transpile(dplyr_code);
+        assert!(result.is_ok(), "변환이 성공해야 합니다: {result:?}");
+
+        let sql = result.unwrap();
+        assert!(
+            sql.contains("FROM \"iris\""),
+            "table source should be iris: {sql}"
+        );
+        assert!(
+            sql.contains("* EXCLUDE (\"species\")"),
+            "rename should exclude original column: {sql}"
+        );
+        assert!(
+            sql.contains("\"species\" AS \"sp\""),
+            "rename should re-add column with new name: {sql}"
+        );
+    }
+
+    #[test]
     fn test_transpile_with_group_by_and_summarise() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let dplyr_code = "group_by(department) %>% summarise(avg_salary = mean(salary))";

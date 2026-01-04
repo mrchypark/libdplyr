@@ -12,6 +12,7 @@ lazy_static::lazy_static! {
         m.insert("select", Token::Select);
         m.insert("filter", Token::Filter);
         m.insert("mutate", Token::Mutate);
+        m.insert("rename", Token::Rename);
         m.insert("arrange", Token::Arrange);
         m.insert("group_by", Token::GroupBy);
         m.insert("summarise", Token::Summarise);
@@ -36,6 +37,7 @@ pub enum Token {
     Select,
     Filter,
     Mutate,
+    Rename,
     Arrange,
     GroupBy,
     Summarise,
@@ -85,6 +87,7 @@ impl std::fmt::Display for Token {
             Token::Select => write!(f, "select"),
             Token::Filter => write!(f, "filter"),
             Token::Mutate => write!(f, "mutate"),
+            Token::Rename => write!(f, "rename"),
             Token::Arrange => write!(f, "arrange"),
             Token::GroupBy => write!(f, "group_by"),
             Token::Summarise => write!(f, "summarise"),
