@@ -53,27 +53,27 @@ if [ ! -f "libdplyr_c/Cargo.toml" ]; then
     exit 1
 fi
 
-cd libdplyr_c
+LIBDPLYR_C_MANIFEST="libdplyr_c/Cargo.toml"
 
 # Rust formatting
-run_check "Rust Formatting" "cargo fmt --all -- --check"
+run_check "Rust Formatting" "cargo fmt --manifest-path ${LIBDPLYR_C_MANIFEST} --all -- --check"
 
 # Rust clippy
-run_check "Rust Clippy" "cargo clippy --all-targets --all-features -- -D warnings"
+run_check "Rust Clippy" "cargo clippy --manifest-path ${LIBDPLYR_C_MANIFEST} --all-targets --all-features -- -D warnings"
 
 # Rust tests
-run_check "Rust Unit Tests" "cargo test --all-features"
+run_check "Rust Unit Tests" "cargo test --manifest-path ${LIBDPLYR_C_MANIFEST} --all-features"
 
 # Security audit
 if command -v cargo-audit &> /dev/null; then
-    run_check "Security Audit" "cargo audit"
+    run_check "Security Audit" "cargo audit --manifest-path ${LIBDPLYR_C_MANIFEST}"
 else
     echo -e "${YELLOW}⚠️ cargo-audit not installed, skipping security audit${NC}"
 fi
 
 # Dependency check
 if command -v cargo-deny &> /dev/null; then
-    run_check "Dependency Check" "cargo deny check"
+    run_check "Dependency Check" "cargo deny check --manifest-path ${LIBDPLYR_C_MANIFEST}"
 else
     echo -e "${YELLOW}⚠️ cargo-deny not installed, skipping dependency check${NC}"
 fi
@@ -81,7 +81,7 @@ fi
 # Unsafe code analysis
 if command -v cargo-geiger &> /dev/null; then
     echo -e "\n${BLUE}Running Unsafe Code Analysis...${NC}"
-    cargo geiger || echo -e "${YELLOW}⚠️ cargo-geiger analysis completed with warnings${NC}"
+    cargo geiger --manifest-path ${LIBDPLYR_C_MANIFEST} || echo -e "${YELLOW}⚠️ cargo-geiger analysis completed with warnings${NC}"
 else
     echo -e "${YELLOW}⚠️ cargo-geiger not installed, skipping unsafe code analysis${NC}"
 fi
@@ -91,11 +91,11 @@ if command -v cargo-llvm-cov &> /dev/null; then
     echo -e "\n${BLUE}Running Code Coverage Analysis...${NC}"
 
     # Generate coverage report
-    cargo llvm-cov --all-features --workspace --lcov --output-path ../lcov.info
-    cargo llvm-cov report --html --output-dir ../coverage-html
+    cargo llvm-cov --manifest-path ${LIBDPLYR_C_MANIFEST} --all-features --workspace --lcov --output-path lcov.info
+    cargo llvm-cov report --manifest-path ${LIBDPLYR_C_MANIFEST} --html --output-dir coverage-html
 
     # Extract coverage percentage
-    COVERAGE_PERCENT=$(cargo llvm-cov report --summary-only | grep -E "TOTAL.*%" | awk '{print $NF}' | sed 's/%//')
+    COVERAGE_PERCENT=$(cargo llvm-cov report --manifest-path ${LIBDPLYR_C_MANIFEST} --summary-only | grep -E "TOTAL.*%" | awk '{print $NF}' | sed 's/%//')
 
     echo "Coverage: $COVERAGE_PERCENT%"
 
@@ -114,15 +114,13 @@ fi
 
 # Benchmarks
 echo -e "\n${BLUE}Running Performance Benchmarks...${NC}"
-if cargo bench --no-run; then
+if cargo bench --manifest-path ${LIBDPLYR_C_MANIFEST} --no-run; then
     echo -e "${GREEN}✅ Benchmarks compile successfully${NC}"
     echo "Run 'cargo bench' to execute full benchmark suite"
 else
     echo -e "${RED}❌ Benchmark compilation failed${NC}"
     OVERALL_SUCCESS=false
 fi
-
-cd ..
 
 # =============================================================================
 # C++ Code Quality Checks

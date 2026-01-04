@@ -48,12 +48,12 @@ if not exist "libdplyr_c\Cargo.toml" (
     exit /b 1
 )
 
-cd libdplyr_c
+set LIBDPLYR_C_MANIFEST=libdplyr_c\Cargo.toml
 
 REM Rust formatting
 echo.
 echo Running Rust Formatting...
-cargo fmt --all -- --check
+cargo fmt --manifest-path %LIBDPLYR_C_MANIFEST% --all -- --check
 if %errorlevel% equ 0 (
     echo ✓ Rust Formatting: PASSED
 ) else (
@@ -64,7 +64,7 @@ if %errorlevel% equ 0 (
 REM Rust clippy
 echo.
 echo Running Rust Clippy...
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --manifest-path %LIBDPLYR_C_MANIFEST% --all-targets --all-features -- -D warnings
 if %errorlevel% equ 0 (
     echo ✓ Rust Clippy: PASSED
 ) else (
@@ -75,7 +75,7 @@ if %errorlevel% equ 0 (
 REM Rust tests
 echo.
 echo Running Rust Unit Tests...
-cargo test --all-features
+cargo test --manifest-path %LIBDPLYR_C_MANIFEST% --all-features
 if %errorlevel% equ 0 (
     echo ✓ Rust Unit Tests: PASSED
 ) else (
@@ -88,7 +88,7 @@ where cargo-audit >nul 2>&1
 if %errorlevel% equ 0 (
     echo.
     echo Running Security Audit...
-    cargo audit
+    cargo audit --manifest-path %LIBDPLYR_C_MANIFEST%
     if %errorlevel% equ 0 (
         echo ✓ Security Audit: PASSED
     ) else (
@@ -104,7 +104,7 @@ where cargo-deny >nul 2>&1
 if %errorlevel% equ 0 (
     echo.
     echo Running Dependency Check...
-    cargo deny check
+    cargo deny check --manifest-path %LIBDPLYR_C_MANIFEST%
     if %errorlevel% equ 0 (
         echo ✓ Dependency Check: PASSED
     ) else (
@@ -120,15 +120,15 @@ where cargo-llvm-cov >nul 2>&1
 if %errorlevel% equ 0 (
     echo.
     echo Running Code Coverage Analysis...
-    
-    cargo llvm-cov --all-features --workspace --lcov --output-path ..\lcov.info
-    cargo llvm-cov report --html --output-dir ..\coverage-html
-    
+
+    cargo llvm-cov --manifest-path %LIBDPLYR_C_MANIFEST% --all-features --workspace --lcov --output-path lcov.info
+    cargo llvm-cov report --manifest-path %LIBDPLYR_C_MANIFEST% --html --output-dir coverage-html
+
     REM Extract coverage percentage (simplified for Windows)
     for /f "tokens=*" %%i in ('cargo llvm-cov report --summary-only ^| findstr "TOTAL"') do (
         set COVERAGE_LINE=%%i
     )
-    
+
     REM This is a simplified extraction - in practice, you'd need more robust parsing
     echo Coverage report generated in coverage-html\
     echo ✓ Code Coverage: Analysis completed
@@ -140,7 +140,7 @@ if %errorlevel% equ 0 (
 REM Benchmarks
 echo.
 echo Running Performance Benchmarks...
-cargo bench --no-run
+cargo bench --manifest-path %LIBDPLYR_C_MANIFEST% --no-run
 if %errorlevel% equ 0 (
     echo ✓ Benchmarks compile successfully
     echo Run 'cargo bench' to execute full benchmark suite
@@ -148,8 +148,6 @@ if %errorlevel% equ 0 (
     echo ✗ Benchmark compilation failed
     set OVERALL_SUCCESS=0
 )
-
-cd ..
 
 REM =============================================================================
 REM C++ Code Quality Checks
@@ -203,7 +201,7 @@ REM C++ integration tests
 if exist "%BUILD_DIR%\Debug\duckdb_extension_integration_test.exe" (
     cd "%BUILD_DIR%"
     set DUCKDB_EXTENSION_PATH=%cd%
-    
+
     echo Running C++ Integration Tests...
     Debug\duckdb_extension_integration_test.exe
     if %errorlevel% equ 0 (
@@ -212,7 +210,7 @@ if exist "%BUILD_DIR%\Debug\duckdb_extension_integration_test.exe" (
         echo ✗ C++ Integration Tests: FAILED
         set OVERALL_SUCCESS=0
     )
-    
+
     cd ..
 ) else (
     echo ⚠ C++ integration tests not built

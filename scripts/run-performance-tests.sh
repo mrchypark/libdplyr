@@ -38,6 +38,8 @@ if [ ! -f "libdplyr_c/Cargo.toml" ]; then
     exit 1
 fi
 
+LIBDPLYR_C_MANIFEST="libdplyr_c/Cargo.toml"
+
 # Check if Rust is available
 if ! command -v cargo &> /dev/null; then
     echo -e "${RED}❌ Cargo not found${NC}"
@@ -90,12 +92,11 @@ echo "----------------------"
 
 # Build the Rust components in release mode
 echo "Building Rust components..."
-cd libdplyr_c
-cargo build --release
+cargo build --manifest-path ${LIBDPLYR_C_MANIFEST} --release
 echo -e "${GREEN}✅ Rust components built${NC}"
 
 # Create output directory
-mkdir -p "../${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}"
 
 # =============================================================================
 # Run Performance Tests
@@ -106,7 +107,7 @@ echo "-----------------------------"
 
 # Run unit tests with performance validation
 echo "Running performance validation tests..."
-if cargo test --release performance_tests -- --nocapture; then
+if cargo test --manifest-path ${LIBDPLYR_C_MANIFEST} --release performance_tests -- --nocapture; then
     echo -e "${GREEN}✅ Performance validation tests passed${NC}"
 else
     echo -e "${RED}❌ Performance validation tests failed${NC}"
@@ -126,7 +127,7 @@ export CRITERION_MEASUREMENT_TIME=${BENCHMARK_DURATION}
 
 # Run transpilation benchmarks
 echo "Running transpilation benchmarks..."
-if cargo bench --bench transpile_benchmark -- --output-format html; then
+if cargo bench --manifest-path ${LIBDPLYR_C_MANIFEST} --bench transpile_benchmark -- --output-format html; then
     echo -e "${GREEN}✅ Transpilation benchmarks completed${NC}"
 else
     echo -e "${YELLOW}⚠️ Some transpilation benchmarks failed${NC}"
@@ -136,7 +137,7 @@ fi
 if [ "$DUCKDB_AVAILABLE" = true ] && [ "$EXTENSION_BUILT" = true ]; then
     echo "Running extension loading benchmarks..."
     export DPLYR_EXTENSION_FILE="${EXTENSION_FILE}"
-    if cargo bench --bench extension_loading_benchmark -- --output-format html; then
+    if cargo bench --manifest-path ${LIBDPLYR_C_MANIFEST} --bench extension_loading_benchmark -- --output-format html; then
         echo -e "${GREEN}✅ Extension loading benchmarks completed${NC}"
     else
         echo -e "${YELLOW}⚠️ Some extension loading benchmarks failed${NC}"
