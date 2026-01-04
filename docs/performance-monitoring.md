@@ -77,16 +77,14 @@ open benchmark-results/criterion/transpile_benchmark/report/index.html
 
 #### 개별 벤치마크 실행
 ```bash
-cd libdplyr_c
-
 # 변환 성능 벤치마크
-cargo bench --bench transpile_benchmark
+cargo bench --manifest-path libdplyr_c/Cargo.toml --bench transpile_benchmark
 
 # 확장 로딩 벤치마크  
-cargo bench --bench extension_loading_benchmark
+cargo bench --manifest-path libdplyr_c/Cargo.toml --bench extension_loading_benchmark
 
 # 특정 벤치마크만 실행
-cargo bench --bench transpile_benchmark -- simple_transpile
+cargo bench --manifest-path libdplyr_c/Cargo.toml --bench transpile_benchmark -- simple_transpile
 ```
 
 ## 성능 분석 및 해석
@@ -107,7 +105,7 @@ simple_transpile/simple/0  time:   [1.2345 ms 1.2567 ms 1.2789 ms]
 #### 성능 목표 달성 확인
 ```bash
 # 성능 검증 테스트 실행
-cargo test --release performance_tests -- --nocapture
+cargo test --manifest-path libdplyr_c/Cargo.toml --release performance_tests -- --nocapture
 
 # 출력 예시:
 # Simple query P95: 1.8ms ✅ (target: 2ms)

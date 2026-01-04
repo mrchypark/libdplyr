@@ -77,25 +77,23 @@ scripts\quality-check.bat
 
 #### Rust 품질 검사
 ```bash
-cd libdplyr_c
-
 # 포맷팅 검사
-cargo fmt --check
+cargo fmt --manifest-path libdplyr_c/Cargo.toml --check
 
 # 린팅
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --manifest-path libdplyr_c/Cargo.toml --all-targets --all-features -- -D warnings
 
 # 테스트
-cargo test --all-features
+cargo test --manifest-path libdplyr_c/Cargo.toml --all-features
 
 # 보안 감사
-cargo audit
+cargo audit --manifest-path libdplyr_c/Cargo.toml
 
 # 의존성 검사
-cargo deny check
+cargo deny check --manifest-path libdplyr_c/Cargo.toml
 
 # 코드 커버리지
-cargo llvm-cov --html --open
+cargo llvm-cov --manifest-path libdplyr_c/Cargo.toml --html --open
 ```
 
 #### C++ 품질 검사
@@ -115,14 +113,12 @@ valgrind --tool=memcheck --leak-check=full ./duckdb_extension_integration_test
 
 #### 성능 벤치마크
 ```bash
-cd libdplyr_c
-
 # 벤치마크 실행
-cargo bench
+cargo bench --manifest-path libdplyr_c/Cargo.toml
 
 # 특정 벤치마크
-cargo bench simple_transpile
-cargo bench complex_transpile
+cargo bench --manifest-path libdplyr_c/Cargo.toml simple_transpile
+cargo bench --manifest-path libdplyr_c/Cargo.toml complex_transpile
 ```
 
 ## CI/CD 통합
