@@ -568,7 +568,8 @@ echo "select(name)" | libdplyr --compact | mysql -u user -p db
 **Debugging:**
 ```bash
 # Verbose output for troubleshooting
-echo "select(name)" | libdplyr --verbose --debug 2>debug.log
+mkdir -p logs
+echo "select(name)" | libdplyr --verbose --debug 2>logs/debug.log
 ```
 
 ## Troubleshooting
@@ -611,10 +612,11 @@ libdplyr -i existing_file.R
 
 ```bash
 # Enable debug output
-echo "select(name, age)" | libdplyr --debug --verbose 2>debug.log
+mkdir -p logs
+echo "select(name, age)" | libdplyr --debug --verbose 2>logs/debug.log
 
 # Check debug log
-cat debug.log
+cat logs/debug.log
 ```
 
 ### Performance Issues

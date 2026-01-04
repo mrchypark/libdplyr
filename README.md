@@ -540,7 +540,8 @@ echo "select(name)" | libdplyr -d sqlite   # for SQLite
 **Monitoring and Logging:**
 ```bash
 # Verbose mode for debugging
-echo "select(name)" | libdplyr --verbose --debug 2>debug.log
+mkdir -p logs
+echo "select(name)" | libdplyr --verbose --debug 2>logs/debug.log
 
 # JSON output for structured logging
 echo "select(name)" | libdplyr --json | jq '{
@@ -818,7 +819,8 @@ Use debug mode for detailed troubleshooting:
 
 ```bash
 # Enable verbose and debug output
-$ echo "select(name, age)" | libdplyr --verbose --debug 2>debug.log
+$ mkdir -p logs
+$ echo "select(name, age)" | libdplyr --verbose --debug 2>logs/debug.log
 
 # Debug output includes:
 # - Tokenization steps

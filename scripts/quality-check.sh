@@ -4,6 +4,10 @@
 
 set -e
 
+# Keep noisy local logs out of the repo root.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$SCRIPT_DIR/housekeeping-logs.sh" || true
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -25,9 +29,9 @@ OVERALL_SUCCESS=true
 run_check() {
     local check_name="$1"
     local command="$2"
-    
+
     echo -e "\n${BLUE}Running $check_name...${NC}"
-    
+
     if eval "$command"; then
         echo -e "${GREEN}✅ $check_name: PASSED${NC}"
     else
@@ -85,23 +89,23 @@ fi
 # Code coverage
 if command -v cargo-llvm-cov &> /dev/null; then
     echo -e "\n${BLUE}Running Code Coverage Analysis...${NC}"
-    
+
     # Generate coverage report
     cargo llvm-cov --all-features --workspace --lcov --output-path ../lcov.info
     cargo llvm-cov report --html --output-dir ../coverage-html
-    
+
     # Extract coverage percentage
     COVERAGE_PERCENT=$(cargo llvm-cov report --summary-only | grep -E "TOTAL.*%" | awk '{print $NF}' | sed 's/%//')
-    
+
     echo "Coverage: $COVERAGE_PERCENT%"
-    
+
     if (( $(echo "$COVERAGE_PERCENT >= $COVERAGE_TARGET" | bc -l) )); then
         echo -e "${GREEN}✅ Code Coverage: PASSED ($COVERAGE_PERCENT% >= $COVERAGE_TARGET%)${NC}"
     else
         echo -e "${RED}❌ Code Coverage: FAILED ($COVERAGE_PERCENT% < $COVERAGE_TARGET%)${NC}"
         OVERALL_SUCCESS=false
     fi
-    
+
     echo "Coverage report generated in coverage-html/"
 else
     echo -e "${YELLOW}⚠️ cargo-llvm-cov not installed, skipping coverage analysis${NC}"
@@ -185,9 +189,9 @@ echo "--------------------"
 if [ -f "$BUILD_DIR/duckdb_extension_integration_test" ]; then
     cd "$BUILD_DIR"
     export DUCKDB_EXTENSION_PATH=$(pwd)
-    
+
     run_check "C++ Integration Tests" "./duckdb_extension_integration_test"
-    
+
     cd ..
 else
     echo -e "${YELLOW}⚠️ C++ integration tests not built${NC}"
@@ -208,10 +212,10 @@ fi
 if command -v valgrind &> /dev/null; then
     echo -e "\n${BLUE}🧠 Memory Analysis${NC}"
     echo "------------------"
-    
+
     cd "$BUILD_DIR"
     export DUCKDB_EXTENSION_PATH=$(pwd)
-    
+
     echo "Running Valgrind memory check..."
     if valgrind \
         --tool=memcheck \
@@ -226,7 +230,7 @@ if command -v valgrind &> /dev/null; then
         echo "Run with full output: valgrind --tool=memcheck --leak-check=full duckdb :memory: -c \"LOAD './dplyr.duckdb_extension';\""
         OVERALL_SUCCESS=false
     fi
-    
+
     cd ..
 else
     echo -e "${YELLOW}⚠️ Valgrind not available, skipping memory analysis${NC}"

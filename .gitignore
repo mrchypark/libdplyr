@@ -44,3 +44,16 @@ tests/check_version.cpp
 
 build_static/
 clang-tidy-report.txt
+
+# Local logs / troubleshooting artifacts
+logs/
+debug.log
+*.log
+*.log.*
+*_failure.log
+*_log.txt
+failed_log_attempt*.txt
+full_failed_log.txt
+all_jobs.json
+jobs_*.json
+*_job_id.txt
