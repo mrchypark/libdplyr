@@ -1,6 +1,7 @@
 # libdplyr installation script for Windows
 # Usage: Irm https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex
 
+[CmdletBinding()]
 param(
     [string]$Version = "",
     [string]$InstallDir = "$env:LOCALAPPDATA\libdplyr\bin",
