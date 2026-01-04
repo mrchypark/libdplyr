@@ -21,3 +21,15 @@ wasm_pre_build_step:
 		echo "rustup not found; cannot install wasm32-unknown-emscripten target"; \
 		exit 1; \
 	fi
+
+# Submodule policy: keep `duckdb` and `extension-ci-tools` pinned to exact commits.
+# Do not use `git submodule update --remote` except in an explicit PR updating the pin.
+.PHONY: submodules submodules-init
+submodules:
+	@echo "Updating submodules to pinned commits (no --remote). See docs/submodules.md."
+	@git submodule update --init --recursive
+
+submodules-init:
+	@echo "Initializing submodules to pinned commits (no --remote). See docs/submodules.md."
+	@git submodule init
+	@git submodule update --init --recursive

@@ -38,6 +38,12 @@ git branch -d old-feature-branches
 cargo update
 ```
 
+#### 1.1.1 Submodule 업데이트 정책
+
+- submodule(`duckdb`, `extension-ci-tools`)은 커밋 단위로 고정해서 사용합니다.
+- submodule 업데이트가 필요하면 **명시적인 PR**로만 진행하고, 릴리즈 노트에 변경 사실을 기록합니다.
+- 현재 고정 커밋은 `docs/submodules.md`에 기록합니다.
+
 #### 1.2 품질 검증
 ```bash
 # 1. 전체 테스트 실행

@@ -18,3 +18,11 @@ Tasks/Tests:
 - [x] Extension: Make debug logger timestamp thread-safe.
 - [x] Table function: Defer materialization (bind only infers schema; init executes).
 - [x] Table function: Remove unsafe/incorrect fallback SQL path.
+- [x] Test: Support `mutate() %>% select()` for mutated columns.
+- [x] Test: Implement `rename()` verb.
+
+Refactor (Tidy First, structural only):
+- [x] Split `src/parser.rs` into `src/parser/{mod,ast,parse}.rs` and `src/parser/tests/*.rs`.
+- [x] Split `src/sql_generator.rs` into focused modules (`dialect`, `assemble`, `mutate_support`) and move tests under `src/sql_generator/tests`.
+- [x] Split `libdplyr_c/src/lib.rs` into modules (FFI safety/memory/compile/validation/metadata/system) and move tests under `libdplyr_c/src/tests`.
+- [x] Submodule policy: document pinned submodule usage; add `make submodules` helpers (avoid accidental `--remote` updates).
