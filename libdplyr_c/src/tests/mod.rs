@@ -299,10 +299,10 @@ mod tests {
     fn test_utility_functions() {
         // Test version functions
         let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-        assert_eq!(version.to_string_lossy(), "0.1.0");
+        assert_eq!(version.to_string_lossy(), "0.2.0");
 
         let detailed_version = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
-        assert!(detailed_version.to_string_lossy().contains("0.1.0"));
+        assert!(detailed_version.to_string_lossy().contains("0.2.0"));
         assert!(detailed_version.to_string_lossy().contains("libdplyr_c"));
 
         // Test supported dialects
@@ -958,11 +958,11 @@ fn test_memory_management() {
 fn test_version_and_capabilities() {
     // Test version functions
     let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-    assert_eq!(version.to_str().unwrap(), "0.1.0");
+    assert_eq!(version.to_str().unwrap(), "0.2.0");
 
     let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
     let detailed_str = detailed.to_str().unwrap();
-    assert!(detailed_str.contains("libdplyr_c v0.1.0"));
+    assert!(detailed_str.contains("libdplyr_c v0.2.0"));
 
     let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
     assert_eq!(dialects.to_str().unwrap(), "DuckDB");

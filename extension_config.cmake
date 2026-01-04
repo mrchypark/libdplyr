@@ -6,9 +6,9 @@
 # R8-AC1: Extension metadata and semver policy
 set(EXTENSION_NAME "dplyr")
 set(EXTENSION_DESCRIPTION "R dplyr syntax support for DuckDB")
-set(EXTENSION_VERSION "0.1.0")
+set(EXTENSION_VERSION "0.2.0")
 set(EXTENSION_VERSION_MAJOR 0)
-set(EXTENSION_VERSION_MINOR 1)
+set(EXTENSION_VERSION_MINOR 2)
 set(EXTENSION_VERSION_PATCH 0)
 
 # Ensure DuckDB's extension metadata version is populated even when duckdb_extension_load

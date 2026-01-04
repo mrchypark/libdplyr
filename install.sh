@@ -4,7 +4,7 @@
 
 set -e
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 REPO="mrchypark/libdplyr"
 BINARY_NAME="libdplyr"
 
@@ -36,7 +36,7 @@ log_error() {
 detect_platform() {
     local os
     local arch
-    
+
     case "$(uname -s)" in
         Linux*)
             os="linux"
@@ -49,7 +49,7 @@ detect_platform() {
             exit 1
             ;;
     esac
-    
+
     case "$(uname -m)" in
         x86_64|amd64)
             arch="x86_64"
@@ -67,7 +67,7 @@ detect_platform() {
             exit 1
             ;;
     esac
-    
+
     echo "${os}-${arch}"
 }
 
@@ -88,24 +88,24 @@ install_binary() {
     local platform="$1"
     local version="$2"
     local install_dir="${3:-/usr/local/bin}"
-    
+
     # Use musl version for Linux for better compatibility
     if [[ "$platform" == "linux-x86_64" ]]; then
         platform="linux-x86_64-musl"
     fi
-    
+
     local filename="${BINARY_NAME}-v${version}-${platform}"
     local archive_name="${filename}.tar.gz"
     local download_url="https://github.com/${REPO}/releases/download/v${version}/${archive_name}"
-    
+
     log_info "Downloading ${BINARY_NAME} v${version} for ${platform}..."
     log_info "URL: ${download_url}"
-    
+
     # Create temporary directory
     local temp_dir
     temp_dir=$(mktemp -d)
     cd "$temp_dir"
-    
+
     # Download the archive
     if command -v curl >/dev/null 2>&1; then
         if ! curl -L -o "$archive_name" "$download_url"; then
@@ -118,14 +118,14 @@ install_binary() {
             exit 1
         fi
     fi
-    
+
     # Extract the archive
     log_info "Extracting archive..."
     if ! tar -xzf "$archive_name"; then
         log_error "Failed to extract archive"
         exit 1
     fi
-    
+
     # Find the binary
     local binary_path
     if [ -f "$BINARY_NAME" ]; then
@@ -136,13 +136,13 @@ install_binary() {
         log_error "Binary not found in archive"
         exit 1
     fi
-    
+
     # Make binary executable
     chmod +x "$binary_path"
-    
+
     # Install binary
     log_info "Installing to ${install_dir}..."
-    
+
     # Check if we need sudo
     if [ -w "$install_dir" ]; then
         cp "$binary_path" "$install_dir/"
@@ -155,11 +155,11 @@ install_binary() {
             exit 1
         fi
     fi
-    
+
     # Cleanup
     cd /
     rm -rf "$temp_dir"
-    
+
     log_success "${BINARY_NAME} v${version} installed successfully!"
 }
 
@@ -167,7 +167,7 @@ install_binary() {
 verify_installation() {
     local install_dir="${1:-/usr/local/bin}"
     local binary_path="${install_dir}/${BINARY_NAME}"
-    
+
     if [ -x "$binary_path" ]; then
         log_info "Verifying installation..."
         if "$binary_path" --version >/dev/null 2>&1; then
@@ -187,7 +187,7 @@ main() {
     local install_dir="/usr/local/bin"
     local use_latest=true
     local specified_version=""
-    
+
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -217,14 +217,14 @@ main() {
                 ;;
         esac
     done
-    
+
     log_info "Starting libdplyr installation..."
-    
+
     # Detect platform
     local platform
     platform=$(detect_platform)
     log_info "Detected platform: $platform"
-    
+
     # Get version to install
     local version_to_install
     if [ "$use_latest" = true ]; then
@@ -237,21 +237,21 @@ main() {
     else
         version_to_install="$specified_version"
     fi
-    
+
     log_info "Installing version: $version_to_install"
-    
+
     # Check if install directory exists and is writable
     if [ ! -d "$install_dir" ]; then
         log_error "Installation directory does not exist: $install_dir"
         exit 1
     fi
-    
+
     # Install binary
     install_binary "$platform" "$version_to_install" "$install_dir"
-    
+
     # Verify installation
     verify_installation "$install_dir"
-    
+
     log_success "Installation complete!"
     echo ""
     echo "Next steps:"

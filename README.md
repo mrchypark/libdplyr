@@ -46,7 +46,7 @@ Downloading libdplyr v0.1.0 for linux-x86_64...
 Installing to /usr/local/bin...
 ✓ Installation complete
 Verifying installation...
-✓ libdplyr is working: libdplyr 0.1.0
+✓ libdplyr is working: libdplyr 0.2.0
 ✓ libdplyr is in PATH
 libdplyr has been successfully installed to /usr/local/bin/libdplyr
 Try it out:
@@ -84,7 +84,7 @@ Installing to C:\Users\username\AppData\Local\Programs\libdplyr...
 Adding libdplyr to your PATH...
 ✓ Added to PATH
 Verifying installation...
-✓ libdplyr is working: libdplyr 0.1.0
+✓ libdplyr is working: libdplyr 0.2.0
 libdplyr has been successfully installed to C:\Users\username\AppData\Local\Programs\libdplyr\libdplyr.exe
 Try it out:
   echo 'select(name, age) %>% filter(age > 18)' | libdplyr --pretty
@@ -438,7 +438,7 @@ $ echo "select(name)" | libdplyr --json
       "input_size_bytes": 13,
       "output_size_bytes": 25
     },
-    "version": "0.1.0"
+    "version": "0.2.0"
   }
 }
 ```

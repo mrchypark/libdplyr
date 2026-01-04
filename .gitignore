@@ -57,3 +57,6 @@ full_failed_log.txt
 all_jobs.json
 jobs_*.json
 *_job_id.txt
+
+# Workspace uses a single root lockfile.
+libdplyr_c/Cargo.lock

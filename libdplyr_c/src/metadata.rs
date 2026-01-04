@@ -16,7 +16,7 @@ pub extern "C" fn main() {}
 #[no_mangle]
 pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management
-    c"0.1.0".as_ptr()
+    c"0.2.0".as_ptr()
 }
 
 /// Get basic version string.
@@ -26,7 +26,7 @@ pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
 #[no_mangle]
 pub extern "C" fn dplyr_version() -> *const c_char {
     // R8-AC1: Version information - static string management
-    c"0.1.0".as_ptr()
+    c"0.2.0".as_ptr()
 }
 
 /// Get detailed version information including build info.
@@ -37,7 +37,7 @@ pub extern "C" fn dplyr_version() -> *const c_char {
 pub extern "C" fn dplyr_version_detailed() -> *const c_char {
     // R8-AC1: Extended version information
     concat!(
-        "libdplyr_c v0.1.0 (built with rustc ",
+        "libdplyr_c v0.2.0 (built with rustc ",
         env!("RUSTC_VERSION", "unknown"),
         ")\0"
     )

@@ -112,7 +112,7 @@ packages/v1.0.0/
     "build_type": "Release"
   },
   "versions": {
-    "libdplyr": "0.1.0",
+    "libdplyr": "0.2.0",
     "rust": "rustc 1.75.0",
     "cmake": "cmake version 3.20.0",
     "duckdb_tested": "v0.10.0"

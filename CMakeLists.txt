@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # R8-AC1: Project version and DuckDB compatibility range
-project(dplyr VERSION 0.1.0)
+project(dplyr VERSION 0.2.0)
 
 # R8-AC1: DuckDB extension configuration
 set(DUCKDB_EXTENSION_NAME "dplyr")
