@@ -269,7 +269,17 @@ jobs:
         shell: bash
         run: |
           cd build
-          export DUCKDB_EXTENSION_PATH=$(pwd)
+
+          # Find the extension file dynamically (Ninja puts it in extension/dplyr/, MSVC may put it in Release/extension/dplyr/)
+          EXTENSION_PATH=$(find . -name "dplyr.duckdb_extension" -type f | head -n 1)
+          if [[ -z "$EXTENSION_PATH" ]]; then
+            echo "Error: dplyr.duckdb_extension not found in build directory"
+            find . -name "*.duckdb_extension" # Debug output
+            exit 1
+          fi
+          echo "Found extension at: $EXTENSION_PATH"
+
+          export DUCKDB_EXTENSION_PATH=$(dirname "$EXTENSION_PATH" | xargs realpath)
 
           DUCKDB_UNSIGNED_ARGS=()
           if [[ "${{ runner.os }}" == "Windows" ]]; then
@@ -283,11 +293,11 @@ jobs:
           fi
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            duckdb.exe "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            duckdb.exe "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD '$EXTENSION_PATH'; SELECT 'Release build test passed' as result;"
           elif [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            arch -x86_64 duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            arch -x86_64 duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD '$EXTENSION_PATH'; SELECT 'Release build test passed' as result;"
           else
-            duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Release build test passed' as result;"
+            duckdb "${DUCKDB_UNSIGNED_ARGS[@]}" :memory: -c "LOAD '$EXTENSION_PATH'; SELECT 'Release build test passed' as result;"
           fi
 
       # -------------------------------------------------------------------------
@@ -298,12 +308,17 @@ jobs:
         run: |
           mkdir -p release-package
 
-          # Copy extension binary with platform-specific name
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp build/Release/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
-          else
-            cp build/dplyr.duckdb_extension "release-package/${{ matrix.extension-name }}"
+          # Find the extension binary dynamically
+          EXTENSION_PATH=$(find build -name "dplyr.duckdb_extension" -type f | head -n 1)
+          if [[ -z "$EXTENSION_PATH" ]]; then
+            echo "Error: dplyr.duckdb_extension not found in build directory"
+            find build -name "*.duckdb_extension" # Debug output
+            exit 1
           fi
+          echo "Found extension at: $EXTENSION_PATH"
+
+          # Copy extension binary with platform-specific name
+          cp "$EXTENSION_PATH" "release-package/${{ matrix.extension-name }}"
 
           # Create metadata file
           cat > release-package/metadata.json << EOF
