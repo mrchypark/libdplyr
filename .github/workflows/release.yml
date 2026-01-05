@@ -188,7 +188,8 @@ jobs:
         run: |
           sudo softwareupdate --install-rosetta --agree-to-license || true
 
-      - name: Configure CMake (Release)
+      - name: Configure CMake (Release - Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir build
@@ -209,25 +210,32 @@ jobs:
             LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
           fi
 
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cmake .. \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_CPP_TESTS=OFF \
-              -DBUILD_DUCKDB=ON \
-              -G "Ninja" \
-              -DCMAKE_C_COMPILER=cl \
-              -DCMAKE_CXX_COMPILER=cl \
-              -DRust_CARGO_TARGET="${{ matrix.target }}"
-          else
-            cmake .. \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_CPP_TESTS=OFF \
-              -DBUILD_DUCKDB=ON \
-              ${LINUX_PLATFORM_FLAG} \
-              ${LINUX_STATIC_FLAG} \
-              -DRust_CARGO_TARGET="${{ matrix.target }}" \
-              ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
-          fi
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CPP_TESTS=OFF \
+            -DBUILD_DUCKDB=ON \
+            ${LINUX_PLATFORM_FLAG} \
+            ${LINUX_STATIC_FLAG} \
+            -DRust_CARGO_TARGET="${{ matrix.target }}" \
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+
+      - name: Configure CMake (Release - Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (-not (Test-Path -Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_CPP_TESTS=OFF `
+            -DBUILD_DUCKDB=ON `
+            -DEXTENSION_STATIC_BUILD=ON `
+            -G "Ninja" `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER="" `
+            -DCMAKE_CXX_COMPILER_LAUNCHER="" `
+            -DCCACHE_PROGRAM=OFF `
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
 
       - name: Build extension (Release)
         run: |
@@ -350,6 +358,8 @@ jobs:
           cd release-package
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             certutil -hashfile "${{ matrix.extension-name }}" SHA256 > "${{ matrix.extension-name }}.sha256"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            shasum -a 256 "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
           else
             sha256sum "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
           fi
