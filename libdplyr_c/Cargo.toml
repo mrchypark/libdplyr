@@ -22,7 +22,7 @@ thiserror = "1.0"
 # R9-AC1: panic 안전성을 위한 의존성
 # FFI 경계에서 panic을 catch하기 위해 std::panic 사용 (내장)
 # 추가 의존성: 해시 계산을 위한 크레이트
-lru = "0.12"
+lru = "0.16"
 
 # R6-AC1: 캐싱을 위한 의존성
 lazy_static = "1.4"
