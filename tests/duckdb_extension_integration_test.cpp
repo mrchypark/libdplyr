@@ -1,6 +1,6 @@
-//! DuckDB Extension Integration Tests
+//! duckdb::DuckDB Extension Integration Tests
 //!
-//! Tests the complete DuckDB extension functionality including:
+//! Tests the complete duckdb::DuckDB extension functionality including:
 //! - Extension loading and registration (R7-AC1)
 //! - Standard SQL integration and mixing (R2-AC2)
 //! - Crash prevention and error handling (R7-AC3)
@@ -13,34 +13,28 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <cstdlib>
-#include <chrono>
 #include <thread>
+#include <iostream>
+#include <algorithm>
+#include <cctype>
 
-// DuckDB includes
+// duckdb::DuckDB includes
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 
+
 // Extension includes
 #include "../extension/include/dplyr.h"
 
-using namespace duckdb;
-using namespace dplyr;
-
-using std::cout;
-using std::endl;
-using std::thread;
-using std::to_string;
-namespace chrono = std::chrono;
 
 class DuckDBExtensionTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create in-memory DuckDB instance
-        db = make_uniq<DuckDB>(nullptr);
+        // Create in-memory duckdb::DuckDB instance
+        db = duckdb::make_uniq<duckdb::DuckDB>(nullptr);
         db->LoadStaticExtension<dplyr::DplyrExtension>();
-        conn = make_uniq<Connection>(*db);
+        conn = duckdb::make_uniq<duckdb::Connection>(*db);
 
         // Provide simple data fixture for smoke tests
         ASSERT_FALSE(conn->Query("DROP TABLE IF EXISTS mtcars")->HasError());
@@ -60,20 +54,20 @@ protected:
     }
     
     // Helper function to normalize SQL for comparison
-    string normalize_sql(const string& sql) {
-        string normalized = sql;
+    std::string normalize_sql(const std::string& sql) {
+        std::string normalized = sql;
         // Remove extra whitespace and convert to uppercase
         size_t pos = 0;
-        while ((pos = normalized.find("  ", pos)) != string::npos) {
+        while ((pos = normalized.find("  ", pos)) != std::string::npos) {
             normalized.replace(pos, 2, " ");
         }
-        transform(normalized.begin(), normalized.end(), normalized.begin(), ::toupper);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::toupper);
         return normalized;
     }
     
     // Helper to execute query and verify no crash
-    // Returns nullptr on exception - tests should handle this appropriately
-    unique_ptr<MaterializedQueryResult> safe_query(const string& query) {
+    // Returns nullptr on std::exception - tests should handle this appropriately
+    std::unique_ptr<duckdb::MaterializedQueryResult> safe_query(const std::string& query) {
         try {
             return conn->Query(query);
         } catch (const std::exception&) {
@@ -82,12 +76,12 @@ protected:
         }
     }
     
-    unique_ptr<DuckDB> db;
-    unique_ptr<Connection> conn;
+    std::unique_ptr<duckdb::DuckDB> db;
+    std::unique_ptr<duckdb::Connection> conn;
 };
 
 // ============================================================================
-// R7-AC1: DuckDB Extension Loading and Basic Functionality Tests
+// R7-AC1: duckdb::DuckDB Extension Loading and Basic Functionality Tests
 // ============================================================================
 
 TEST_F(DuckDBExtensionTest, ExtensionLoadingSuccess) {
@@ -131,7 +125,7 @@ TEST_F(DuckDBExtensionTest, DplyrPipelineMatchesSqlResult) {
     ASSERT_TRUE(dplyr_chunk && sql_chunk);
     ASSERT_EQ(dplyr_chunk->size(), sql_chunk->size());
 
-    for (idx_t row = 0; row < dplyr_chunk->size(); row++) {
+    for (duckdb::idx_t row = 0; row < dplyr_chunk->size(); row++) {
         EXPECT_EQ(dplyr_chunk->GetValue(0, row), sql_chunk->GetValue(0, row))
             << "Row " << row << " should match between DPLYR and SQL";
     }
@@ -165,7 +159,7 @@ TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
 
 TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
     // Test CTE with dplyr integration
-    string query = R"(
+    std::string query = R"(
         WITH base_data AS (
             SELECT 1 as id, 'Alice' as name, 25 as age
             UNION ALL
@@ -200,7 +194,7 @@ TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
 
 TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
     // Test dplyr in subquery context
-    string query = R"(
+    std::string query = R"(
         WITH base AS (
             SELECT i as x FROM range(1, 6) as t(i)
         )
@@ -213,7 +207,7 @@ TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
     if (result && !result->HasError()) {
         EXPECT_GE(result->RowCount(), 0) << "Subquery integration should work";
     } else if (result) {
-        string error = result->GetError();
+        std::string error = result->GetError();
         EXPECT_FALSE(error.empty()) << "Should have error message for subquery issue";
     } else {
         FAIL() << "Subquery with DPLYR caused crash";
@@ -222,7 +216,7 @@ TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
 
 TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
     // Test joining standard SQL with dplyr results
-    string query = R"(
+    std::string query = R"(
         WITH standard_table AS (
             SELECT 1 as id, 'Product A' as product
             UNION ALL
@@ -259,7 +253,7 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
 
 TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
     // Test various invalid dplyr syntax patterns
-    vector<string> invalid_queries = {
+    std::vector<std::string> invalid_queries = {
         "mtcars %>% unknown_function(test)",
         "mtcars %>% filter()",
         "mtcars %>% mutate(x = )",
@@ -273,13 +267,13 @@ TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
         ASSERT_NE(result, nullptr) << "Query should not crash: " << query;
         
         if (result->HasError()) {
-            string error = result->GetError();
+            std::string error = result->GetError();
             EXPECT_FALSE(error.empty()) << "Should have error message for: " << query;
             
             // R1-AC3: Error should include error code
-            EXPECT_TRUE(error.find("E-") != string::npos ||
-                        error.find("DPLYR") != string::npos ||
-                        error.find("pipeline") != string::npos)
+            EXPECT_TRUE(error.find("E-") != std::string::npos ||
+                        error.find("DPLYR") != std::string::npos ||
+                        error.find("pipeline") != std::string::npos)
                 << "Error should include context: " << error;
         }
     }
@@ -287,28 +281,28 @@ TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
 
 TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     // Test FFI boundary null pointer handling
-    // Requirement: NULL input should not crash DuckDB - may throw exception or return error
-    vector<string> null_tests = {
+    // Requirement: NULL input should not crash duckdb::DuckDB - may throw std::exception or return error
+    std::vector<std::string> null_tests = {
         "SELECT * FROM dplyr(NULL)",
     };
     
     for (const auto& query : null_tests) {
         auto result = safe_query(query);
         
-        // Either returns error result OR throws exception (both are acceptable crash-prevention)
+        // Either returns error result OR throws std::exception (both are acceptable crash-prevention)
         if (result == nullptr) {
             // Exception was thrown - this is acceptable crash prevention behavior
-            SUCCEED() << "NULL input caused exception (acceptable): " << query;
+            SUCCEED() << "NULL input caused std::exception (acceptable): " << query;
             continue;
         }
         
         // If result returned, should be an error
         if (result->HasError()) {
-            string error = result->GetError();
-            EXPECT_TRUE(error.find("null") != string::npos ||
-                        error.find("string literal") != string::npos ||
-                        error.find("NULL") != string::npos ||
-                        error.find("non-null") != string::npos)
+            std::string error = result->GetError();
+            EXPECT_TRUE(error.find("null") != std::string::npos ||
+                        error.find("std::string literal") != std::string::npos ||
+                        error.find("NULL") != std::string::npos ||
+                        error.find("non-null") != std::string::npos)
                 << "Should indicate null/invalid input: " << error;
         }
     }
@@ -316,39 +310,39 @@ TEST_F(DuckDBExtensionTest, NullPointerHandling) {
 
 TEST_F(DuckDBExtensionTest, LargeInputHandling) {
     // R9-AC2: Test DoS prevention with large input
-    string large_payload(1024 * 1024 + 128, 'a'); // > 1MB
-    string query = "mtcars %>% select(" + large_payload + ")";
+    std::string large_payload(1024 * 1024 + 128, 'a'); // > 1MB
+    std::string query = "mtcars %>% select(" + large_payload + ")";
     
     auto result = safe_query(query);
     
     ASSERT_NE(result, nullptr) << "Large input should not crash";
     
     if (result->HasError()) {
-        string error = result->GetError();
-        EXPECT_TRUE(error.find("E-INTERNAL") != string::npos || 
-                   error.find("too large") != string::npos ||
-                   error.find("limit") != string::npos)
+        std::string error = result->GetError();
+        EXPECT_TRUE(error.find("E-INTERNAL") != std::string::npos || 
+                   error.find("too large") != std::string::npos ||
+                   error.find("limit") != std::string::npos)
             << "Should indicate input size limit: " << error;
     }
 }
 
 TEST_F(DuckDBExtensionTest, ConcurrentAccessSafety) {
-    // R9-AC3: Test thread safety
+    // R9-AC3: Test std::thread safety
     const int num_threads = 4;
     int queries_per_thread = 10;
-    vector<thread> threads;
-    vector<bool> thread_success(num_threads, true);
+    std::vector<std::thread> threads;
+    std::vector<bool> thread_success(num_threads, true);
     
     for (int t = 0; t < num_threads; t++) {
         threads.emplace_back([this, t, queries_per_thread, &thread_success]() {
             const auto runs = queries_per_thread;
-            // Each thread creates its own connection
-            auto thread_conn = make_uniq<Connection>(*db);
+            // Each std::thread creates its own connection
+            auto thread_conn = duckdb::make_uniq<duckdb::Connection>(*db);
             
             for (int i = 0; i < runs; i++) {
                 try {
                     (void)i;
-                    string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
+                    std::string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
                     auto result = thread_conn->Query(query);
                     
                     // Should not crash, may have errors
@@ -370,7 +364,7 @@ TEST_F(DuckDBExtensionTest, ConcurrentAccessSafety) {
         t.join();
     }
     
-    // Check that no thread crashed
+    // Check that no std::thread crashed
     for (int t = 0; t < num_threads; t++) {
         EXPECT_TRUE(thread_success[t]) 
             << "Thread " << t << " should not crash during concurrent access";
@@ -383,7 +377,7 @@ TEST_F(DuckDBExtensionTest, MemoryLeakPrevention) {
     
     for (int i = 0; i < num_iterations; i++) {
         (void)i;
-        string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
+        std::string query = "mtcars %>% select(mpg) %>% filter(mpg > 0)";
         
         auto result = safe_query(query);
         ASSERT_NE(result, nullptr) << "Iteration " << i << " should not crash";
@@ -403,12 +397,12 @@ TEST_F(DuckDBExtensionTest, MemoryLeakPrevention) {
 TEST_F(DuckDBExtensionTest, ErrorMessageQuality) {
     // Test that error messages are helpful and include required information
     struct ErrorTest {
-        string query;
-        string expected_error_type;
-        string description;
+        std::string query;
+        std::string expected_error_type;
+        std::string description;
     };
     
-    vector<ErrorTest> error_tests = {
+    std::vector<ErrorTest> error_tests = {
         {
             "mtcars %>% filter()",
             "E-SYNTAX",
@@ -432,15 +426,15 @@ TEST_F(DuckDBExtensionTest, ErrorMessageQuality) {
         ASSERT_NE(result, nullptr) << test.description << " - should not crash";
         
         if (result->HasError()) {
-            string error = result->GetError();
+            std::string error = result->GetError();
             
             // R1-AC3: Should include error code, position, and suggestion
             EXPECT_FALSE(error.empty()) << test.description << " - should have error message";
             
             // Check for error code (flexible matching)
-            bool has_error_code = error.find("E-") != string::npos ||
-                                error.find("DPLYR") != string::npos ||
-                                error.find("Error") != string::npos;
+            bool has_error_code = error.find("E-") != std::string::npos ||
+                                error.find("DPLYR") != std::string::npos ||
+                                error.find("Error") != std::string::npos;
             EXPECT_TRUE(has_error_code) 
                 << test.description << " - should include error code in: " << error;
         }
@@ -453,12 +447,12 @@ TEST_F(DuckDBExtensionTest, ErrorMessageQuality) {
 
 TEST_F(DuckDBExtensionTest, BasicPerformanceStability) {
     // R6-AC1: Test that simple queries complete in reasonable time
-    auto start_time = chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::high_resolution_clock::now();
     
     auto result = safe_query("mtcars %>% select(mpg) %>% filter(mpg > 20)");
     
-    auto end_time = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::milliseconds>(end_time - start_time);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     
     // Should complete within reasonable time (generous limit for test environment)
     EXPECT_LT(duration.count(), 1000) 
@@ -471,7 +465,7 @@ TEST_F(DuckDBExtensionTest, BasicPerformanceStability) {
 
 TEST_F(DuckDBExtensionTest, ComplexQueryStability) {
     // Test more complex query patterns
-    string complex_query = R"(
+    std::string complex_query = R"(
         WITH complex_data AS (
             SELECT
                 i as id,
@@ -502,19 +496,19 @@ TEST_F(DuckDBExtensionTest, ComplexQueryStability) {
         EXPECT_GE(result->RowCount(), 0) << "Complex query should return results";
     } else if (result) {
         // Complex query failed but didn't crash
-        string error = result->GetError();
+        std::string error = result->GetError();
         EXPECT_FALSE(error.empty()) << "Should have meaningful error for complex query";
     }
 }
 
 // ============================================================================
-// Integration with DuckDB Features
+// Integration with duckdb::DuckDB Features
 // ============================================================================
 
 TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
-    // Test integration with DuckDB-specific features
-    // Goal: Ensure that using DuckDB features with dplyr doesn't crash
-    vector<string> duckdb_integration_tests = {
+    // Test integration with duckdb::DuckDB-specific features
+    // Goal: Ensure that using duckdb::DuckDB features with dplyr doesn't crash
+    std::vector<std::string> duckdb_integration_tests = {
         // Basic dplyr pipeline (most reliable test)
         "DPLYR 'mtcars %>% select(mpg)'",
         // Test with simple pipeline
@@ -526,7 +520,7 @@ TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
     for (const auto& query : duckdb_integration_tests) {
         auto result = safe_query(query);
         
-        // Either exception (nullptr) or result is acceptable - no crash occurred
+        // Either std::exception (nullptr) or result is acceptable - no crash occurred
         if (result == nullptr) {
             // Exception was thrown - acceptable for crash prevention
             continue;
@@ -536,14 +530,14 @@ TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
         if (!result->HasError()) {
             successful_tests++;
         } else {
-            string error = result->GetError();
+            std::string error = result->GetError();
             EXPECT_FALSE(error.empty()) 
                 << "Should have meaningful error for integration test: " << query;
         }
     }
     
     // At least one test should succeed for basic functionality
-    EXPECT_GT(successful_tests, 0) << "At least one DuckDB integration test should succeed";
+    EXPECT_GT(successful_tests, 0) << "At least one duckdb::DuckDB integration test should succeed";
 }
 
 // ============================================================================
@@ -552,7 +546,7 @@ TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
 
 TEST_F(DuckDBExtensionTest, SmokeTestBasicOperations) {
     // R4-AC2: Basic smoke test operations
-    vector<string> smoke_tests = {
+    std::vector<std::string> smoke_tests = {
         "mtcars %>% select(mpg)",
         "SELECT * FROM (| mtcars %>% select(mpg) %>% filter(mpg > 20) |) AS t",
         "SELECT * FROM dplyr('mtcars %>% select(mpg) %>% filter(mpg > 20)')"
@@ -584,8 +578,8 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     
     // Set up test environment
-    cout << "Running DuckDB Extension Integration Tests..." << endl;
-    cout << "Testing requirements: R7-AC1, R7-AC3, R2-AC2" << endl;
+    std::cout << "Running duckdb::DuckDB Extension Integration Tests..." << std::endl;
+    std::cout << "Testing requirements: R7-AC1, R7-AC3, R2-AC2" << std::endl;
     
     return RUN_ALL_TESTS();
 }
