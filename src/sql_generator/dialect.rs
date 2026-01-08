@@ -73,7 +73,7 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
         }
         "rank" => Some("RANK() OVER ()".to_string()),
         "ntile" => {
-            if args.len() >= 1 {
+            if !args.is_empty() {
                 Some(format!("NTILE({}) OVER ()", args[0]))
             } else {
                 None

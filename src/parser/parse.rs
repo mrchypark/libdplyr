@@ -162,24 +162,9 @@ impl Parser {
                 self.skip_newlines()?;
 
                 // Check for arrow operators (-> or <-) for table assignment
-                let target = if self.current_token == Token::ArrowRight {
-                    self.advance()?;
-                    self.skip_newlines()?;
-                    match &self.current_token {
-                        Token::Identifier(target_name) => {
-                            let name = target_name.clone();
-                            self.advance()?;
-                            Some(name)
-                        }
-                        _ => {
-                            return Err(ParseError::UnexpectedToken {
-                                expected: "target table name".to_string(),
-                                found: format!("{}", self.current_token),
-                                position: self.position,
-                            });
-                        }
-                    }
-                } else if self.current_token == Token::ArrowLeft {
+                let target = if self.current_token == Token::ArrowRight
+                    || self.current_token == Token::ArrowLeft
+                {
                     self.advance()?;
                     self.skip_newlines()?;
                     match &self.current_token {
@@ -310,45 +295,28 @@ impl Parser {
         self.skip_newlines()?;
 
         // Check for arrow operators (-> or <-) for table assignment
-        let target = if self.current_token == Token::ArrowRight {
-            self.advance()?; // Skip ->
-            self.skip_newlines()?;
-            // Parse target table name
-            match &self.current_token {
-                Token::Identifier(name) => {
-                    let target_name = name.clone();
-                    self.advance()?;
-                    Some(target_name)
+        let target =
+            if self.current_token == Token::ArrowRight || self.current_token == Token::ArrowLeft {
+                self.advance()?; // Skip -> or <-
+                self.skip_newlines()?;
+                // Parse target table name
+                match &self.current_token {
+                    Token::Identifier(name) => {
+                        let target_name = name.clone();
+                        self.advance()?;
+                        Some(target_name)
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken {
+                            expected: "target table name".to_string(),
+                            found: format!("{}", self.current_token),
+                            position: self.position,
+                        });
+                    }
                 }
-                _ => {
-                    return Err(ParseError::UnexpectedToken {
-                        expected: "target table name".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    });
-                }
-            }
-        } else if self.current_token == Token::ArrowLeft {
-            self.advance()?; // Skip <-
-            self.skip_newlines()?;
-            // Parse target table name
-            match &self.current_token {
-                Token::Identifier(name) => {
-                    let target_name = name.clone();
-                    self.advance()?;
-                    Some(target_name)
-                }
-                _ => {
-                    return Err(ParseError::UnexpectedToken {
-                        expected: "target table name".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    });
-                }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         Ok(DplyrNode::Pipeline {
             source: None,

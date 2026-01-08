@@ -1,5 +1,4 @@
 use libdplyr::lexer::Lexer;
-use libdplyr::parser::Parser;
 
 fn main() {
     let input = "inner_join(df1, df2, by = \"id\")";

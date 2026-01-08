@@ -1100,7 +1100,7 @@ fn test_concurrent_transpilation() {
 fn test_join_in_pipeline() {
     let input = "data %>% inner_join(df2, by = \"id\") %>% filter(id > 0)";
     let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
-    let result = transpiler.transpile(&input);
+    let result = transpiler.transpile(input);
 
     assert!(result.is_ok());
     let sql = result.unwrap();
@@ -1115,7 +1115,7 @@ fn test_multiple_joins_in_pipeline() {
     let input =
         "data %>% inner_join(df2, by = \"id\") %>% left_join(df3, by = \"id\") %>% select(name)";
     let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
-    let result = transpiler.transpile(&input);
+    let result = transpiler.transpile(input);
 
     assert!(result.is_ok());
     let sql = result.unwrap();
@@ -1123,4 +1123,5 @@ fn test_multiple_joins_in_pipeline() {
     let sql_upper = sql.to_uppercase();
     assert!(sql_upper.contains("INNER JOIN"));
     assert!(sql_upper.contains("LEFT JOIN"));
+    assert!(sql_upper.contains("ON"));
 }
