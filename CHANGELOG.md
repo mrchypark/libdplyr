@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-08
+
+### Added
+- **Join Functionality Support**: Added `left_join()`, `inner_join()`, `right_join()`, and `full_join()` with `by` parameter and `on` expression support
+- Proper SQL `ON` clause generation for join conditions
+
+### Changed
+- **Dependencies**: `lru` upgraded from `0.12.5` to `0.16.3`
+- **Documentation**: Separated `INSTALL.md` from `README.md` for improved readability
+- Updated `AGENTS.md` with current project structure and conventions
+
+### Fixed
+- **CI/CD**: macOS release workflow - use `shasum -a 256` instead of unavailable `sha256sum`
+- **CI/CD**: Windows release workflow - disabled ccache to resolve resource file compilation conflicts
+- **CI/CD**: Added dynamic extension file path detection for Windows builds
+- **CI**: Added `contents: write` permission for GitHub Actions release deployment
+- **Testing**: Fixed C++ integration tests compilation errors from join refactoring
+- **Testing**: Updated join tests to use `Transpiler` directly
+- **SQL Generation**: Fixed correct `ON` clause generation for `by` parameter in joins
+
+### Refactored
+- **Code Quality**: Resolved all Clippy warnings
+- **Code Quality**: Removed unused code detected by cargo check
+- **Parser/SQL Generator**: Refactored join logic to separate `by` column from `on` expression handling
+- **Examples**: Fixed compilation errors from join refactoring
+
+### Security
+- Improved GitHub security workflow configuration
+
 ## [Unreleased]
 
 ### Added
