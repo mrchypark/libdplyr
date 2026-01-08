@@ -5,7 +5,7 @@
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
     Aggregation, BinaryOp, ColumnExpr, DplyrNode, DplyrOperation, Expr, JoinSpec, JoinType,
-    LiteralValue, OrderDirection, OrderExpr, RenameSpec,
+    LiteralValue, OrderDirection, OrderExpr, RenameSpec, SetOperation,
 };
 
 // Decomposition scaffolding (“Tidy First”): these modules are placeholders to
@@ -47,8 +47,11 @@ impl SqlGenerator {
     pub fn generate(&self, ast: &DplyrNode) -> GenerationResult<String> {
         match ast {
             DplyrNode::Pipeline {
-                source, operations, ..
-            } => self.generate_pipeline(source, operations),
+                source,
+                target,
+                operations,
+                ..
+            } => self.generate_pipeline(source, target, operations),
             DplyrNode::DataSource { name, .. } => Ok(format!(
                 "SELECT * FROM {}",
                 self.dialect.quote_identifier(name)
@@ -60,9 +63,11 @@ impl SqlGenerator {
     fn generate_pipeline(
         &self,
         source: &Option<String>,
+        target: &Option<String>,
         operations: &[DplyrOperation],
     ) -> GenerationResult<String> {
-        if operations.is_empty() {
+        // Allow empty operations if we have a direct table assignment
+        if operations.is_empty() && target.is_none() {
             return Err(GenerationError::InvalidAst {
                 reason: "Empty pipeline: at least one operation is required".to_string(),
             });
@@ -79,7 +84,7 @@ impl SqlGenerator {
         }
 
         // Assemble final SQL query
-        self.assemble_query(source, &query_parts)
+        self.assemble_query(source, target, &query_parts)
     }
 
     /// Processes individual operations.
@@ -128,6 +133,18 @@ impl SqlGenerator {
                 join_type, spec, ..
             } => {
                 self.process_join_operation(join_type, spec, query_parts, source_table)?;
+            }
+            DplyrOperation::SetOp {
+                operation,
+                right_table,
+                ..
+            } => {
+                let set_op_sql = match operation {
+                    SetOperation::Intersect => "INTERSECT",
+                    SetOperation::Union => "UNION",
+                    SetOperation::SetDiff => "EXCEPT",
+                };
+                query_parts.set_operation = Some((set_op_sql.to_string(), right_table.clone()));
             }
         }
         Ok(())
@@ -195,6 +212,56 @@ impl SqlGenerator {
     ) -> GenerationResult<()> {
         use crate::parser::JoinType;
 
+        // Check if dialect supports SEMI/ANTI JOIN natively (DuckDB only)
+        let is_duckdb = self.dialect.dialect_name() == "duckdb";
+
+        // For SEMI and ANTI joins, non-DuckDB dialects need subquery transformation
+        match join_type {
+            JoinType::Semi | JoinType::Anti if !is_duckdb => {
+                // Generate EXISTS/NOT EXISTS subquery for non-DuckDB dialects
+                let exists_keyword = match join_type {
+                    JoinType::Semi => "EXISTS",
+                    JoinType::Anti => "NOT EXISTS",
+                    _ => unreachable!(),
+                };
+
+                // Generate the condition
+                let condition = if let Some(by_column) = &spec.by_column {
+                    format!(
+                        "{} = {}",
+                        self.dialect
+                            .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                        self.dialect
+                            .quote_identifier(&format!("{}.{}", spec.table, by_column))
+                    )
+                } else if let Some(expr) = &spec.on_expr {
+                    self.generate_expression(expr)?
+                } else {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "join operation requires either 'by' parameter or 'on' condition"
+                            .to_string(),
+                    });
+                };
+
+                // Create subquery: WHERE (NOT) EXISTS (SELECT 1 FROM right_table ON condition)
+                let subquery = format!(
+                    "{exists_keyword} (SELECT 1 FROM {} WHERE {condition})",
+                    self.dialect.quote_identifier(&spec.table)
+                );
+
+                // Add as WHERE clause (SEMI/ANTI don't need actual JOIN)
+                if query_parts.where_clauses.is_empty() {
+                    query_parts.where_clauses.push(subquery);
+                } else {
+                    query_parts.where_clauses.push(format!("AND ({subquery})"));
+                }
+
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // For DuckDB or standard joins, use native JOIN syntax
         let join_sql = match join_type {
             JoinType::Inner => "INNER JOIN",
             JoinType::Left => "LEFT JOIN",
@@ -306,9 +373,16 @@ impl SqlGenerator {
                     .iter()
                     .map(|arg| self.generate_expression(arg))
                     .collect();
-                let args_str = args_sql?.join(", ");
+                let args_str = args_sql?;
+
+                // Try dialect-specific translation first
+                if let Some(translated) = self.dialect.translate_function(name, &args_str) {
+                    return Ok(translated);
+                }
+
+                // Fall back to uppercase function name
                 let func_name = name.to_uppercase();
-                Ok(format!("{func_name}({args_str})"))
+                Ok(format!("{func_name}({})", args_str.join(", ")))
             }
         }
     }

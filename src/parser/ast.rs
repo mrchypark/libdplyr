@@ -34,6 +34,7 @@ pub enum DplyrNode {
     /// Chain of pipeline operations
     Pipeline {
         source: Option<String>,
+        target: Option<String>,
         operations: Vec<DplyrOperation>,
         location: SourceLocation,
     },
@@ -108,6 +109,12 @@ pub enum DplyrOperation {
         spec: JoinSpec,
         location: SourceLocation,
     },
+    /// Set operation (INTERSECT, UNION, EXCEPT)
+    SetOp {
+        operation: SetOperation,
+        right_table: String,
+        location: SourceLocation,
+    },
 }
 
 /// Column rename specification (dplyr-style: new_name = old_name).
@@ -129,6 +136,7 @@ impl DplyrOperation {
             DplyrOperation::GroupBy { location, .. } => location,
             DplyrOperation::Summarise { location, .. } => location,
             DplyrOperation::Join { location, .. } => location,
+            DplyrOperation::SetOp { location, .. } => location,
         }
     }
 
@@ -143,6 +151,11 @@ impl DplyrOperation {
             DplyrOperation::GroupBy { .. } => "group_by",
             DplyrOperation::Summarise { .. } => "summarise",
             DplyrOperation::Join { .. } => "join",
+            DplyrOperation::SetOp { operation, .. } => match operation {
+                SetOperation::Intersect => "intersect",
+                SetOperation::Union => "union",
+                SetOperation::SetDiff => "setdiff",
+            },
         }
     }
 }
@@ -257,4 +270,19 @@ pub struct JoinSpec {
 pub struct Join {
     pub join_type: JoinType,
     pub spec: JoinSpec,
+}
+
+/// Set operation type (INTERSECT, UNION, EXCEPT)
+#[derive(Debug, Clone, PartialEq)]
+pub enum SetOperation {
+    Intersect,
+    Union,
+    SetDiff, // EXCEPT in SQL
+}
+
+/// Set operation combining two queries
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetOp {
+    pub operation: SetOperation,
+    pub right_table: String,
 }

@@ -343,6 +343,14 @@ impl DplyrValidator {
                 operations.push("join".to_string());
                 *complexity_score += 2;
             }
+            DplyrOperation::SetOp { operation, .. } => {
+                operations.push(match operation {
+                    crate::parser::SetOperation::Intersect => "intersect".to_string(),
+                    crate::parser::SetOperation::Union => "union".to_string(),
+                    crate::parser::SetOperation::SetDiff => "setdiff".to_string(),
+                });
+                *complexity_score += 2;
+            }
         }
     }
 

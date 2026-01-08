@@ -307,6 +307,7 @@ mod dialect_specific_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![create_test_select_operation(vec!["name", "age"])],
             location: SourceLocation::unknown(),
         };
@@ -410,6 +411,7 @@ mod complex_query_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![
                 create_test_select_operation(vec!["name", "age", "salary"]),
                 create_test_filter_operation("age", 25.0),
@@ -443,6 +445,7 @@ mod complex_query_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![
                 DplyrOperation::GroupBy {
                     columns: vec!["department".to_string()],
@@ -483,6 +486,7 @@ mod complex_query_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![
                 create_test_select_operation(vec!["name"]),
                 DplyrOperation::Filter {
@@ -520,6 +524,7 @@ mod complex_query_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![DplyrOperation::Mutate {
                 assignments: vec![
                     Assignment {
@@ -566,6 +571,7 @@ mod error_case_tests {
 
         let ast = DplyrNode::Pipeline {
             source: None,
+            target: None,
             operations: vec![],
             location: SourceLocation::unknown(),
         };

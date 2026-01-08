@@ -23,6 +23,18 @@ lazy_static::lazy_static! {
         m.insert("full_join", Token::FullJoin);
         m.insert("semi_join", Token::SemiJoin);
         m.insert("anti_join", Token::AntiJoin);
+        m.insert("intersect", Token::Intersect);
+        m.insert("union", Token::Union);
+        m.insert("setdiff", Token::SetDiff);
+        // R functions with dots (treated as identifiers)
+        m.insert("is.na", Token::Identifier("is.na".to_string()));
+        m.insert("as.numeric", Token::Identifier("as.numeric".to_string()));
+        m.insert("as.integer", Token::Identifier("as.integer".to_string()));
+        m.insert("as.character", Token::Identifier("as.character".to_string()));
+        m.insert("as.logical", Token::Identifier("as.logical".to_string()));
+        m.insert("as.double", Token::Identifier("as.double".to_string()));
+        m.insert("na.fill", Token::Identifier("na.fill".to_string()));
+        m.insert("na.replace", Token::Identifier("na.replace".to_string()));
         m.insert("desc", Token::Desc);
         m.insert("asc", Token::Asc);
         m.insert("TRUE", Token::Boolean(true));
@@ -53,6 +65,9 @@ pub enum Token {
     FullJoin,
     SemiJoin,
     AntiJoin,
+    Intersect,
+    Union,
+    SetDiff,
 
     // dplyr helper functions
     Desc, // desc()
@@ -60,6 +75,8 @@ pub enum Token {
 
     // Operators
     Pipe,               // %>%
+    ArrowRight,         // ->
+    ArrowLeft,          // <-
     Assignment,         // =
     Equal,              // ==
     NotEqual,           // !=
@@ -109,9 +126,14 @@ impl std::fmt::Display for Token {
             Token::FullJoin => write!(f, "full_join"),
             Token::SemiJoin => write!(f, "semi_join"),
             Token::AntiJoin => write!(f, "anti_join"),
+            Token::Intersect => write!(f, "intersect"),
+            Token::Union => write!(f, "union"),
+            Token::SetDiff => write!(f, "setdiff"),
             Token::Desc => write!(f, "desc"),
             Token::Asc => write!(f, "asc"),
             Token::Pipe => write!(f, "%>%"),
+            Token::ArrowRight => write!(f, "->"),
+            Token::ArrowLeft => write!(f, "<-"),
             Token::Assignment => write!(f, "="),
             Token::Equal => write!(f, "=="),
             Token::NotEqual => write!(f, "!="),
@@ -212,7 +234,12 @@ impl Lexer {
                     }
                     '-' => {
                         self.advance();
-                        Ok(Token::Minus)
+                        if self.current_char == Some('>') {
+                            self.advance();
+                            Ok(Token::ArrowRight)
+                        } else {
+                            Ok(Token::Minus)
+                        }
                     }
                     '*' => {
                         self.advance();
@@ -242,7 +269,10 @@ impl Lexer {
                     }
                     '<' => {
                         self.advance();
-                        if self.current_char == Some('=') {
+                        if self.current_char == Some('-') {
+                            self.advance();
+                            Ok(Token::ArrowLeft)
+                        } else if self.current_char == Some('=') {
                             self.advance();
                             Ok(Token::LessThanOrEqual)
                         } else {
@@ -386,7 +416,8 @@ impl Lexer {
         let mut identifier = String::new();
 
         while let Some(ch) = self.current_char {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
+            // Allow alphanumeric, underscore, and dot (for R compatibility like is.na, as.numeric)
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
                 identifier.push(ch);
                 self.advance();
             } else {

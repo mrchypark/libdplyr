@@ -1,5 +1,118 @@
 //! SQL dialects.
 
+/// Maps R type names to generic SQL type names
+fn map_sql_type(r_type: &str) -> &'static str {
+    match r_type {
+        "as.numeric" | "as.double" => "FLOAT",
+        "as.integer" => "INTEGER",
+        "as.character" => "VARCHAR",
+        "as.logical" => "BOOLEAN",
+        _ => "TEXT",
+    }
+}
+
+/// Translates a common R function to SQL
+fn translate_common_function(function: &str, args: &[String]) -> Option<String> {
+    let fn_lower = function.to_lowercase();
+    match fn_lower.as_str() {
+        // Math functions
+        "abs" => Some(format!("ABS({})", args.join(", "))),
+        "round" => Some(format!("ROUND({})", args.join(", "))),
+        "floor" => Some(format!("FLOOR({})", args.join(", "))),
+        "ceiling" | "ceil" => Some(format!("CEILING({})", args.join(", "))),
+        "sqrt" => Some(format!("SQRT({})", args.join(", "))),
+        "sign" => Some(format!("SIGN({})", args.join(", "))),
+        "exp" => Some(format!("EXP({})", args.join(", "))),
+        "log" => {
+            if args.len() == 1 {
+                Some(format!("LN({})", args[0]))
+            } else if args.len() == 2 {
+                Some(format!("LOG({}, {})", args[1], args[0]))
+            } else {
+                None
+            }
+        }
+        "log10" => Some(format!("LOG({})", args.join(", "))),
+        // Modulo
+        "mod" | "%%" => Some(format!("{} % {}", args[0], args[1])),
+        // Trigonometric functions
+        "sin" => Some(format!("SIN({})", args.join(", "))),
+        "cos" => Some(format!("COS({})", args.join(", "))),
+        "tan" => Some(format!("TAN({})", args.join(", "))),
+        "asin" => Some(format!("ASIN({})", args.join(", "))),
+        "acos" => Some(format!("ACOS({})", args.join(", "))),
+        "atan" => Some(format!("ATAN({})", args.join(", "))),
+        "atan2" => Some(format!("ATAN2({}, {})", args[0], args[1])),
+        "sinh" => Some(format!("SINH({})", args.join(", "))),
+        "cosh" => Some(format!("COSH({})", args.join(", "))),
+        "tanh" => Some(format!("TANH({})", args.join(", "))),
+        // String functions
+        "tolower" => Some(format!("LOWER({})", args.join(", "))),
+        "toupper" | "touppercase" => Some(format!("UPPER({})", args.join(", "))),
+        "substr" => {
+            if args.len() >= 3 {
+                Some(format!("SUBSTR({}, {}, {})", args[0], args[1], args[2]))
+            } else if args.len() == 2 {
+                Some(format!("SUBSTR({}, {})", args[0], args[1]))
+            } else {
+                None
+            }
+        }
+        "nchar" | "nzchar" => Some(format!("LENGTH({})", args.join(", "))),
+        "trimws" => Some(format!("TRIM({})", args.join(", "))),
+        // Conditional
+        "ifelse" => {
+            if args.len() == 3 {
+                Some(format!(
+                    "CASE WHEN {} THEN {} ELSE {} END",
+                    args[0], args[1], args[2]
+                ))
+            } else {
+                None
+            }
+        }
+        // NULL checks
+        "is.na" => Some(format!("{} IS NULL", args[0])),
+        // Window functions
+        "lead" => {
+            let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+            Some(format!("LEAD({}, {}) OVER ()", args[0], n))
+        }
+        "lag" => {
+            let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+            Some(format!("LAG({}, {}) OVER ()", args[0], n))
+        }
+        "rank" => Some("RANK() OVER ()".to_string()),
+        "ntile" => {
+            if args.len() >= 1 {
+                Some(format!("NTILE({}) OVER ()", args[0]))
+            } else {
+                None
+            }
+        }
+        "first" | "first_value" => Some("FIRST_VALUE() OVER ()".to_string()),
+        "last" | "last_value" => Some("LAST_VALUE() OVER ()".to_string()),
+        "nth_value" => {
+            if args.len() >= 2 {
+                Some(format!("NTH_VALUE({}, {}) OVER ()", args[0], args[1]))
+            } else {
+                None
+            }
+        }
+        "row_number" => Some("ROW_NUMBER() OVER ()".to_string()),
+        // NULL handling
+        "coalesce" => Some(format!("COALESCE({})", args.join(", "))),
+        "na.replace" | "replace_na" => {
+            if args.len() >= 2 {
+                Some(format!("COALESCE({}, {})", args[0], args[1]))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// SQL dialect trait for database-specific SQL generation
 ///
 /// This trait defines the interface for handling specialized SQL syntax
@@ -135,6 +248,14 @@ pub trait SqlDialect {
     /// Returns `* EXCLUDE (...)`-style projection if supported by the dialect.
     fn select_star_exclude(&self, _excluded_identifiers: &[String]) -> Option<String> {
         None
+    }
+
+    /// Translates R/dplyr function names to SQL equivalents.
+    ///
+    /// Maps common R functions to their SQL counterparts. Override this
+    /// method in dialect implementations for database-specific translations.
+    fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
+        translate_common_function(function, args)
     }
 
     /// Creates a boxed clone of this dialect.

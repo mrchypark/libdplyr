@@ -3,7 +3,7 @@
 //! This example demonstrates various ways to use the libdplyr transpiler,
 //! including basic usage, error handling, and advanced features.
 
-use libdplyr::parser::JoinType;
+use libdplyr::parser::{JoinType, SetOperation};
 use libdplyr::{
     DplyrNode, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect,
     TranspileError, Transpiler,
@@ -279,6 +279,22 @@ fn inspect_ast(ast: &DplyrNode) {
                                 JoinType::Anti => "ANTI JOIN",
                             },
                             spec.table
+                        );
+                    }
+                    libdplyr::DplyrOperation::SetOp {
+                        operation,
+                        right_table,
+                        ..
+                    } => {
+                        println!(
+                            "     {}. SetOp: {} with {}",
+                            i + 1,
+                            match operation {
+                                SetOperation::Intersect => "INTERSECT",
+                                SetOperation::Union => "UNION",
+                                SetOperation::SetDiff => "EXCEPT",
+                            },
+                            right_table
                         );
                     }
                 }
