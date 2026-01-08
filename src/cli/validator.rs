@@ -339,6 +339,10 @@ impl DplyrValidator {
                 }
                 *complexity_score += 3;
             }
+            DplyrOperation::Join { .. } => {
+                operations.push("join".to_string());
+                *complexity_score += 2;
+            }
         }
     }
 

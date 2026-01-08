@@ -212,6 +212,12 @@ impl Parser {
             Token::Arrange => self.parse_arrange(),
             Token::GroupBy => self.parse_group_by(),
             Token::Summarise => self.parse_summarise(),
+            Token::InnerJoin
+            | Token::LeftJoin
+            | Token::RightJoin
+            | Token::FullJoin
+            | Token::SemiJoin
+            | Token::AntiJoin => self.parse_join(),
             _ => Err(ParseError::UnexpectedToken {
                 expected: "dplyr function".to_string(),
                 found: format!("{}", self.current_token),
@@ -412,6 +418,69 @@ impl Parser {
         self.expect_token(Token::RightParen)?;
         Ok(DplyrOperation::Summarise {
             aggregations,
+            location,
+        })
+    }
+
+    /// Parses join operations (inner_join, left_join, right_join, full_join, semi_join, anti_join).
+    fn parse_join(&mut self) -> ParseResult<DplyrOperation> {
+        let join_type = match &self.current_token {
+            Token::InnerJoin => JoinType::Inner,
+            Token::LeftJoin => JoinType::Left,
+            Token::RightJoin => JoinType::Right,
+            Token::FullJoin => JoinType::Full,
+            Token::SemiJoin => JoinType::Semi,
+            Token::AntiJoin => JoinType::Anti,
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "join function".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                })
+            }
+        };
+
+        let location = self.current_location();
+        self.advance()?; // Skip join function name
+        self.expect_token(Token::LeftParen)?;
+
+        // Parse first argument: table name
+        let table_name = match &self.current_token {
+            Token::Identifier(name) => name.clone(),
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "table name".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                })
+            }
+        };
+        self.advance()?;
+
+        // Parse by parameter
+        if self.current_token != Token::RightParen && self.current_token != Token::Comma {
+            return Err(ParseError::UnexpectedToken {
+                expected: "comma or closing paren".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        }
+
+        self.expect_token(Token::Comma)?;
+        self.expect_token(Token::Identifier("by".to_string()))?;
+        self.expect_token(Token::Assignment)?;
+
+        // Parse join condition (simple identifier for now)
+        let on_expr = self.parse_expression()?;
+
+        self.expect_token(Token::RightParen)?;
+
+        Ok(DplyrOperation::Join {
+            join_type,
+            spec: JoinSpec {
+                table: table_name,
+                on: on_expr,
+            },
             location,
         })
     }

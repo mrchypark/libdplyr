@@ -4,8 +4,8 @@
 
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
-    Aggregation, BinaryOp, ColumnExpr, DplyrNode, DplyrOperation, Expr, LiteralValue,
-    OrderDirection, OrderExpr, RenameSpec,
+    Aggregation, BinaryOp, ColumnExpr, DplyrNode, DplyrOperation, Expr, JoinSpec, JoinType,
+    LiteralValue, OrderDirection, OrderExpr, RenameSpec,
 };
 
 // Decomposition scaffolding (“Tidy First”): these modules are placeholders to
@@ -120,6 +120,11 @@ impl SqlGenerator {
             DplyrOperation::Summarise { aggregations, .. } => {
                 query_parts.select_columns = self.generate_aggregations(aggregations)?;
             }
+            DplyrOperation::Join {
+                join_type, spec, ..
+            } => {
+                self.process_join_operation(join_type, spec, query_parts)?;
+            }
         }
         Ok(())
     }
@@ -171,6 +176,44 @@ impl SqlGenerator {
                 "{} AS {}",
                 self.dialect.quote_identifier(&spec.old_name),
                 self.dialect.quote_identifier(&spec.new_name)
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn process_join_operation(
+        &self,
+        join_type: &JoinType,
+        spec: &JoinSpec,
+        query_parts: &mut QueryParts,
+    ) -> GenerationResult<()> {
+        use crate::parser::JoinType;
+
+        let join_sql = match join_type {
+            JoinType::Inner => "INNER JOIN",
+            JoinType::Left => "LEFT JOIN",
+            JoinType::Right => "RIGHT JOIN",
+            JoinType::Full => "FULL JOIN",
+            JoinType::Semi => "SEMI JOIN",
+            JoinType::Anti => "ANTI JOIN",
+        };
+
+        let on_clause = self.generate_expression(&spec.on)?;
+
+        if query_parts.joins.is_empty() {
+            query_parts.joins.push(format!(
+                "{} {} ON {}",
+                join_sql,
+                self.dialect.quote_identifier(&spec.table),
+                on_clause
+            ));
+        } else {
+            query_parts.joins.push(format!(
+                "{} {} ON {}",
+                join_sql,
+                self.dialect.quote_identifier(&spec.table),
+                on_clause
             ));
         }
 

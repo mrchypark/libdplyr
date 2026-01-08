@@ -52,6 +52,174 @@ fn test_parse_mutate() {
 }
 
 #[test]
+fn test_parse_single_table_inner_join() {
+    let input = "inner_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Inner));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
+fn test_parse_single_table_left_join() {
+    let input = "left_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Left));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
+fn test_parse_single_table_right_join() {
+    let input = "right_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Right));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
+fn test_parse_single_table_full_join() {
+    let input = "full_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Full));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
+fn test_parse_single_table_semi_join() {
+    let input = "semi_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Semi));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
+fn test_parse_single_table_anti_join() {
+    let input = "anti_join(df2, by = \"id\")";
+    let lexer = Lexer::new(input.to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let ast = parser.parse();
+
+    assert!(ast.is_ok(), "Should parse single-table join");
+
+    let ast = ast.unwrap();
+
+    if let DplyrNode::Pipeline { operations, .. } = ast {
+        assert_eq!(operations.len(), 1);
+        if let DplyrOperation::Join {
+            join_type, spec, ..
+        } = &operations[0]
+        {
+            assert!(matches!(join_type, JoinType::Anti));
+            assert_eq!(spec.table, "df2");
+        } else {
+            panic!("Expected Join operation");
+        }
+    } else {
+        panic!("Expected Pipeline node");
+    }
+}
+
+#[test]
 fn test_parse_arrange() {
     let lexer = Lexer::new("arrange(desc(age), name)".to_string());
     let mut parser = Parser::new(lexer).unwrap();

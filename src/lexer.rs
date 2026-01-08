@@ -17,6 +17,12 @@ lazy_static::lazy_static! {
         m.insert("group_by", Token::GroupBy);
         m.insert("summarise", Token::Summarise);
         m.insert("summarize", Token::Summarise);
+        m.insert("inner_join", Token::InnerJoin);
+        m.insert("left_join", Token::LeftJoin);
+        m.insert("right_join", Token::RightJoin);
+        m.insert("full_join", Token::FullJoin);
+        m.insert("semi_join", Token::SemiJoin);
+        m.insert("anti_join", Token::AntiJoin);
         m.insert("desc", Token::Desc);
         m.insert("asc", Token::Asc);
         m.insert("TRUE", Token::Boolean(true));
@@ -41,6 +47,12 @@ pub enum Token {
     Arrange,
     GroupBy,
     Summarise,
+    InnerJoin,
+    LeftJoin,
+    RightJoin,
+    FullJoin,
+    SemiJoin,
+    AntiJoin,
 
     // dplyr helper functions
     Desc, // desc()
@@ -91,6 +103,12 @@ impl std::fmt::Display for Token {
             Token::Arrange => write!(f, "arrange"),
             Token::GroupBy => write!(f, "group_by"),
             Token::Summarise => write!(f, "summarise"),
+            Token::InnerJoin => write!(f, "inner_join"),
+            Token::LeftJoin => write!(f, "left_join"),
+            Token::RightJoin => write!(f, "right_join"),
+            Token::FullJoin => write!(f, "full_join"),
+            Token::SemiJoin => write!(f, "semi_join"),
+            Token::AntiJoin => write!(f, "anti_join"),
             Token::Desc => write!(f, "desc"),
             Token::Asc => write!(f, "asc"),
             Token::Pipe => write!(f, "%>%"),

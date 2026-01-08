@@ -102,6 +102,12 @@ pub enum DplyrOperation {
         aggregations: Vec<Aggregation>,
         location: SourceLocation,
     },
+    /// JOIN operation for combining tables
+    Join {
+        join_type: JoinType,
+        spec: JoinSpec,
+        location: SourceLocation,
+    },
 }
 
 /// Column rename specification (dplyr-style: new_name = old_name).
@@ -122,6 +128,7 @@ impl DplyrOperation {
             DplyrOperation::Arrange { location, .. } => location,
             DplyrOperation::GroupBy { location, .. } => location,
             DplyrOperation::Summarise { location, .. } => location,
+            DplyrOperation::Join { location, .. } => location,
         }
     }
 
@@ -135,6 +142,7 @@ impl DplyrOperation {
             DplyrOperation::Arrange { .. } => "arrange",
             DplyrOperation::GroupBy { .. } => "group_by",
             DplyrOperation::Summarise { .. } => "summarise",
+            DplyrOperation::Join { .. } => "join",
         }
     }
 }
@@ -221,4 +229,29 @@ pub struct Aggregation {
     pub function: String,
     pub column: String,
     pub alias: Option<String>,
+}
+
+/// Join type for different join operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    Inner,
+    Left,
+    Right,
+    Full,
+    Semi,
+    Anti,
+}
+
+/// Join specification containing table and join condition
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinSpec {
+    pub table: String,
+    pub on: Expr,
+}
+
+/// Join operation for combining tables
+#[derive(Debug, Clone, PartialEq)]
+pub struct Join {
+    pub join_type: JoinType,
+    pub spec: JoinSpec,
 }

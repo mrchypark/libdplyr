@@ -11,6 +11,7 @@ pub(super) struct QueryParts {
     pub(super) where_clauses: Vec<String>,
     pub(super) group_by: String,
     pub(super) order_by: String,
+    pub(super) joins: Vec<String>,
     pub(super) mutated_columns: HashMap<String, String>,
 }
 
@@ -64,6 +65,12 @@ impl SqlGenerator {
         query.push_str("\nFROM ");
         let table_name = source.as_deref().unwrap_or("data");
         query.push_str(&self.dialect.quote_identifier(table_name));
+
+        // JOIN clauses
+        for join in &parts.joins {
+            query.push('\n');
+            query.push_str(join);
+        }
 
         // WHERE clause
         if !parts.where_clauses.is_empty() {
