@@ -1,16 +1,5 @@
 //! SQL dialects.
 
-/// Maps R type names to generic SQL type names
-fn map_sql_type(r_type: &str) -> &'static str {
-    match r_type {
-        "as.numeric" | "as.double" => "FLOAT",
-        "as.integer" => "INTEGER",
-        "as.character" => "VARCHAR",
-        "as.logical" => "BOOLEAN",
-        _ => "TEXT",
-    }
-}
-
 /// Translates a common R function to SQL
 fn translate_common_function(function: &str, args: &[String]) -> Option<String> {
     let fn_lower = function.to_lowercase();

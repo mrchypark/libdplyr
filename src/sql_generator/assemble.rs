@@ -13,7 +13,6 @@ pub(super) struct QueryParts {
     pub(super) order_by: String,
     pub(super) joins: Vec<String>,
     pub(super) mutated_columns: HashMap<String, String>,
-    pub(super) target: Option<String>,
     pub(super) set_operation: Option<(String, String)>, // (operation, right_table)
 }
 
@@ -44,14 +43,13 @@ impl SqlGenerator {
             self.process_operation(operation, &mut nested_parts, "data")?;
         }
 
-        self.assemble_query(&None, &None, &nested_parts)
+        self.assemble_query(&None, &nested_parts)
     }
 
     /// Assembles the final SQL query.
     pub(super) fn assemble_query(
         &self,
         source: &Option<String>,
-        target: &Option<String>,
         parts: &QueryParts,
     ) -> GenerationResult<String> {
         let mut query = String::new();
@@ -99,16 +97,6 @@ impl SqlGenerator {
                 "\n{op} SELECT * FROM {}",
                 self.dialect.quote_identifier(right_table)
             ));
-        }
-
-        // If target is specified, wrap with CREATE TABLE AS
-        if let Some(target_table) = target {
-            let create_stmt = format!(
-                "CREATE TABLE {} AS \n{}",
-                self.dialect.quote_identifier(target_table),
-                query
-            );
-            return Ok(create_stmt);
         }
 
         Ok(query)

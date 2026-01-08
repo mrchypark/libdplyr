@@ -84,7 +84,7 @@ impl SqlGenerator {
         }
 
         // Assemble final SQL query
-        self.assemble_query(source, target, &query_parts)
+        self.assemble_query(source, &query_parts)
     }
 
     /// Processes individual operations.
