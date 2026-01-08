@@ -70,9 +70,12 @@ impl SqlGenerator {
 
         let mut query_parts = QueryParts::new();
 
+        // Get the source table name for join operations
+        let source_table = source.as_deref().unwrap_or("data");
+
         // Process each operation in order
         for operation in operations {
-            self.process_operation(operation, &mut query_parts)?;
+            self.process_operation(operation, &mut query_parts, source_table)?;
         }
 
         // Assemble final SQL query
@@ -84,6 +87,7 @@ impl SqlGenerator {
         &self,
         operation: &DplyrOperation,
         query_parts: &mut QueryParts,
+        source_table: &str,
     ) -> GenerationResult<()> {
         match operation {
             DplyrOperation::Select { columns, .. } => {
@@ -123,7 +127,7 @@ impl SqlGenerator {
             DplyrOperation::Join {
                 join_type, spec, ..
             } => {
-                self.process_join_operation(join_type, spec, query_parts)?;
+                self.process_join_operation(join_type, spec, query_parts, source_table)?;
             }
         }
         Ok(())
@@ -187,6 +191,7 @@ impl SqlGenerator {
         join_type: &JoinType,
         spec: &JoinSpec,
         query_parts: &mut QueryParts,
+        source_table: &str,
     ) -> GenerationResult<()> {
         use crate::parser::JoinType;
 
@@ -199,23 +204,33 @@ impl SqlGenerator {
             JoinType::Anti => "ANTI JOIN",
         };
 
-        let on_clause = self.generate_expression(&spec.on)?;
-
-        if query_parts.joins.is_empty() {
-            query_parts.joins.push(format!(
-                "{} {} ON {}",
-                join_sql,
-                self.dialect.quote_identifier(&spec.table),
-                on_clause
-            ));
+        // Generate ON clause based on join specification
+        let on_clause = if let Some(by_column) = &spec.by_column {
+            // by = "column_name" -> ON "source"."column" = "right_table"."column"
+            format!(
+                "{} = {}",
+                self.dialect
+                    .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                self.dialect
+                    .quote_identifier(&format!("{}.{}", spec.table, by_column))
+            )
+        } else if let Some(expr) = &spec.on_expr {
+            // Fallback to expression-based ON clause
+            self.generate_expression(expr)?
         } else {
-            query_parts.joins.push(format!(
-                "{} {} ON {}",
-                join_sql,
-                self.dialect.quote_identifier(&spec.table),
-                on_clause
-            ));
-        }
+            // No join condition specified
+            return Err(GenerationError::InvalidAst {
+                reason: "join operation requires either 'by' parameter or 'on' condition"
+                    .to_string(),
+            });
+        };
+
+        query_parts.joins.push(format!(
+            "{} {} ON {}",
+            join_sql,
+            self.dialect.quote_identifier(&spec.table),
+            on_clause
+        ));
 
         Ok(())
     }

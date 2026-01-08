@@ -39,7 +39,7 @@ impl SqlGenerator {
         let mut nested_parts = QueryParts::new();
 
         for operation in operations {
-            self.process_operation(operation, &mut nested_parts)?;
+            self.process_operation(operation, &mut nested_parts, "data")?;
         }
 
         self.assemble_query(&None, &nested_parts)
