@@ -470,8 +470,28 @@ impl Parser {
         self.expect_token(Token::Identifier("by".to_string()))?;
         self.expect_token(Token::Assignment)?;
 
-        // Parse join condition (simple identifier for now)
-        let on_expr = self.parse_expression()?;
+        // Parse by parameter - handle string literal as column name
+        let (by_column, on_expr) = match &self.current_token {
+            Token::String(s) => {
+                // by = "column_name" - simple join on same column name
+                let col_name = s.clone();
+                self.advance()?;
+                (Some(col_name), None)
+            }
+            Token::Identifier(_) => {
+                // Could be a column reference or complex expression
+                // For now, parse as expression
+                let expr = self.parse_expression()?;
+                (None, Some(expr))
+            }
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "string literal or identifier for join column".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                })
+            }
+        };
 
         self.expect_token(Token::RightParen)?;
 
@@ -479,7 +499,8 @@ impl Parser {
             join_type,
             spec: JoinSpec {
                 table: table_name,
-                on: on_expr,
+                by_column,
+                on_expr,
             },
             location,
         })

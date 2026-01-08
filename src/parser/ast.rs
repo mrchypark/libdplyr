@@ -246,7 +246,10 @@ pub enum JoinType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct JoinSpec {
     pub table: String,
-    pub on: Expr,
+    /// Single column name for simple joins (e.g., `by = "id"`)
+    pub by_column: Option<String>,
+    /// Fallback: general expression for complex joins
+    pub on_expr: Option<Expr>,
 }
 
 /// Join operation for combining tables
