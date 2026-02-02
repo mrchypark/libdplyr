@@ -1,6 +1,6 @@
 [package]
 name = "libdplyr"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["libdplyr contributors"]
 description = "A Rust-based transpiler that converts R dplyr syntax to SQL queries"
