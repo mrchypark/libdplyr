@@ -54,35 +54,35 @@ jobs:
             artifact-name: dplyr-v1.4.0-windows-x86_64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
 
-          # DuckDB v1.4.2 (tested)
+          # DuckDB v1.4.4 (tested)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.2
-            artifact-name: dplyr-v1.4.2-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip"
+            duckdb_version: v1.4.4
+            artifact-name: dplyr-v1.4.4-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.2
-            artifact-name: dplyr-v1.4.2-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.4.4
+            artifact-name: dplyr-v1.4.4-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.2
-            artifact-name: dplyr-v1.4.2-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.4.4
+            artifact-name: dplyr-v1.4.4-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
             cmake-generator: "Ninja"
-            duckdb_version: v1.4.2
-            artifact-name: dplyr-v1.4.2-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-windows-amd64.zip"
+            duckdb_version: v1.4.4
+            artifact-name: dplyr-v1.4.4-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-windows-amd64.zip"
 
     steps:
       # -------------------------------------------------------------------------
@@ -517,8 +517,8 @@ jobs:
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "git_commit": "${{ github.sha }}",
             "duckdb_min_version": "1.4.0",
-            "duckdb_tested_versions": ["1.4.2"],
-            "duckdb_versions_built": ["v1.4.0", "v1.4.2"],
+            "duckdb_tested_versions": ["1.4.4"],
+            "duckdb_versions_built": ["v1.4.0", "v1.4.4"],
             "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
           }
           EOF
