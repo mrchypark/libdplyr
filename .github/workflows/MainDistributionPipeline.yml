@@ -19,15 +19,15 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.0
     with:
       duckdb_version: v1.4.0
-      ci_tools_version: v1.4.2
+      ci_tools_version: v1.4.4
       extension_name: dplyr
       enable_rust: true
 
-  duckdb-v1-4-2-build:
-    name: Build extension binaries (DuckDB v1.4.2)
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.2
+  duckdb-v1-4-4-build:
+    name: Build extension binaries (DuckDB v1.4.4)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
     with:
-      duckdb_version: v1.4.2
-      ci_tools_version: v1.4.2
+      duckdb_version: v1.4.4
+      ci_tools_version: v1.4.4
       extension_name: dplyr
       enable_rust: true
