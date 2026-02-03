@@ -9,7 +9,7 @@ use crate::error::TranspileError;
 
 // R3-AC1: C-compatible options structure
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DplyrOptions {
     pub strict_mode: bool,
     pub preserve_comments: bool,

@@ -276,10 +276,7 @@ use std::os::raw::c_int;
 #[no_mangle]
 pub extern "C" fn dplyr_cache_get_stats() -> *mut c_char {
     let stats = SimpleTranspileCache::get_cache_stats();
-    match CString::new(stats) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    CString::new(stats).map_or(std::ptr::null_mut(), |c_string| c_string.into_raw())
 }
 
 /// Get cache hit rate as percentage

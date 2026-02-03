@@ -4,7 +4,7 @@ use crate::error::TranspileError;
 use crate::options::{MAX_FUNCTION_CALLS, MAX_NESTING_DEPTH};
 
 // R9-AC2: Security validation functions for malicious input detection
-pub(crate) fn validate_input_security(input: &str) -> Result<(), TranspileError> {
+pub fn validate_input_security(input: &str) -> Result<(), TranspileError> {
     // Check for excessive nesting depth
     let nesting_depth = calculate_nesting_depth(input);
     if nesting_depth > MAX_NESTING_DEPTH {
@@ -48,7 +48,7 @@ pub(crate) fn validate_input_security(input: &str) -> Result<(), TranspileError>
     Ok(())
 }
 
-pub(crate) fn calculate_nesting_depth(input: &str) -> usize {
+pub fn calculate_nesting_depth(input: &str) -> usize {
     let mut max_depth = 0;
     let mut current_depth: i32 = 0;
 
@@ -70,7 +70,7 @@ pub(crate) fn calculate_nesting_depth(input: &str) -> usize {
     max_depth.try_into().unwrap()
 }
 
-pub(crate) fn count_function_calls(input: &str) -> usize {
+pub fn count_function_calls(input: &str) -> usize {
     // Count patterns that look like function calls: identifier followed by '('
     let mut count = 0;
     let chars: Vec<char> = input.chars().collect();
@@ -102,7 +102,7 @@ pub(crate) fn count_function_calls(input: &str) -> usize {
     count
 }
 
-pub(crate) fn contains_suspicious_patterns(input: &str) -> bool {
+pub fn contains_suspicious_patterns(input: &str) -> bool {
     // Check for patterns that might indicate injection attempts or malicious input
     let suspicious_patterns = [
         // SQL injection patterns
@@ -160,7 +160,7 @@ pub(crate) fn contains_suspicious_patterns(input: &str) -> bool {
     false
 }
 
-pub(crate) fn has_excessive_repetition(input: &str) -> bool {
+pub fn has_excessive_repetition(input: &str) -> bool {
     // Check for patterns that repeat excessively (potential DoS)
     let chars: Vec<char> = input.chars().collect();
 
@@ -199,7 +199,7 @@ pub(crate) fn has_excessive_repetition(input: &str) -> bool {
 }
 
 // R9-AC2: Additional input validation functions
-pub(crate) fn validate_input_encoding(input: &str) -> Result<(), TranspileError> {
+pub fn validate_input_encoding(input: &str) -> Result<(), TranspileError> {
     // Check for valid UTF-8 (already done by CStr::to_str, but double-check)
     // Check all characters for control characters and confusing Unicode
     for ch in input.chars() {
@@ -223,7 +223,7 @@ pub(crate) fn validate_input_encoding(input: &str) -> Result<(), TranspileError>
     Ok(())
 }
 
-fn is_confusing_unicode(ch: char) -> bool {
+const fn is_confusing_unicode(ch: char) -> bool {
     // Check for characters that might be used for visual spoofing
     match ch {
         // Zero-width characters
@@ -236,7 +236,7 @@ fn is_confusing_unicode(ch: char) -> bool {
     }
 }
 
-pub(crate) fn validate_input_structure(input: &str) -> Result<(), TranspileError> {
+pub fn validate_input_structure(input: &str) -> Result<(), TranspileError> {
     // Check for balanced parentheses, brackets, and braces
     let mut paren_count = 0;
     let mut bracket_count = 0;

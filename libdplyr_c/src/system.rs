@@ -34,8 +34,5 @@ pub extern "C" fn dplyr_check_system() -> i32 {
         DPLYR_SUCCESS
     });
 
-    match result {
-        Ok(code) => code,
-        Err(_) => DPLYR_ERROR_PANIC,
-    }
+    result.map_or(DPLYR_ERROR_PANIC, |code| code)
 }

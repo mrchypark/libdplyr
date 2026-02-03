@@ -7,14 +7,14 @@ use crate::options::{MAX_INPUT_LENGTH, MAX_PROCESSING_TIME_MS};
 /// WASM entrypoint stub (required for some WASM toolchains).
 #[cfg(target_family = "wasm")]
 #[no_mangle]
-pub extern "C" fn main() {}
+pub const extern "C" fn main() {}
 
 /// Get libdplyr_c version string (simple).
 ///
 /// # Returns
 /// Static version string (no need to free)
 #[no_mangle]
-pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
+pub const extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management
     c"0.2.0".as_ptr()
 }
@@ -24,7 +24,7 @@ pub extern "C" fn libdplyr_c_version_simple() -> *const c_char {
 /// # Returns
 /// Static version string (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_version() -> *const c_char {
+pub const extern "C" fn dplyr_version() -> *const c_char {
     // R8-AC1: Version information - static string management
     c"0.2.0".as_ptr()
 }
@@ -34,11 +34,11 @@ pub extern "C" fn dplyr_version() -> *const c_char {
 /// # Returns
 /// Static version string with build details (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_version_detailed() -> *const c_char {
+pub const extern "C" fn dplyr_version_detailed() -> *const c_char {
     // R8-AC1: Extended version information
     concat!(
         "libdplyr_c v0.2.0 (built with rustc ",
-        env!("RUSTC_VERSION", "unknown"),
+        env!("RUSTC_VERSION"),
         ")\0"
     )
     .as_ptr() as *const c_char
@@ -49,7 +49,7 @@ pub extern "C" fn dplyr_version_detailed() -> *const c_char {
 /// # Returns
 /// Static string listing supported dialects (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_supported_dialects() -> *const c_char {
+pub const extern "C" fn dplyr_supported_dialects() -> *const c_char {
     // R8-AC1: Capability information
     c"DuckDB".as_ptr()
 }
@@ -59,9 +59,9 @@ pub extern "C" fn dplyr_supported_dialects() -> *const c_char {
 /// # Returns
 /// Static build timestamp string (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_build_timestamp() -> *const c_char {
+pub const extern "C" fn dplyr_build_timestamp() -> *const c_char {
     // R8-AC1: Build information
-    concat!(env!("BUILD_TIMESTAMP", "unknown"), "\0").as_ptr() as *const c_char
+    concat!(env!("BUILD_TIMESTAMP"), "\0").as_ptr() as *const c_char
 }
 
 /// Check if debug mode is available in this build.
@@ -69,7 +69,7 @@ pub extern "C" fn dplyr_build_timestamp() -> *const c_char {
 /// # Returns
 /// true if debug features are available, false otherwise
 #[no_mangle]
-pub extern "C" fn dplyr_has_debug_support() -> bool {
+pub const extern "C" fn dplyr_has_debug_support() -> bool {
     // R10-AC1: Debug capability check
     cfg!(debug_assertions)
 }
@@ -79,7 +79,7 @@ pub extern "C" fn dplyr_has_debug_support() -> bool {
 /// # Returns
 /// Maximum input length in bytes
 #[no_mangle]
-pub extern "C" fn dplyr_max_input_length() -> u32 {
+pub const extern "C" fn dplyr_max_input_length() -> u32 {
     // R9-AC2: DoS prevention information
     MAX_INPUT_LENGTH as u32
 }
@@ -89,7 +89,7 @@ pub extern "C" fn dplyr_max_input_length() -> u32 {
 /// # Returns
 /// Maximum processing time in milliseconds
 #[no_mangle]
-pub extern "C" fn dplyr_max_processing_time_ms() -> u64 {
+pub const extern "C" fn dplyr_max_processing_time_ms() -> u64 {
     // R9-AC2: DoS prevention information
     MAX_PROCESSING_TIME_MS
 }
