@@ -278,8 +278,10 @@ fn test_pretty_formatting() {
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
 
     // Pretty format should have multiple lines with proper indentation
-    let lines: Vec<&str> = stdout.lines().collect();
-    assert!(lines.len() > 1, "Pretty format should have multiple lines");
+    assert!(
+        stdout.lines().count() > 1,
+        "Pretty format should have multiple lines"
+    );
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
     assert!(stdout.contains("FROM"), "Should contain FROM");
     assert!(stdout.contains("WHERE"), "Should contain WHERE");

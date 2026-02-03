@@ -17,7 +17,7 @@ fn test_json_output_integration() {
         .build();
 
     // Test successful output
-    let result = formatter.format_success("SELECT \"name\" FROM \"data\"", metadata.clone());
+    let result = formatter.format_success("SELECT \"name\" FROM \"data\"", metadata);
     assert!(result.is_ok());
 
     let json = result.unwrap();

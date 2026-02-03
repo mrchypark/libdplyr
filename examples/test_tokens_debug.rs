@@ -5,8 +5,6 @@ fn main() {
     println!("Input: {}", input);
 
     let mut lexer = Lexer::new(input.to_string());
-    let mut tokens = Vec::new();
-
     loop {
         match lexer.next_token() {
             Ok(token) => {
@@ -14,7 +12,6 @@ fn main() {
                 if token == libdplyr::lexer::Token::EOF {
                     break;
                 }
-                tokens.push(token);
             }
             Err(e) => {
                 println!("Error: {:?}", e);
