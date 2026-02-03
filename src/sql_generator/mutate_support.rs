@@ -62,11 +62,10 @@ impl SqlGenerator {
         if needs_subquery {
             // For complex cases, we'll use a simpler approach for now
             // TODO: Implement full subquery/CTE support in future iterations
-            self.process_simple_mutate(assignments, query_parts)
-        } else {
-            // Simple mutate - add columns to SELECT clause
-            self.process_simple_mutate(assignments, query_parts)
         }
+
+        // Simple mutate - add columns to SELECT clause
+        self.process_simple_mutate(assignments, query_parts)
     }
 
     /// Determines if mutate operation needs subquery or CTE.

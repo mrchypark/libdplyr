@@ -300,7 +300,7 @@ impl PostgreSqlDialect {
     /// assert_eq!(dialect.quote_identifier("user"), "\"user\"");
     /// assert_eq!(dialect.string_concat("'a'", "'b'"), "'a' || 'b'");
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -396,7 +396,7 @@ impl MySqlDialect {
     /// assert_eq!(dialect.quote_identifier("user"), "`user`");
     /// assert_eq!(dialect.string_concat("'a'", "'b'"), "CONCAT('a', 'b')");
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -494,7 +494,7 @@ impl SqliteDialect {
     /// assert_eq!(dialect.quote_identifier("user"), "\"user\"");
     /// assert_eq!(dialect.string_concat("'a'", "'b'"), "'a' || 'b'");
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -551,7 +551,7 @@ impl DuckDbDialect {
     /// assert_eq!(dialect.aggregate_function("median"), "MEDIAN");
     /// assert_eq!(dialect.string_concat("'a'", "'b'"), "'a' || 'b'");
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

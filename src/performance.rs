@@ -80,7 +80,7 @@ impl PerformanceProfiler {
     }
 
     /// Enable detailed timing for individual stages
-    pub fn enable_detailed_timing(&mut self) {
+    pub const fn enable_detailed_timing(&mut self) {
         self.enable_detailed_timing = true;
     }
 
@@ -295,7 +295,7 @@ pub struct RegressionDetector {
 
 impl RegressionDetector {
     /// Create a new regression detector
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             baseline_stats: None,
         }

@@ -402,7 +402,7 @@ impl SqlGenerator {
     }
 
     /// Converts binary operators to SQL.
-    fn generate_binary_operator(&self, operator: &BinaryOp) -> &'static str {
+    const fn generate_binary_operator(&self, operator: &BinaryOp) -> &'static str {
         match operator {
             BinaryOp::Equal => "=",
             BinaryOp::NotEqual => "!=",
