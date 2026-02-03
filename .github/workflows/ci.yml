@@ -268,7 +268,9 @@ jobs:
       - name: Create Swap Space
         if: runner.os == 'Linux'
         run: |
-          sudo fallocate -l 8G /swapfile
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
