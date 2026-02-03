@@ -202,23 +202,20 @@ pub unsafe extern "C" fn dplyr_compile(
         }
     });
 
-    match result {
-        Ok(code) => code,
-        Err(_) => {
-            // Panic occurred - set error message if possible
-            unsafe {
-                if !out_error.is_null() {
-                    let panic_msg = CString::new("E-INTERNAL: Internal panic occurred").unwrap();
-                    *out_error = panic_msg.into_raw();
-                }
+    result.unwrap_or_else(|_| {
+        // Panic occurred - set error message if possible
+        unsafe {
+            if !out_error.is_null() {
+                let panic_msg = CString::new("E-INTERNAL: Internal panic occurred").unwrap();
+                *out_error = panic_msg.into_raw();
             }
-            -4 // Panic error code
         }
-    }
+        -4 // Panic error code
+    })
 }
 
 /// Convert libdplyr error to our TranspileError type
-pub(crate) fn convert_libdplyr_error(libdplyr_error: libdplyr::TranspileError) -> TranspileError {
+pub fn convert_libdplyr_error(libdplyr_error: libdplyr::TranspileError) -> TranspileError {
     match libdplyr_error {
         libdplyr::TranspileError::LexError(lex_error) => {
             TranspileError::syntax_error_with_suggestion(

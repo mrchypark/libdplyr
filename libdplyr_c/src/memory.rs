@@ -33,14 +33,11 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
         DPLYR_SUCCESS
     });
 
-    match result {
-        Ok(code) => code,
-        Err(_) => {
-            // Panic occurred during deallocation - this is serious
-            eprintln!("CRITICAL: Panic occurred during string deallocation");
-            DPLYR_ERROR_PANIC
-        }
-    }
+    result.unwrap_or_else(|_| {
+        // Panic occurred during deallocation - this is serious
+        eprintln!("CRITICAL: Panic occurred during string deallocation");
+        DPLYR_ERROR_PANIC
+    })
 }
 
 /// Free multiple strings at once.
@@ -85,8 +82,5 @@ pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: us
         freed_count
     });
 
-    match result {
-        Ok(count) => count,
-        Err(_) => DPLYR_ERROR_PANIC,
-    }
+    result.map_or(DPLYR_ERROR_PANIC, |count| count)
 }

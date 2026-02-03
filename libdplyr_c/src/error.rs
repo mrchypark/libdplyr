@@ -57,7 +57,7 @@ impl TranspileError {
     // R1-AC3: Format error with code, position, token, and suggestion
     pub fn to_c_string(&self) -> CString {
         let formatted = match self {
-            TranspileError::Syntax {
+            Self::Syntax {
                 code,
                 message,
                 position,
@@ -77,7 +77,7 @@ impl TranspileError {
                     code, message, position, token_info, suggestion_info
                 )
             }
-            TranspileError::Unsupported {
+            Self::Unsupported {
                 code,
                 operation,
                 alternative,
@@ -92,7 +92,7 @@ impl TranspileError {
                     code, operation, context, alt_info
                 )
             }
-            TranspileError::Internal {
+            Self::Internal {
                 code,
                 details,
                 recovery_hint,
@@ -103,7 +103,7 @@ impl TranspileError {
                     .unwrap_or_default();
                 format!("{}: {}{}", code, details, hint_info)
             }
-            TranspileError::Ffi {
+            Self::Ffi {
                 code,
                 boundary,
                 safety_info,
@@ -122,20 +122,20 @@ impl TranspileError {
     // R2-AC3: Explicit error code return
     pub fn get_error_code(&self) -> &str {
         match self {
-            TranspileError::Syntax { code, .. } => code,
-            TranspileError::Unsupported { code, .. } => code,
-            TranspileError::Internal { code, .. } => code,
-            TranspileError::Ffi { code, .. } => code,
+            Self::Syntax { code, .. } => code,
+            Self::Unsupported { code, .. } => code,
+            Self::Internal { code, .. } => code,
+            Self::Ffi { code, .. } => code,
         }
     }
 
     // R2-AC3: Convert to C-compatible error code
-    pub fn to_c_error_code(&self) -> i32 {
+    pub const fn to_c_error_code(&self) -> i32 {
         match self {
-            TranspileError::Syntax { .. } => DPLYR_ERROR_SYNTAX,
-            TranspileError::Unsupported { .. } => DPLYR_ERROR_UNSUPPORTED,
-            TranspileError::Internal { .. } => DPLYR_ERROR_INTERNAL,
-            TranspileError::Ffi { .. } => DPLYR_ERROR_PANIC,
+            Self::Syntax { .. } => DPLYR_ERROR_SYNTAX,
+            Self::Unsupported { .. } => DPLYR_ERROR_UNSUPPORTED,
+            Self::Internal { .. } => DPLYR_ERROR_INTERNAL,
+            Self::Ffi { .. } => DPLYR_ERROR_PANIC,
         }
     }
 
@@ -244,7 +244,7 @@ impl TranspileError {
 /// # Returns
 /// Static string pointer (no need to free)
 #[no_mangle]
-pub extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
+pub const extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
     match error_code {
         DPLYR_SUCCESS => c"SUCCESS".as_ptr(),
         DPLYR_ERROR_NULL_POINTER => c"E-NULL-POINTER".as_ptr(),
@@ -267,7 +267,7 @@ pub extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
 /// # Returns
 /// true if success, false if error
 #[no_mangle]
-pub extern "C" fn dplyr_is_success(error_code: i32) -> bool {
+pub const extern "C" fn dplyr_is_success(error_code: i32) -> bool {
     error_code == DPLYR_SUCCESS
 }
 
@@ -279,7 +279,7 @@ pub extern "C" fn dplyr_is_success(error_code: i32) -> bool {
 /// # Returns
 /// true if recoverable, false if fatal
 #[no_mangle]
-pub extern "C" fn dplyr_is_recoverable_error(error_code: i32) -> bool {
+pub const extern "C" fn dplyr_is_recoverable_error(error_code: i32) -> bool {
     match error_code {
         DPLYR_ERROR_SYNTAX
         | DPLYR_ERROR_UNSUPPORTED
@@ -301,19 +301,20 @@ pub(crate) fn create_error_message_with_context(
     let base_message = error.to_c_string();
     let base_str = base_message.to_string_lossy();
 
-    let full_message = if let Some(context) = input_context {
-        format!(
-            "{}\nInput context: {}",
-            base_str,
-            if context.len() > 100 {
-                format!("{}...", &context[..100])
-            } else {
-                context.to_string()
-            }
-        )
-    } else {
-        base_str.to_string()
-    };
+    let full_message = input_context.map_or_else(
+        || base_str.to_string(),
+        |context| {
+            format!(
+                "{}\nInput context: {}",
+                base_str,
+                if context.len() > 100 {
+                    format!("{}...", &context[..100])
+                } else {
+                    context.to_string()
+                }
+            )
+        },
+    );
 
     CString::new(full_message)
         .unwrap_or_else(|_| CString::new("E-INTERNAL: Error message encoding failed").unwrap())

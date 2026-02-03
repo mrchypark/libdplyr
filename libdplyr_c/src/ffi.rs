@@ -8,7 +8,7 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 
 /// Set SQL output pointer safely
-pub(crate) fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
+pub fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
     if !out_sql.is_null() {
         if let Ok(c_string) = CString::new(sql) {
             unsafe {
@@ -19,7 +19,7 @@ pub(crate) fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
 }
 
 /// Set error output pointer safely
-pub(crate) fn set_error_output(out_error: *mut *mut c_char, error: &str) {
+pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
     if !out_error.is_null() {
         if let Ok(c_string) = CString::new(error) {
             unsafe {
