@@ -113,52 +113,52 @@ pub enum Token {
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Select => write!(f, "select"),
-            Token::Filter => write!(f, "filter"),
-            Token::Mutate => write!(f, "mutate"),
-            Token::Rename => write!(f, "rename"),
-            Token::Arrange => write!(f, "arrange"),
-            Token::GroupBy => write!(f, "group_by"),
-            Token::Summarise => write!(f, "summarise"),
-            Token::InnerJoin => write!(f, "inner_join"),
-            Token::LeftJoin => write!(f, "left_join"),
-            Token::RightJoin => write!(f, "right_join"),
-            Token::FullJoin => write!(f, "full_join"),
-            Token::SemiJoin => write!(f, "semi_join"),
-            Token::AntiJoin => write!(f, "anti_join"),
-            Token::Intersect => write!(f, "intersect"),
-            Token::Union => write!(f, "union"),
-            Token::SetDiff => write!(f, "setdiff"),
-            Token::Desc => write!(f, "desc"),
-            Token::Asc => write!(f, "asc"),
-            Token::Pipe => write!(f, "%>%"),
-            Token::ArrowRight => write!(f, "->"),
-            Token::ArrowLeft => write!(f, "<-"),
-            Token::Assignment => write!(f, "="),
-            Token::Equal => write!(f, "=="),
-            Token::NotEqual => write!(f, "!="),
-            Token::LessThan => write!(f, "<"),
-            Token::LessThanOrEqual => write!(f, "<="),
-            Token::GreaterThan => write!(f, ">"),
-            Token::GreaterThanOrEqual => write!(f, ">="),
-            Token::And => write!(f, "&"),
-            Token::Or => write!(f, "|"),
-            Token::Plus => write!(f, "+"),
-            Token::Minus => write!(f, "-"),
-            Token::Multiply => write!(f, "*"),
-            Token::Divide => write!(f, "/"),
-            Token::Identifier(name) => write!(f, "{name}"),
-            Token::String(s) => write!(f, "\"{s}\""),
-            Token::Number(n) => write!(f, "{n}"),
-            Token::Boolean(b) => write!(f, "{b}"),
-            Token::Null => write!(f, "NULL"),
-            Token::LeftParen => write!(f, "("),
-            Token::RightParen => write!(f, ")"),
-            Token::Comma => write!(f, ","),
-            Token::Dot => write!(f, "."),
-            Token::EOF => write!(f, "EOF"),
-            Token::Newline => write!(f, "\\n"),
-            Token::Whitespace => write!(f, " "),
+            Self::Select => write!(f, "select"),
+            Self::Filter => write!(f, "filter"),
+            Self::Mutate => write!(f, "mutate"),
+            Self::Rename => write!(f, "rename"),
+            Self::Arrange => write!(f, "arrange"),
+            Self::GroupBy => write!(f, "group_by"),
+            Self::Summarise => write!(f, "summarise"),
+            Self::InnerJoin => write!(f, "inner_join"),
+            Self::LeftJoin => write!(f, "left_join"),
+            Self::RightJoin => write!(f, "right_join"),
+            Self::FullJoin => write!(f, "full_join"),
+            Self::SemiJoin => write!(f, "semi_join"),
+            Self::AntiJoin => write!(f, "anti_join"),
+            Self::Intersect => write!(f, "intersect"),
+            Self::Union => write!(f, "union"),
+            Self::SetDiff => write!(f, "setdiff"),
+            Self::Desc => write!(f, "desc"),
+            Self::Asc => write!(f, "asc"),
+            Self::Pipe => write!(f, "%>%"),
+            Self::ArrowRight => write!(f, "->"),
+            Self::ArrowLeft => write!(f, "<-"),
+            Self::Assignment => write!(f, "="),
+            Self::Equal => write!(f, "=="),
+            Self::NotEqual => write!(f, "!="),
+            Self::LessThan => write!(f, "<"),
+            Self::LessThanOrEqual => write!(f, "<="),
+            Self::GreaterThan => write!(f, ">"),
+            Self::GreaterThanOrEqual => write!(f, ">="),
+            Self::And => write!(f, "&"),
+            Self::Or => write!(f, "|"),
+            Self::Plus => write!(f, "+"),
+            Self::Minus => write!(f, "-"),
+            Self::Multiply => write!(f, "*"),
+            Self::Divide => write!(f, "/"),
+            Self::Identifier(name) => write!(f, "{name}"),
+            Self::String(s) => write!(f, "\"{s}\""),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Boolean(b) => write!(f, "{b}"),
+            Self::Null => write!(f, "NULL"),
+            Self::LeftParen => write!(f, "("),
+            Self::RightParen => write!(f, ")"),
+            Self::Comma => write!(f, ","),
+            Self::Dot => write!(f, "."),
+            Self::EOF => write!(f, "EOF"),
+            Self::Newline => write!(f, "\\n"),
+            Self::Whitespace => write!(f, " "),
         }
     }
 }
@@ -1032,7 +1032,7 @@ mod tests {
             let tokens = tokenize_all(input).expect("Should tokenize successfully");
 
             // Verify we have the expected dplyr functions
-            let function_tokens: Vec<&Token> = tokens
+            let function_count = tokens
                 .iter()
                 .filter(|t| {
                     matches!(
@@ -1045,9 +1045,9 @@ mod tests {
                             | Token::Summarise
                     )
                 })
-                .collect();
+                .count();
 
-            assert_eq!(function_tokens.len(), 6, "Should have 6 dplyr functions");
+            assert_eq!(function_count, 6, "Should have 6 dplyr functions");
         }
 
         #[test]

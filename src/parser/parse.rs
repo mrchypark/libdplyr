@@ -59,7 +59,7 @@ impl Parser {
     }
 
     /// Returns the current source location.
-    fn current_location(&self) -> SourceLocation {
+    const fn current_location(&self) -> SourceLocation {
         SourceLocation::new(self.line, self.column, self.position)
     }
 
@@ -218,7 +218,7 @@ impl Parser {
                 } else {
                     // iris2 <- iris
                     // For <-, the right side is the source and may contain a pipeline
-                    let target = name.clone();
+                    let target = name;
 
                     // Save current position after <-
                     self.advance()?;

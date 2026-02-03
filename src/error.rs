@@ -5,7 +5,7 @@
 use thiserror::Error;
 
 /// Errors that occur during lexing (tokenization)
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum LexError {
     #[error("Unexpected character: '{0}' (position: {1})")]
     UnexpectedCharacter(char, usize),
@@ -30,7 +30,7 @@ pub enum LexError {
 }
 
 /// Errors that occur during parsing
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     #[error("Unexpected token: expected '{expected}' but found '{found}' (position: {position})")]
     UnexpectedToken {
@@ -68,12 +68,17 @@ pub enum ParseError {
 }
 
 /// Errors that occur during SQL generation
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum GenerationError {
     #[error("Unsupported operation in '{dialect}' dialect: '{operation}'")]
     UnsupportedOperation { operation: String, dialect: String },
 
-    #[error("Invalid column reference: '{column}'{}", match table.as_ref() { Some(t) => format!(" (table: {t})"), None => String::new() })]
+    #[error(
+        "Invalid column reference: '{column}'{}",
+        table
+            .as_ref()
+            .map_or_else(String::new, |t| format!(" (table: {t})"))
+    )]
     InvalidColumnReference {
         column: String,
         table: Option<String>,
@@ -138,14 +143,14 @@ use crate::cli::validator::ValidationError;
 #[cfg(not(target_family = "wasm"))]
 impl From<ValidationError> for TranspileError {
     fn from(error: ValidationError) -> Self {
-        TranspileError::ValidationError(error.to_string())
+        Self::ValidationError(error.to_string())
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl From<FormatError> for TranspileError {
     fn from(error: FormatError) -> Self {
-        TranspileError::IoError(format!("Output formatting error: {error}"))
+        Self::IoError(format!("Output formatting error: {error}"))
     }
 }
 

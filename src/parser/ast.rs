@@ -11,7 +11,7 @@ pub struct SourceLocation {
 }
 
 impl SourceLocation {
-    pub fn new(line: usize, column: usize, offset: usize) -> Self {
+    pub const fn new(line: usize, column: usize, offset: usize) -> Self {
         Self {
             line,
             column,
@@ -19,7 +19,7 @@ impl SourceLocation {
         }
     }
 
-    pub fn unknown() -> Self {
+    pub const fn unknown() -> Self {
         Self {
             line: 0,
             column: 0,
@@ -47,21 +47,21 @@ pub enum DplyrNode {
 
 impl DplyrNode {
     /// Returns the location information of the node.
-    pub fn location(&self) -> &SourceLocation {
+    pub const fn location(&self) -> &SourceLocation {
         match self {
-            DplyrNode::Pipeline { location, .. } => location,
-            DplyrNode::DataSource { location, .. } => location,
+            Self::Pipeline { location, .. } => location,
+            Self::DataSource { location, .. } => location,
         }
     }
 
     /// Checks if this is a pipeline node.
-    pub fn is_pipeline(&self) -> bool {
-        matches!(self, DplyrNode::Pipeline { .. })
+    pub const fn is_pipeline(&self) -> bool {
+        matches!(self, Self::Pipeline { .. })
     }
 
     /// Checks if this is a data source node.
-    pub fn is_data_source(&self) -> bool {
-        matches!(self, DplyrNode::DataSource { .. })
+    pub const fn is_data_source(&self) -> bool {
+        matches!(self, Self::DataSource { .. })
     }
 }
 
@@ -118,7 +118,7 @@ pub enum DplyrOperation {
 }
 
 /// Column rename specification (dplyr-style: new_name = old_name).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenameSpec {
     pub new_name: String,
     pub old_name: String,
@@ -126,32 +126,32 @@ pub struct RenameSpec {
 
 impl DplyrOperation {
     /// Returns the location information of the operation.
-    pub fn location(&self) -> &SourceLocation {
+    pub const fn location(&self) -> &SourceLocation {
         match self {
-            DplyrOperation::Select { location, .. } => location,
-            DplyrOperation::Filter { location, .. } => location,
-            DplyrOperation::Mutate { location, .. } => location,
-            DplyrOperation::Rename { location, .. } => location,
-            DplyrOperation::Arrange { location, .. } => location,
-            DplyrOperation::GroupBy { location, .. } => location,
-            DplyrOperation::Summarise { location, .. } => location,
-            DplyrOperation::Join { location, .. } => location,
-            DplyrOperation::SetOp { location, .. } => location,
+            Self::Select { location, .. } => location,
+            Self::Filter { location, .. } => location,
+            Self::Mutate { location, .. } => location,
+            Self::Rename { location, .. } => location,
+            Self::Arrange { location, .. } => location,
+            Self::GroupBy { location, .. } => location,
+            Self::Summarise { location, .. } => location,
+            Self::Join { location, .. } => location,
+            Self::SetOp { location, .. } => location,
         }
     }
 
     /// Returns the operation name as a string.
-    pub fn operation_name(&self) -> &'static str {
+    pub const fn operation_name(&self) -> &'static str {
         match self {
-            DplyrOperation::Select { .. } => "select",
-            DplyrOperation::Filter { .. } => "filter",
-            DplyrOperation::Mutate { .. } => "mutate",
-            DplyrOperation::Rename { .. } => "rename",
-            DplyrOperation::Arrange { .. } => "arrange",
-            DplyrOperation::GroupBy { .. } => "group_by",
-            DplyrOperation::Summarise { .. } => "summarise",
-            DplyrOperation::Join { .. } => "join",
-            DplyrOperation::SetOp { operation, .. } => match operation {
+            Self::Select { .. } => "select",
+            Self::Filter { .. } => "filter",
+            Self::Mutate { .. } => "mutate",
+            Self::Rename { .. } => "rename",
+            Self::Arrange { .. } => "arrange",
+            Self::GroupBy { .. } => "group_by",
+            Self::Summarise { .. } => "summarise",
+            Self::Join { .. } => "join",
+            Self::SetOp { operation, .. } => match operation {
                 SetOperation::Intersect => "intersect",
                 SetOperation::Union => "union",
                 SetOperation::SetDiff => "setdiff",
@@ -187,7 +187,7 @@ pub enum LiteralValue {
 }
 
 /// Binary operator types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinaryOp {
     // Comparison operators
     Equal,
@@ -216,14 +216,14 @@ pub struct ColumnExpr {
 }
 
 /// Sort expression
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderExpr {
     pub column: String,
     pub direction: OrderDirection,
 }
 
 /// Sort direction
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrderDirection {
     Asc,
     Desc,
@@ -237,7 +237,7 @@ pub struct Assignment {
 }
 
 /// Aggregation operation (used in summarise)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Aggregation {
     pub function: String,
     pub column: String,
@@ -245,7 +245,7 @@ pub struct Aggregation {
 }
 
 /// Join type for different join operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinType {
     Inner,
     Left,
@@ -273,7 +273,7 @@ pub struct Join {
 }
 
 /// Set operation type (INTERSECT, UNION, EXCEPT)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetOperation {
     Intersect,
     Union,
@@ -281,7 +281,7 @@ pub enum SetOperation {
 }
 
 /// Set operation combining two queries
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetOp {
     pub operation: SetOperation,
     pub right_table: String,
