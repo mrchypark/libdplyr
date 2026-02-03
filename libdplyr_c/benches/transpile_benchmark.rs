@@ -46,7 +46,7 @@ const EDGE_CASE_QUERIES: &[&str] = &[
 ];
 
 // Helper function to create default options
-fn create_default_options() -> DplyrOptions {
+const fn create_default_options() -> DplyrOptions {
     DplyrOptions {
         strict_mode: false,
         preserve_comments: false,
@@ -57,7 +57,7 @@ fn create_default_options() -> DplyrOptions {
 }
 
 // Helper function to create strict options
-fn create_strict_options() -> DplyrOptions {
+const fn create_strict_options() -> DplyrOptions {
     DplyrOptions {
         strict_mode: true,
         preserve_comments: false,
@@ -68,7 +68,7 @@ fn create_strict_options() -> DplyrOptions {
 }
 
 // Helper function to create debug options
-fn create_debug_options() -> DplyrOptions {
+const fn create_debug_options() -> DplyrOptions {
     DplyrOptions {
         strict_mode: false,
         preserve_comments: true,

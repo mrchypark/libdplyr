@@ -7,8 +7,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use std::env;
 use std::path::Path;
-use std::{env, path::PathBuf};
 
 // R6-AC1: Extension loading target <50ms
 #[allow(dead_code)]
@@ -59,7 +59,6 @@ fn find_extension_binary() -> Option<String> {
     ] {
         if let Ok(entries) = glob::glob(pattern) {
             for path in entries.flatten() {
-                let path = PathBuf::from(path);
                 if path.exists() {
                     return Some(path.to_string_lossy().to_string());
                 }

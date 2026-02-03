@@ -17,7 +17,7 @@ use crate::validation::{
 };
 
 #[cfg(test)]
-mod tests {
+mod ffi_tests {
     use super::*;
 
     #[test]
@@ -504,25 +504,25 @@ mod tests {
 
         SimpleTranspileCache::clear_cache();
 
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || {
-                    let options = DplyrOptions::default();
-                    let code = format!("select(col{})", thread_id);
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || {
+                let options = DplyrOptions::default();
+                let code = format!("select(col{})", thread_id);
 
-                    // Each thread should be able to call functions safely
-                    let result =
-                        SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
-                            Ok(format!("SELECT col{} FROM table", thread_id))
-                        });
+                // Each thread should be able to call functions safely
+                let result =
+                    SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
+                        Ok(format!("SELECT col{} FROM table", thread_id))
+                    });
 
-                    assert!(result.is_ok());
-                    result.unwrap()
-                })
+                assert!(result.is_ok());
+                result.unwrap()
             })
+        });
+        let results: Vec<String> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
             .collect();
-
-        let results: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         assert_eq!(results.len(), 4);
 
         // Each thread should have gotten its own result
@@ -536,38 +536,38 @@ mod tests {
         use std::ffi::CString;
         use std::thread;
 
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || {
-                    let mut out_sql: *mut c_char = std::ptr::null_mut();
-                    let mut out_error: *mut c_char = std::ptr::null_mut();
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || {
+                let mut out_sql: *mut c_char = std::ptr::null_mut();
+                let mut out_error: *mut c_char = std::ptr::null_mut();
 
-                    let input = CString::new(format!("select(thread_col_{})", thread_id)).unwrap();
+                let input = CString::new(format!("select(thread_col_{})", thread_id)).unwrap();
 
-                    let result = unsafe {
-                        dplyr_compile(
-                            input.as_ptr(),
-                            std::ptr::null(), // Use default options
-                            &mut out_sql,
-                            &mut out_error,
-                        )
-                    };
+                let result = unsafe {
+                    dplyr_compile(
+                        input.as_ptr(),
+                        std::ptr::null(), // Use default options
+                        &mut out_sql,
+                        &mut out_error,
+                    )
+                };
 
-                    // Clean up regardless of result
-                    if !out_sql.is_null() {
-                        unsafe { dplyr_free_string(out_sql) };
-                    }
-                    if !out_error.is_null() {
-                        unsafe { dplyr_free_string(out_error) };
-                    }
+                // Clean up regardless of result
+                if !out_sql.is_null() {
+                    unsafe { dplyr_free_string(out_sql) };
+                }
+                if !out_error.is_null() {
+                    unsafe { dplyr_free_string(out_error) };
+                }
 
-                    // Return the result code
-                    result
-                })
+                // Return the result code
+                result
             })
+        });
+        let results: Vec<i32> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
             .collect();
-
-        let results: Vec<i32> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
         // All threads should complete without panicking
         assert_eq!(results.len(), 4);
@@ -587,39 +587,38 @@ mod tests {
         SimpleTranspileCache::clear_cache();
 
         let barrier = Arc::new(Barrier::new(3));
-        let handles: Vec<_> = (0..3)
-            .map(|thread_id| {
-                let barrier = barrier.clone();
-                thread::spawn(move || {
-                    let options = DplyrOptions::default();
+        let handles = [0, 1, 2].map(|thread_id| {
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                let options = DplyrOptions::default();
 
-                    // Each thread adds its own entries
-                    for i in 0..5 {
-                        let code = format!("select(thread_{}_col_{})", thread_id, i);
-                        let _ = SimpleTranspileCache::get_or_transpile(
-                            &code,
-                            &options,
-                            |_code, _opts| {
-                                Ok(format!("SELECT thread_{}_col_{} FROM table", thread_id, i))
-                            },
-                        );
-                    }
+                // Each thread adds its own entries
+                for i in 0..5 {
+                    let code = format!("select(thread_{}_col_{})", thread_id, i);
+                    let _ =
+                        SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
+                            Ok(format!("SELECT thread_{}_col_{} FROM table", thread_id, i))
+                        });
+                }
 
-                    // Wait for all threads to finish adding entries
-                    barrier.wait();
+                // Wait for all threads to finish adding entries
+                barrier.wait();
 
-                    // Each thread should see its own cache (thread_local)
-                    // The cache size should be 5 for each thread
-                    let cache_size = dplyr_cache_get_size();
-                    assert_eq!(cache_size, 5);
+                // Each thread should see its own cache (thread_local)
+                // The cache size should be 5 for each thread
+                let cache_size = dplyr_cache_get_size();
+                assert_eq!(cache_size, 5);
 
-                    thread_id
-                })
+                thread_id
             })
-            .collect();
+        });
 
-        let thread_ids: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(thread_ids.len(), 3);
+        let mut thread_count = 0;
+        for handle in handles {
+            let _ = handle.join().unwrap();
+            thread_count += 1;
+        }
+        assert_eq!(thread_count, 3);
     }
 
     #[test]
@@ -628,48 +627,43 @@ mod tests {
         use std::thread;
 
         // Test that memory management functions are thread-safe
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || {
-                    // Create and free strings in each thread
-                    let test_strings: Vec<CString> = (0..10)
-                        .map(|i| {
-                            CString::new(format!("thread_{}_string_{}", thread_id, i)).unwrap()
-                        })
-                        .collect();
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || {
+                // Create and free strings in each thread
+                let raw_pointers: Vec<*mut c_char> = (0..10)
+                    .map(|i| CString::new(format!("thread_{}_string_{}", thread_id, i)).unwrap())
+                    .map(|s| s.into_raw())
+                    .collect();
 
-                    let raw_pointers: Vec<*mut c_char> =
-                        test_strings.into_iter().map(|s| s.into_raw()).collect();
+                // Free all strings
+                for ptr in raw_pointers {
+                    let result = unsafe { dplyr_free_string(ptr) };
+                    assert_eq!(result, DPLYR_SUCCESS);
+                }
 
-                    // Free all strings
-                    for ptr in raw_pointers {
-                        let result = unsafe { dplyr_free_string(ptr) };
-                        assert_eq!(result, DPLYR_SUCCESS);
-                    }
+                // Test batch free
+                let mut batch_pointers: Vec<*mut c_char> = (0..5)
+                    .map(|i| {
+                        CString::new(format!("batch_thread_{}_string_{}", thread_id, i)).unwrap()
+                    })
+                    .map(|s| s.into_raw())
+                    .collect();
 
-                    // Test batch free
-                    let batch_strings: Vec<CString> = (0..5)
-                        .map(|i| {
-                            CString::new(format!("batch_thread_{}_string_{}", thread_id, i))
-                                .unwrap()
-                        })
-                        .collect();
+                let freed_count = unsafe {
+                    dplyr_free_strings(batch_pointers.as_mut_ptr(), batch_pointers.len())
+                };
+                assert_eq!(freed_count, 5);
 
-                    let mut batch_pointers: Vec<*mut c_char> =
-                        batch_strings.into_iter().map(|s| s.into_raw()).collect();
-
-                    let freed_count = unsafe {
-                        dplyr_free_strings(batch_pointers.as_mut_ptr(), batch_pointers.len())
-                    };
-                    assert_eq!(freed_count, 5);
-
-                    thread_id
-                })
+                thread_id
             })
-            .collect();
+        });
 
-        let thread_ids: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(thread_ids.len(), 4);
+        let mut thread_count = 0;
+        for handle in handles {
+            let _ = handle.join().unwrap();
+            thread_count += 1;
+        }
+        assert_eq!(thread_count, 4);
     }
 
     #[test]
@@ -677,36 +671,38 @@ mod tests {
         use std::thread;
 
         // Test that options creation and validation are thread-safe
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || {
-                    // Create options with different settings in each thread
-                    let options = dplyr_options_create_with_timeout(
-                        thread_id % 2 == 0,               // strict_mode
-                        thread_id % 2 == 1,               // preserve_comments
-                        true,                             // debug_mode
-                        1024 * (thread_id as u32 + 1),    // max_input_length
-                        5000 + (thread_id as u64 * 1000), // max_processing_time_ms
-                    );
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || {
+                // Create options with different settings in each thread
+                let options = dplyr_options_create_with_timeout(
+                    thread_id % 2 == 0,               // strict_mode
+                    thread_id % 2 == 1,               // preserve_comments
+                    true,                             // debug_mode
+                    1024 * (thread_id as u32 + 1),    // max_input_length
+                    5000 + (thread_id as u64 * 1000), // max_processing_time_ms
+                );
 
-                    // Validate options
-                    let validation_result =
-                        unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
-                    assert_eq!(validation_result, 0);
+                // Validate options
+                let validation_result =
+                    unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
+                assert_eq!(validation_result, 0);
 
-                    // Test default options
-                    let default_options = dplyr_options_default();
-                    let default_validation =
-                        unsafe { dplyr_options_validate(&default_options as *const DplyrOptions) };
-                    assert_eq!(default_validation, 0);
+                // Test default options
+                let default_options = dplyr_options_default();
+                let default_validation =
+                    unsafe { dplyr_options_validate(&default_options as *const DplyrOptions) };
+                assert_eq!(default_validation, 0);
 
-                    thread_id
-                })
+                thread_id
             })
-            .collect();
+        });
 
-        let thread_ids: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(thread_ids.len(), 4);
+        let mut thread_count = 0;
+        for handle in handles {
+            let _ = handle.join().unwrap();
+            thread_count += 1;
+        }
+        assert_eq!(thread_count, 4);
     }
 
     #[test]
@@ -714,37 +710,39 @@ mod tests {
         use std::thread;
 
         // Test that utility functions are thread-safe
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || unsafe {
-                    // These functions should be safe to call from multiple threads
-                    let version_str = { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
-                    assert!(!version_str.to_string_lossy().is_empty());
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || unsafe {
+                // These functions should be safe to call from multiple threads
+                let version_str = { std::ffi::CStr::from_ptr(libdplyr_c_version_simple()) };
+                assert!(!version_str.to_string_lossy().is_empty());
 
-                    let detailed_version = { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
-                    assert!(!detailed_version.to_string_lossy().is_empty());
+                let detailed_version = { std::ffi::CStr::from_ptr(dplyr_version_detailed()) };
+                assert!(!detailed_version.to_string_lossy().is_empty());
 
-                    let dialects = { std::ffi::CStr::from_ptr(dplyr_supported_dialects()) };
-                    assert!(!dialects.to_string_lossy().is_empty());
+                let dialects = { std::ffi::CStr::from_ptr(dplyr_supported_dialects()) };
+                assert!(!dialects.to_string_lossy().is_empty());
 
-                    let _has_debug = dplyr_has_debug_support();
+                let _has_debug = dplyr_has_debug_support();
 
-                    let max_input = dplyr_max_input_length();
-                    assert_eq!(max_input, MAX_INPUT_LENGTH as u32);
+                let max_input = dplyr_max_input_length();
+                assert_eq!(max_input, MAX_INPUT_LENGTH as u32);
 
-                    let max_time = dplyr_max_processing_time_ms();
-                    assert_eq!(max_time, MAX_PROCESSING_TIME_MS);
+                let max_time = dplyr_max_processing_time_ms();
+                assert_eq!(max_time, MAX_PROCESSING_TIME_MS);
 
-                    let system_check = dplyr_check_system();
-                    assert_eq!(system_check, DPLYR_SUCCESS);
+                let system_check = dplyr_check_system();
+                assert_eq!(system_check, DPLYR_SUCCESS);
 
-                    thread_id
-                })
+                thread_id
             })
-            .collect();
+        });
 
-        let thread_ids: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(thread_ids.len(), 4);
+        let mut thread_count = 0;
+        for handle in handles {
+            let _ = handle.join().unwrap();
+            thread_count += 1;
+        }
+        assert_eq!(thread_count, 4);
     }
 
     #[test]
@@ -752,39 +750,41 @@ mod tests {
         use std::thread;
 
         // Test that error handling functions are thread-safe
-        let handles: Vec<_> = (0..4)
-            .map(|thread_id| {
-                thread::spawn(move || unsafe {
-                    // Test error code functions
-                    let error_codes = [
-                        DPLYR_SUCCESS,
-                        DPLYR_ERROR_SYNTAX,
-                        DPLYR_ERROR_UNSUPPORTED,
-                        DPLYR_ERROR_INTERNAL,
-                        DPLYR_ERROR_PANIC,
-                    ];
+        let handles = [0, 1, 2, 3].map(|thread_id| {
+            thread::spawn(move || unsafe {
+                // Test error code functions
+                let error_codes = [
+                    DPLYR_SUCCESS,
+                    DPLYR_ERROR_SYNTAX,
+                    DPLYR_ERROR_UNSUPPORTED,
+                    DPLYR_ERROR_INTERNAL,
+                    DPLYR_ERROR_PANIC,
+                ];
 
-                    for &error_code in &error_codes {
-                        let error_name = {
-                            std::ffi::CStr::from_ptr(dplyr_error_code_name(error_code))
-                                .to_string_lossy()
-                        };
-                        assert!(!error_name.is_empty());
+                for &error_code in &error_codes {
+                    let error_name = {
+                        std::ffi::CStr::from_ptr(dplyr_error_code_name(error_code))
+                            .to_string_lossy()
+                    };
+                    assert!(!error_name.is_empty());
 
-                        let is_success = dplyr_is_success(error_code);
-                        assert_eq!(is_success, error_code == DPLYR_SUCCESS);
+                    let is_success = dplyr_is_success(error_code);
+                    assert_eq!(is_success, error_code == DPLYR_SUCCESS);
 
-                        let _is_recoverable = dplyr_is_recoverable_error(error_code);
-                        // Just test it doesn't crash
-                    }
+                    let _is_recoverable = dplyr_is_recoverable_error(error_code);
+                    // Just test it doesn't crash
+                }
 
-                    thread_id
-                })
+                thread_id
             })
-            .collect();
+        });
 
-        let thread_ids: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(thread_ids.len(), 4);
+        let mut thread_count = 0;
+        for handle in handles {
+            let _ = handle.join().unwrap();
+            thread_count += 1;
+        }
+        assert_eq!(thread_count, 4);
     }
 
     // R9-AC1: Panic safety tests
