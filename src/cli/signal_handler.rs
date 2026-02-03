@@ -179,7 +179,7 @@ impl Default for SignalHandler {
 }
 
 /// Result of waiting for a signal
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SignalWaitResult {
     /// Shutdown signal received (SIGINT/SIGTERM)
     Shutdown,
@@ -239,7 +239,7 @@ pub mod utils {
     }
 
     /// Check if we're running in a Unix-like environment
-    pub fn is_unix_like() -> bool {
+    pub const fn is_unix_like() -> bool {
         cfg!(unix)
     }
 
@@ -316,7 +316,7 @@ impl SignalAwareProcessor {
     }
 
     /// Get reference to the signal handler
-    pub fn signal_handler(&self) -> &SignalHandler {
+    pub const fn signal_handler(&self) -> &SignalHandler {
         &self.signal_handler
     }
 }

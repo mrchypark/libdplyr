@@ -19,7 +19,7 @@ pub enum FormatError {
 }
 
 /// Output format types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputFormat {
     /// Default format - basic processing
     Default,
@@ -36,11 +36,11 @@ pub enum OutputFormat {
 impl fmt::Display for OutputFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OutputFormat::Default => write!(f, "default"),
-            OutputFormat::Basic => write!(f, "basic"),
-            OutputFormat::Pretty => write!(f, "pretty"),
-            OutputFormat::Compact => write!(f, "compact"),
-            OutputFormat::Json => write!(f, "json"),
+            Self::Default => write!(f, "default"),
+            Self::Basic => write!(f, "basic"),
+            Self::Pretty => write!(f, "pretty"),
+            Self::Compact => write!(f, "compact"),
+            Self::Json => write!(f, "json"),
         }
     }
 }
@@ -94,7 +94,7 @@ impl OutputFormatter {
     }
 
     /// Creates a new OutputFormatter with custom configuration
-    pub fn with_config(config: FormatConfig) -> Self {
+    pub const fn with_config(config: FormatConfig) -> Self {
         Self { config }
     }
 
@@ -259,7 +259,7 @@ impl OutputFormatter {
     }
 
     /// Gets the current format configuration
-    pub fn config(&self) -> &FormatConfig {
+    pub const fn config(&self) -> &FormatConfig {
         &self.config
     }
 
@@ -269,7 +269,7 @@ impl OutputFormatter {
     }
 
     /// Updates just the output format
-    pub fn set_format(&mut self, format: OutputFormat) {
+    pub const fn set_format(&mut self, format: OutputFormat) {
         self.config.format = format;
     }
 }

@@ -51,7 +51,7 @@ impl ExitCode {
 }
 
 /// Categories of errors for better organization
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorCategory {
     /// User input related errors
     UserInput,
@@ -97,7 +97,7 @@ pub struct ErrorInfo {
 
 impl ErrorInfo {
     /// Creates a new ErrorInfo with basic information
-    pub fn new(category: ErrorCategory, exit_code: i32, message: String) -> Self {
+    pub const fn new(category: ErrorCategory, exit_code: i32, message: String) -> Self {
         Self {
             category,
             exit_code,
@@ -129,13 +129,13 @@ impl ErrorInfo {
     }
 
     /// Sets whether to show help information
-    pub fn with_help(mut self, show_help: bool) -> Self {
+    pub const fn with_help(mut self, show_help: bool) -> Self {
         self.show_help = show_help;
         self
     }
 
     /// Sets whether to use stderr for output
-    pub fn with_stderr(mut self, use_stderr: bool) -> Self {
+    pub const fn with_stderr(mut self, use_stderr: bool) -> Self {
         self.use_stderr = use_stderr;
         self
     }
@@ -162,7 +162,7 @@ pub struct ErrorHandler {
 
 impl ErrorHandler {
     /// Creates a new error handler with default settings
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             use_korean: false, // Use English by default
             verbose: false,
@@ -171,7 +171,7 @@ impl ErrorHandler {
     }
 
     /// Creates a new error handler with custom settings
-    pub fn with_settings(use_korean: bool, verbose: bool, use_colors: bool) -> Self {
+    pub const fn with_settings(use_korean: bool, verbose: bool, use_colors: bool) -> Self {
         Self {
             use_korean,
             verbose,
@@ -654,13 +654,13 @@ impl ErrorHandler {
         // Print help information if requested
         if error_info.show_help {
             let _ = writeln!(stderr);
-            if self.use_korean {
-                let _ = writeln!(stderr, "To see help, run the following command:");
-                let _ = writeln!(stderr, "  libdplyr --help");
+            let help_intro = if self.use_korean {
+                "To see help, run the following command:"
             } else {
-                let _ = writeln!(stderr, "For help, run:");
-                let _ = writeln!(stderr, "  libdplyr --help");
-            }
+                "For help, run:"
+            };
+            let _ = writeln!(stderr, "{help_intro}");
+            let _ = writeln!(stderr, "  libdplyr --help");
         }
 
         let _ = stderr.flush();

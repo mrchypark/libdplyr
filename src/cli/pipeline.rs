@@ -32,7 +32,7 @@ pub struct CliArgs {
 }
 
 /// Supported SQL dialect types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SqlDialectType {
     PostgreSql,
     MySql,
@@ -43,10 +43,10 @@ pub enum SqlDialectType {
 impl std::fmt::Display for SqlDialectType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SqlDialectType::PostgreSql => write!(f, "postgresql"),
-            SqlDialectType::MySql => write!(f, "mysql"),
-            SqlDialectType::Sqlite => write!(f, "sqlite"),
-            SqlDialectType::DuckDb => write!(f, "duckdb"),
+            Self::PostgreSql => write!(f, "postgresql"),
+            Self::MySql => write!(f, "mysql"),
+            Self::Sqlite => write!(f, "sqlite"),
+            Self::DuckDb => write!(f, "duckdb"),
         }
     }
 }
@@ -56,10 +56,10 @@ impl std::str::FromStr for SqlDialectType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "postgresql" | "postgres" | "pg" => Ok(SqlDialectType::PostgreSql),
-            "mysql" => Ok(SqlDialectType::MySql),
-            "sqlite" => Ok(SqlDialectType::Sqlite),
-            "duckdb" | "duck" => Ok(SqlDialectType::DuckDb),
+            "postgresql" | "postgres" | "pg" => Ok(Self::PostgreSql),
+            "mysql" => Ok(Self::MySql),
+            "sqlite" => Ok(Self::Sqlite),
+            "duckdb" | "duck" => Ok(Self::DuckDb),
             _ => Err(format!("Unsupported SQL dialect: {s}")),
         }
     }
@@ -200,7 +200,7 @@ fn create_dialect(dialect_type: &SqlDialectType) -> Box<dyn SqlDialect> {
 }
 
 /// CLI operation modes
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliMode {
     /// File-based processing mode
     FileMode {
@@ -248,26 +248,28 @@ impl CliConfig {
 
     /// Determine the CLI mode based on arguments
     fn determine_mode(args: &CliArgs) -> CliMode {
-        if let Some(ref input_text) = args.input_text {
-            CliMode::TextMode {
+        args.input_text.as_ref().map_or_else(
+            || {
+                args.input_file.as_ref().map_or(
+                    CliMode::StdinMode {
+                        validate_only: args.validate_only,
+                        streaming: false, // Future extension
+                    },
+                    |input_file| CliMode::FileMode {
+                        input_file: input_file.clone(),
+                        output_file: args.output_file.clone(),
+                    },
+                )
+            },
+            |input_text| CliMode::TextMode {
                 input_text: input_text.clone(),
                 output_file: args.output_file.clone(),
-            }
-        } else if let Some(ref input_file) = args.input_file {
-            CliMode::FileMode {
-                input_file: input_file.clone(),
-                output_file: args.output_file.clone(),
-            }
-        } else {
-            CliMode::StdinMode {
-                validate_only: args.validate_only,
-                streaming: false, // Future extension
-            }
-        }
+            },
+        )
     }
 
     /// Determine output format based on arguments
-    fn determine_output_format(args: &CliArgs) -> OutputFormat {
+    const fn determine_output_format(args: &CliArgs) -> OutputFormat {
         if args.json_output {
             OutputFormat::Json
         } else if args.compact {
@@ -630,24 +632,20 @@ impl ProcessingPipeline {
 
     /// Check if processing should continue (signal handling)
     pub fn should_continue(&self) -> bool {
-        if let Some(ref handler) = self.signal_handler {
-            !handler.should_shutdown()
-        } else {
-            true
-        }
+        self.signal_handler
+            .as_ref()
+            .is_none_or(|handler| !handler.should_shutdown())
     }
 
     /// Check if the output pipe was closed
     pub fn pipe_closed(&self) -> bool {
-        if let Some(ref handler) = self.signal_handler {
-            handler.pipe_closed()
-        } else {
-            false
-        }
+        self.signal_handler
+            .as_ref()
+            .is_some_and(|handler| handler.pipe_closed())
     }
 
     /// Get configuration reference
-    pub fn config(&self) -> &CliConfig {
+    pub const fn config(&self) -> &CliConfig {
         &self.config
     }
 }

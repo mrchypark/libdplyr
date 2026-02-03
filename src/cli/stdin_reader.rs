@@ -76,7 +76,7 @@ impl StdinReader {
     }
 
     /// Creates a new StdinReader with custom configuration
-    pub fn with_config(config: StdinConfig) -> Self {
+    pub const fn with_config(config: StdinConfig) -> Self {
         Self {
             config,
             signal_handler: None,
@@ -320,12 +320,12 @@ impl StdinReader {
     }
 
     /// Gets the current stdin configuration
-    pub fn config(&self) -> &StdinConfig {
+    pub const fn config(&self) -> &StdinConfig {
         &self.config
     }
 
     /// Updates the stdin configuration
-    pub fn set_config(&mut self, config: StdinConfig) {
+    pub const fn set_config(&mut self, config: StdinConfig) {
         self.config = config;
     }
 }

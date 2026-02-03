@@ -19,7 +19,7 @@ pub enum ValidationError {
 }
 
 /// Validation result for dplyr syntax
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidateResult {
     /// Syntax is valid
     Valid {
@@ -36,7 +36,7 @@ pub enum ValidateResult {
 }
 
 /// Summary of validation results
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationSummary {
     /// Number of operations in the pipeline
     pub operation_count: usize,
@@ -61,7 +61,7 @@ pub struct ValidationSummary {
 }
 
 /// Detailed error information for validation failures
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationErrorInfo {
     /// Error type (lex, parse, semantic)
     pub error_type: String,
@@ -118,7 +118,7 @@ impl DplyrValidator {
     }
 
     /// Creates a new validator with custom configuration
-    pub fn with_config(config: ValidationConfig) -> Self {
+    pub const fn with_config(config: ValidationConfig) -> Self {
         Self { config }
     }
 
@@ -436,13 +436,14 @@ impl DplyrValidator {
 
     /// Extracts context around an error position
     fn extract_error_context(&self, code: &str, position: Option<usize>) -> Option<String> {
-        if let Some(pos) = position {
-            let start = pos.saturating_sub(20);
-            let end = (pos + 20).min(code.len());
-            Some(code[start..end].to_string())
-        } else {
-            None
-        }
+        position.map_or_else(
+            || None,
+            |pos| {
+                let start = pos.saturating_sub(20);
+                let end = (pos + 20).min(code.len());
+                Some(code[start..end].to_string())
+            },
+        )
     }
 
     /// Generates suggestions for fixing errors
@@ -498,12 +499,12 @@ impl DplyrValidator {
     }
 
     /// Gets the current validation configuration
-    pub fn config(&self) -> &ValidationConfig {
+    pub const fn config(&self) -> &ValidationConfig {
         &self.config
     }
 
     /// Updates the validation configuration
-    pub fn set_config(&mut self, config: ValidationConfig) {
+    pub const fn set_config(&mut self, config: ValidationConfig) {
         self.config = config;
     }
 }

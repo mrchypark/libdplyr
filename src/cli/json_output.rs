@@ -128,7 +128,7 @@ pub struct JsonOutputFormatter {
 
 impl JsonOutputFormatter {
     /// Creates a new JSON output formatter
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             pretty_print: false,
             include_debug: false,
@@ -136,7 +136,7 @@ impl JsonOutputFormatter {
     }
 
     /// Creates a new JSON output formatter with pretty printing
-    pub fn pretty() -> Self {
+    pub const fn pretty() -> Self {
         Self {
             pretty_print: true,
             include_debug: false,
@@ -144,7 +144,7 @@ impl JsonOutputFormatter {
     }
 
     /// Creates a new JSON output formatter with debug information
-    pub fn with_debug() -> Self {
+    pub const fn with_debug() -> Self {
         Self {
             pretty_print: false,
             include_debug: true,
@@ -283,17 +283,15 @@ impl JsonOutputFormatter {
         output: &JsonOutput,
         estimated_size: usize,
     ) -> JsonResult<String> {
+        let mut buf = String::with_capacity(estimated_size);
         if self.pretty_print {
-            let mut buf = String::with_capacity(estimated_size);
             let pretty_json = serde_json::to_string_pretty(output)?;
             buf.push_str(&pretty_json);
-            Ok(buf)
         } else {
-            let mut buf = String::with_capacity(estimated_size);
             let json = serde_json::to_string(output)?;
             buf.push_str(&json);
-            Ok(buf)
         }
+        Ok(buf)
     }
 }
 
@@ -338,7 +336,7 @@ impl MetadataBuilder {
     }
 
     /// Sets processing statistics
-    pub fn with_stats(mut self, stats: ProcessingStats) -> Self {
+    pub const fn with_stats(mut self, stats: ProcessingStats) -> Self {
         self.stats = stats;
         self
     }
@@ -373,7 +371,7 @@ impl MetadataBuilder {
 /// Helper functions for creating common metadata components
 impl ProcessingStats {
     /// Creates empty processing stats
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             lex_time_us: 0,
             parse_time_us: 0,
@@ -387,7 +385,11 @@ impl ProcessingStats {
     }
 
     /// Creates processing stats with timing information
-    pub fn with_timing(lex_time_us: u64, parse_time_us: u64, generation_time_us: u64) -> Self {
+    pub const fn with_timing(
+        lex_time_us: u64,
+        parse_time_us: u64,
+        generation_time_us: u64,
+    ) -> Self {
         Self {
             lex_time_us,
             parse_time_us,
