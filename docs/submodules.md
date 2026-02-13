@@ -11,5 +11,5 @@
 
 ## 현재 고정 상태
 
-- `duckdb`: `b8a06e4a22672e254cd0baa68a3dbed2eb51c56e` (`v1.4.0`)
+- `duckdb`: `6ddac802ffa9bcfbcc3f5f0d71de5dff9b0bc250` (`v1.4.4`)
 - `extension-ci-tools`: `00a4d1a464a0ebd30c7427396c0271105592d63b`
