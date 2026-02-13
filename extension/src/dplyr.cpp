@@ -15,6 +15,11 @@
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#if defined(__has_include)
+#if __has_include("duckdb/main/extension_callback_manager.hpp")
+#include "duckdb/main/extension_callback_manager.hpp"
+#endif
+#endif
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
@@ -1134,7 +1139,11 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
 
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);
+#if defined(__has_include) && __has_include("duckdb/main/extension_callback_manager.hpp")
+    ParserExtension::Register(config, DplyrParserExtension());
+#else
     config.parser_extensions.push_back(DplyrParserExtension());
+#endif
     
     TableFunction dplyr_function("dplyr",
         {LogicalType::VARCHAR},
