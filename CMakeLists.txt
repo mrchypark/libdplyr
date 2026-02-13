@@ -714,7 +714,10 @@ if(BUILD_CPP_TESTS)
         gtest_main
         gtest
         libdplyr_c
-        ${DUCKDB_EXTENSION_STATIC_TARGET}
+    )
+
+    target_compile_definitions(duckdb_extension_integration_test PRIVATE
+        DPLYR_EXTENSION_BINARY_PATH="$<TARGET_FILE:${DUCKDB_EXTENSION_TARGET}>"
     )
 
     if(WIN32)
@@ -835,7 +838,7 @@ if(BUILD_CPP_TESTS)
     )
 
     # Make tests depend on extension build
-    add_dependencies(duckdb_extension_integration_test ${DUCKDB_EXTENSION_STATIC_TARGET})
+    add_dependencies(duckdb_extension_integration_test ${DUCKDB_EXTENSION_TARGET})
 
     message(STATUS "C++ integration tests configured successfully")
 else()

@@ -17,23 +17,20 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 
 // duckdb::DuckDB includes
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parser_extension.hpp"
-
-
-// Extension includes
-#include "../extension/include/dplyr.h"
-
 
 class DuckDBExtensionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        duckdb::DBConfig config;
+        config.options.allow_unsigned_extensions = true;
+
         // Create in-memory duckdb::DuckDB instance
-        db = duckdb::make_uniq<duckdb::DuckDB>(nullptr);
-        db->LoadStaticExtension<dplyr::DplyrExtension>();
+        db = duckdb::make_uniq<duckdb::DuckDB>(nullptr, &config);
         conn = duckdb::make_uniq<duckdb::Connection>(*db);
 
         // Provide simple data fixture for smoke tests
@@ -41,8 +38,16 @@ protected:
         ASSERT_FALSE(conn->Query("CREATE TABLE mtcars(mpg INTEGER)")->HasError());
         ASSERT_FALSE(conn->Query("INSERT INTO mtcars VALUES (21), (19), (30)")->HasError());
 
-        // R7-AC1: Test extension loading via SQL after static registration
-        auto result = conn->Query("LOAD 'dplyr'");
+        std::string extension_path = DPLYR_EXTENSION_BINARY_PATH;
+        std::replace(extension_path.begin(), extension_path.end(), '\\', '/');
+
+        auto quote_pos = extension_path.find('\'');
+        while (quote_pos != std::string::npos) {
+            extension_path.insert(quote_pos, "'");
+            quote_pos = extension_path.find('\'', quote_pos + 2);
+        }
+
+        auto result = conn->Query("LOAD '" + extension_path + "'");
         ASSERT_FALSE(result->HasError()) 
             << "Extension loading failed: " << result->GetError();
     }
