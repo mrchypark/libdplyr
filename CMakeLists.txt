@@ -669,6 +669,7 @@ set_tests_properties(rust_unit_tests PROPERTIES TIMEOUT 120)
 option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
 
 if(MINGW OR EMSCRIPTEN)
+    # MinGW and Emscripten toolchains are not supported by this C++ integration test target.
     set(BUILD_CPP_TESTS OFF)
 endif()
 
@@ -716,8 +717,16 @@ if(BUILD_CPP_TESTS)
         ${DUCKDB_EXTENSION_STATIC_TARGET}
     )
 
-    if(WIN32 AND TARGET duckdb_static)
-        target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
+    if(WIN32)
+        # Prefer the shared DuckDB target on Windows when available, which includes the
+        # extension helper symbols expected by the integration test entry points.
+        if(TARGET duckdb)
+            target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb)
+        elseif(TARGET duckdb_static)
+            target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
+        else()
+            target_link_libraries(duckdb_extension_integration_test PRIVATE ${DUCKDB_LIBRARIES})
+        endif()
     else()
         target_link_libraries(duckdb_extension_integration_test PRIVATE ${DUCKDB_LIBRARIES})
     endif()
