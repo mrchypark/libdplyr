@@ -304,31 +304,39 @@ jobs:
       # -------------------------------------------------------------------------
       # R7-AC1, R7-AC3: C++ Integration Tests
       # -------------------------------------------------------------------------
-      - name: Run C++ integration tests
+      - name: Run C++ integration tests (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            export DUCKDB_EXTENSION_PATH=$(pwd)
-            export DUCKDB_EXTENSION_PATH=$(pwd)
-            # Dynamically find the test executable (Ninja puts it in root or tests/, MSVC in Release/)
-            TEST_EXE=$(find . -name "duckdb_extension_integration_test.exe" -type f | head -n 1)
-            if [[ -n "$TEST_EXE" ]]; then
-              echo "Found test executable: $TEST_EXE"
-              "$TEST_EXE" --gtest_color=yes
-            else
-              echo "Error: duckdb_extension_integration_test.exe not found"
-              find . -name "*.exe" # Debug output
-              exit 1
-            fi
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./duckdb_extension_integration_test --gtest_color=yes
           else
-            export DUCKDB_EXTENSION_PATH=$(pwd)
-            if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-              arch -x86_64 ./duckdb_extension_integration_test --gtest_color=yes
-            else
-              ./duckdb_extension_integration_test --gtest_color=yes
-            fi
+            ./duckdb_extension_integration_test --gtest_color=yes
           fi
+
+      - name: Run C++ integration tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd build
+          set DUCKDB_EXTENSION_PATH=%CD%
+          set TEST_EXE=
+          for /r %%f in (duckdb_extension_integration_test.exe) do (
+            set TEST_EXE=%%f
+            goto :found_test_exe
+          )
+
+          :found_test_exe
+          if not defined TEST_EXE (
+            echo Error: duckdb_extension_integration_test.exe not found
+            echo Available test executables:
+            dir /s /b *.exe
+            exit /b 1
+          )
+          echo Found test executable: %TEST_EXE%
+          "%TEST_EXE%" --gtest_color=yes
 
       # -------------------------------------------------------------------------
       # Additional Quality Checks
