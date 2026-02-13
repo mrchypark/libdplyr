@@ -26,8 +26,12 @@
 class DuckDBExtensionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+
         duckdb::DBConfig config;
-        config.options.allow_unsigned_extensions = true;
+        try {
+            config.SetOptionByName("allow_unsigned_extensions", duckdb::Value::BOOLEAN(true));
+        } catch (...) {
+        }
 
         // Create in-memory duckdb::DuckDB instance
         db = duckdb::make_uniq<duckdb::DuckDB>(nullptr, &config);
