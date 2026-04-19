@@ -52,7 +52,7 @@ const fn create_default_options() -> DplyrOptions {
         debug_mode: false,
         max_input_length: 10000,
         max_processing_time_ms: 5000,
-        dialect: DplyrDialect::DuckDb,
+        dialect: DplyrDialect::DuckDb as u32,
     }
 }
 
@@ -62,7 +62,7 @@ const fn create_mysql_options() -> DplyrOptions {
         debug_mode: false,
         max_input_length: 10000,
         max_processing_time_ms: 5000,
-        dialect: DplyrDialect::MySql,
+        dialect: DplyrDialect::MySql as u32,
     }
 }
 
@@ -72,7 +72,7 @@ const fn create_debug_options() -> DplyrOptions {
         debug_mode: true,
         max_input_length: 50000,
         max_processing_time_ms: 10000,
-        dialect: DplyrDialect::DuckDb,
+        dialect: DplyrDialect::DuckDb as u32,
     }
 }
 
