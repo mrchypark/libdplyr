@@ -428,9 +428,7 @@ pub unsafe extern "C" fn dplyr_cache_log_stats_detailed(
             .unwrap_or(0);
         eprintln!(
             "{}CACHE_PERFORMANCE: avg_processing_time: {}μs, cache_overhead: {}μs",
-            timestamp_str,
-            avg_processing_time,
-            avg_cache_overhead
+            timestamp_str, avg_processing_time, avg_cache_overhead
         );
     }
 }
@@ -482,7 +480,12 @@ pub extern "C" fn dplyr_cache_log_performance_warning() -> bool {
         warnings.push(format!(
             "Excessive evictions: {} ({}% of hits)",
             metrics.evictions,
-            metrics.evictions.checked_mul(100).unwrap_or(0).checked_div(metrics.hits).unwrap_or(0)
+            metrics
+                .evictions
+                .checked_mul(100)
+                .unwrap_or(0)
+                .checked_div(metrics.hits)
+                .unwrap_or(0)
         ));
     }
 

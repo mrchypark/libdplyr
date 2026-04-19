@@ -109,12 +109,10 @@ fn compile_to_sql(code_str: &str, opts: &DplyrOptions) -> Result<String, Transpi
 }
 
 fn strip_trailing_semicolon(input: &str) -> String {
-    let mut output = input.trim().to_string();
-    while output.ends_with(';') {
-        output.pop();
-        output = output.trim_end().to_string();
-    }
-    output
+    input
+        .trim()
+        .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+        .to_string()
 }
 
 fn extract_leading_table_name(dplyr_code: &str) -> Option<&str> {
@@ -270,8 +268,12 @@ fn compile_query_string(
         compile_to_sql(&dplyr_code, opts)?
     };
 
-    let normalized = sql.trim_start().to_ascii_uppercase();
-    if !(normalized.starts_with("SELECT") || normalized.starts_with("WITH")) {
+    let sql_trimmed = sql.trim_start();
+    let is_supported_prefix = ["SELECT", "WITH"].iter().any(|prefix| {
+        sql_trimmed.len() >= prefix.len()
+            && sql_trimmed[..prefix.len()].eq_ignore_ascii_case(prefix)
+    });
+    if !is_supported_prefix {
         return Err(TranspileError::unsupported_operation_with_alternative(
             "generated a non-SELECT statement",
             "query compilation",
@@ -414,11 +416,6 @@ pub unsafe extern "C" fn dplyr_compile_query(
     out_error: *mut *mut c_char,
 ) -> i32 {
     let result = panic::catch_unwind(|| {
-        if query.is_null() {
-            set_error_output(out_error, "E-NULL-POINTER: query parameter is null");
-            return DPLYR_ERROR_NULL_POINTER;
-        }
-
         if out_sql.is_null() || out_error.is_null() {
             return DPLYR_ERROR_NULL_POINTER;
         }
@@ -426,6 +423,11 @@ pub unsafe extern "C" fn dplyr_compile_query(
         unsafe {
             *out_sql = ptr::null_mut();
             *out_error = ptr::null_mut();
+        }
+
+        if query.is_null() {
+            set_error_output(out_error, "E-NULL-POINTER: query parameter is null");
+            return DPLYR_ERROR_NULL_POINTER;
         }
 
         let query_str = match unsafe { CStr::from_ptr(query) }.to_str() {

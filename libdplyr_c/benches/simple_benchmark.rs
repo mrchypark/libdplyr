@@ -4,8 +4,8 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
-use std::hint::black_box;
 use std::ffi::CString;
+use std::hint::black_box;
 use std::ptr;
 
 // Simple benchmark function

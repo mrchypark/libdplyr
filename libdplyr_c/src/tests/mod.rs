@@ -328,6 +328,62 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_rejects_null_output_pointers() {
+        let input = CString::new("SELECT 42").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let missing_sql_result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                &mut out_error,
+            )
+        };
+        assert_eq!(missing_sql_result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_error.is_null());
+
+        let missing_error_result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(missing_error_result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_sql.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reports_null_query() {
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("query parameter is null"));
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rewrites_embedded_pipelines() {
         let input = CString::new("SELECT * FROM (| mtcars %>% select(mpg, cyl) |) AS q").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();

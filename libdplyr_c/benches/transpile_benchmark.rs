@@ -11,8 +11,8 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrDialect, DplyrOptions};
-use std::hint::black_box;
 use std::ffi::{CStr, CString};
+use std::hint::black_box;
 use std::ptr;
 use std::time::{Duration, Instant};
 
