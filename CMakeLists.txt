@@ -460,6 +460,10 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
     target_link_libraries(${EXT_TARGET} libdplyr_c)
 
     if(WIN32)
+        set_target_properties(${EXT_TARGET} PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+
         target_link_libraries(${EXT_TARGET}
             ws2_32 userenv bcrypt ntdll advapi32 shell32 ole32
         )

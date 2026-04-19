@@ -98,9 +98,9 @@ typedef struct DplyrOptions {
  * 
  * @return 0 on success, negative error code on failure:
  *         -1: E-FFI (invalid parameters, encoding issues)
- *         -2: E-INTERNAL (input too large, processing timeout)
+ *         -2: E-INPUT-TOO-LARGE or E-TIMEOUT (resource limits and timeouts)
  *         -3: E-SYNTAX or E-UNSUPPORTED (transpilation errors)
- *         -4: E-INTERNAL (internal panic occurred)
+ *         -4: E-INTERNAL or E-PANIC (internal failure occurred)
  * 
  * @note Memory management (R3-AC3): 
  *       - out_sql and out_error are allocated by this function

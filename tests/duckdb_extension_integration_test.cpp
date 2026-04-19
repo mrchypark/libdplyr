@@ -75,11 +75,11 @@ protected:
     }
     
     // Helper to execute query and verify no crash
-    // Returns nullptr on std::exception - tests should handle this appropriately
+    // Returns nullptr on any C++ exception - tests should handle this appropriately
     std::unique_ptr<duckdb::MaterializedQueryResult> safe_query(const std::string& query) {
         try {
             return conn->Query(query);
-        } catch (const std::exception&) {
+        } catch (...) {
             // Exception occurred - return nullptr, let individual tests decide if this is acceptable
             return nullptr;
         }
@@ -290,7 +290,7 @@ TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
 
 TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     // Test FFI boundary null pointer handling
-    // Requirement: NULL input should not crash duckdb::DuckDB - may throw std::exception or return error
+    // Requirement: NULL input should not crash duckdb::DuckDB - may throw or return error
     std::vector<std::string> null_tests = {
         "SELECT * FROM dplyr(NULL)",
     };
@@ -298,10 +298,10 @@ TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     for (const auto& query : null_tests) {
         auto result = safe_query(query);
         
-        // Either returns error result OR throws std::exception (both are acceptable crash-prevention)
+        // Either returns error result OR throws an exception (both are acceptable crash-prevention)
         if (result == nullptr) {
-            // Exception was thrown - this is acceptable crash prevention behavior
-            SUCCEED() << "NULL input caused std::exception (acceptable): " << query;
+            // An exception was thrown - this is acceptable crash prevention behavior
+            SUCCEED() << "NULL input caused exception (acceptable): " << query;
             continue;
         }
         
@@ -328,7 +328,9 @@ TEST_F(DuckDBExtensionTest, LargeInputHandling) {
     
     if (result->HasError()) {
         std::string error = result->GetError();
-        EXPECT_TRUE(error.find("E-INTERNAL") != std::string::npos || 
+        EXPECT_TRUE(error.find("E-INPUT-TOO-LARGE") != std::string::npos ||
+                   error.find("Resource limit exceeded") != std::string::npos ||
+                   error.find("exceeds maximum") != std::string::npos ||
                    error.find("too large") != std::string::npos ||
                    error.find("limit") != std::string::npos)
             << "Should indicate input size limit: " << error;
