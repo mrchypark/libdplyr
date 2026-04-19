@@ -1,6 +1,6 @@
 [package]
 name = "libdplyr_c"
-version = "0.3.1"
+version = "0.3.3"
 edition = "2021"
 description = "C-compatible API for libdplyr DuckDB extension"
 license = "MIT"
