@@ -19,7 +19,7 @@ extension:
 
 repo:
   github: mrchypark/libdplyr
-  ref: TO_BE_REPLACED_WITH_SUBMISSION_COMMIT
+  ref: 11fa4a8d9f46fbb252a2d666047cfb90af91b23a
 
 docs:
   hello_world: |
