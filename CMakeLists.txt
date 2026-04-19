@@ -729,6 +729,14 @@ if(BUILD_CPP_TESTS)
         # extension helper symbols expected by the integration test entry points.
         if(TARGET duckdb)
             target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb)
+            # Ensure the runtime DLL is colocated with the test executable on Windows.
+            add_custom_command(
+                TARGET duckdb_extension_integration_test
+                POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:duckdb>
+                    $<TARGET_FILE_DIR:duckdb_extension_integration_test>
+            )
         elseif(TARGET duckdb_static)
             target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
         else()
