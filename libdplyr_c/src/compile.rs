@@ -38,6 +38,20 @@ enum CompileInputError {
     Transpile(TranspileError),
 }
 
+fn set_compile_error_output(out_error: *mut *mut c_char, error: CompileInputError) -> i32 {
+    match error {
+        CompileInputError::InputTooLarge(message) => {
+            set_error_output(out_error, &message);
+            DPLYR_ERROR_INPUT_TOO_LARGE
+        }
+        CompileInputError::Transpile(error) => {
+            let error_msg = error.to_c_string();
+            set_error_output(out_error, &error_msg.to_string_lossy());
+            error.to_c_error_code()
+        }
+    }
+}
+
 fn validate_compile_input(code_str: &str, opts: &DplyrOptions) -> Result<(), CompileInputError> {
     if code_str.len() > opts.max_input_length as usize {
         return Err(CompileInputError::InputTooLarge(format!(
@@ -115,6 +129,41 @@ fn strip_trailing_semicolon(input: &str) -> String {
         .to_string()
 }
 
+fn is_probably_identifier_chain(prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return false;
+    }
+
+    let mut parts = 0;
+    for part in prefix.split('.') {
+        let part = part.trim();
+        if part.is_empty() {
+            return false;
+        }
+        parts += 1;
+
+        let quoted = (part.starts_with('"') && part.ends_with('"'))
+            || (part.starts_with('`') && part.ends_with('`'))
+            || (part.starts_with('[') && part.ends_with(']'));
+
+        if quoted {
+            if part.len() < 2 {
+                return false;
+            }
+            continue;
+        }
+
+        if !part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        {
+            return false;
+        }
+    }
+
+    parts > 0
+}
+
 fn extract_leading_table_name(dplyr_code: &str) -> Option<&str> {
     let pipe_pos = dplyr_code.find("%>%");
     let prefix = match pipe_pos {
@@ -127,10 +176,7 @@ fn extract_leading_table_name(dplyr_code: &str) -> Option<&str> {
         return None;
     }
 
-    if prefix
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-    {
+    if is_probably_identifier_chain(prefix) {
         Some(prefix)
     } else {
         None
@@ -189,7 +235,10 @@ fn find_embedded_end_marker(query: &str, from: usize) -> Option<(usize, usize)> 
     None
 }
 
-fn replace_embedded_pipelines(query: &str, opts: &DplyrOptions) -> Result<String, TranspileError> {
+fn replace_embedded_pipelines(
+    query: &str,
+    opts: &DplyrOptions,
+) -> Result<String, CompileInputError> {
     let mut output = String::with_capacity(query.len());
     let mut cursor = 0;
 
@@ -201,34 +250,41 @@ fn replace_embedded_pipelines(query: &str, opts: &DplyrOptions) -> Result<String
 
         output.push_str(&query[cursor..marker_start]);
         let Some((content_end, marker_end)) = find_embedded_end_marker(query, content_start) else {
-            return Err(TranspileError::syntax_error_with_suggestion(
-                "Unterminated embedded dplyr segment",
-                marker_start,
-                None,
-                Some("Close embedded pipelines with '|)'.".to_string()),
+            return Err(CompileInputError::Transpile(
+                TranspileError::syntax_error_with_suggestion(
+                    "Unterminated embedded dplyr segment",
+                    marker_start,
+                    None,
+                    Some("Close embedded pipelines with '|)'.".to_string()),
+                ),
             ));
         };
 
         let embedded = strip_trailing_semicolon(&query[content_start..content_end]);
         if embedded.is_empty() {
-            return Err(TranspileError::syntax_error_with_suggestion(
-                "Embedded dplyr segment cannot be empty",
-                content_start,
-                None,
-                None,
+            return Err(CompileInputError::Transpile(
+                TranspileError::syntax_error_with_suggestion(
+                    "Embedded dplyr segment cannot be empty",
+                    content_start,
+                    None,
+                    None,
+                ),
             ));
         }
         if !embedded.contains("%>%") {
-            return Err(TranspileError::syntax_error_with_suggestion(
-                "Embedded dplyr segment must contain a %>% pipeline",
-                content_start,
-                None,
-                None,
+            return Err(CompileInputError::Transpile(
+                TranspileError::syntax_error_with_suggestion(
+                    "Embedded dplyr segment must contain a %>% pipeline",
+                    content_start,
+                    None,
+                    None,
+                ),
             ));
         }
 
-        require_pipeline_table_name(&embedded)?;
-        let sql = compile_to_sql(&embedded, opts)?;
+        validate_compile_input(&embedded, opts)?;
+        require_pipeline_table_name(&embedded).map_err(CompileInputError::Transpile)?;
+        let sql = compile_to_sql(&embedded, opts).map_err(CompileInputError::Transpile)?;
         output.push('(');
         output.push_str(&sql);
         output.push(')');
@@ -239,10 +295,44 @@ fn replace_embedded_pipelines(query: &str, opts: &DplyrOptions) -> Result<String
     Ok(output)
 }
 
+fn strip_leading_sql_comments_and_whitespace(mut sql: &str) -> &str {
+    loop {
+        sql = sql.trim_start();
+
+        if let Some(rest) = sql.strip_prefix("--") {
+            sql = match rest.find('\n') {
+                Some(pos) => &rest[pos + 1..],
+                None => "",
+            };
+            continue;
+        }
+
+        if let Some(rest) = sql.strip_prefix("/*") {
+            sql = match rest.find("*/") {
+                Some(pos) => &rest[pos + 2..],
+                None => "",
+            };
+            continue;
+        }
+
+        return sql;
+    }
+}
+
+fn starts_with_supported_query_prefix(sql: &str) -> bool {
+    let sql = strip_leading_sql_comments_and_whitespace(sql);
+    sql.starts_with('(')
+        || ["SELECT", "WITH"].iter().any(|prefix| {
+            sql.get(..prefix.len())
+                .map(|head| head.eq_ignore_ascii_case(prefix))
+                .unwrap_or(false)
+        })
+}
+
 fn compile_query_string(
     query: &str,
     opts: &DplyrOptions,
-) -> Result<Option<String>, TranspileError> {
+) -> Result<Option<String>, CompileInputError> {
     let trimmed = query.trim();
     if trimmed.is_empty() || !trimmed.contains("%>%") {
         return Ok(None);
@@ -251,33 +341,33 @@ fn compile_query_string(
     let sql = if find_embedded_start_marker(trimmed, 0).is_some() {
         let rewritten = replace_embedded_pipelines(trimmed, opts)?;
         if rewritten.contains("%>%") {
-            return Err(TranspileError::syntax_error_with_suggestion(
-                "Unprocessed %>% pipeline remains",
-                0,
-                None,
-                Some(
-                    "Wrap pipelines with (| ... |) or provide a pure pipeline statement."
-                        .to_string(),
+            return Err(CompileInputError::Transpile(
+                TranspileError::syntax_error_with_suggestion(
+                    "Unprocessed %>% pipeline remains",
+                    0,
+                    None,
+                    Some(
+                        "Wrap pipelines with (| ... |) or provide a pure pipeline statement."
+                            .to_string(),
+                    ),
                 ),
             ));
         }
         rewritten
     } else {
         let dplyr_code = strip_trailing_semicolon(trimmed);
-        require_pipeline_table_name(&dplyr_code)?;
-        compile_to_sql(&dplyr_code, opts)?
+        validate_compile_input(&dplyr_code, opts)?;
+        require_pipeline_table_name(&dplyr_code).map_err(CompileInputError::Transpile)?;
+        compile_to_sql(&dplyr_code, opts).map_err(CompileInputError::Transpile)?
     };
 
-    let sql_trimmed = sql.trim_start();
-    let is_supported_prefix = ["SELECT", "WITH"].iter().any(|prefix| {
-        sql_trimmed.len() >= prefix.len()
-            && sql_trimmed[..prefix.len()].eq_ignore_ascii_case(prefix)
-    });
-    if !is_supported_prefix {
-        return Err(TranspileError::unsupported_operation_with_alternative(
-            "generated a non-SELECT statement",
-            "query compilation",
-            Some("Only SELECT/WITH statements are supported for parser rewrite".to_string()),
+    if !starts_with_supported_query_prefix(&sql) {
+        return Err(CompileInputError::Transpile(
+            TranspileError::unsupported_operation_with_alternative(
+                "generated a non-SELECT statement",
+                "query compilation",
+                Some("Only SELECT/WITH statements are supported for parser rewrite".to_string()),
+            ),
         ));
     }
 
@@ -340,17 +430,7 @@ pub unsafe extern "C" fn dplyr_compile(
         };
 
         if let Err(error) = validate_compile_input(code_str, &opts) {
-            match error {
-                CompileInputError::InputTooLarge(message) => {
-                    set_error_output(out_error, &message);
-                    return DPLYR_ERROR_INPUT_TOO_LARGE;
-                }
-                CompileInputError::Transpile(error) => {
-                    let error_msg = error.to_c_string();
-                    set_error_output(out_error, &error_msg.to_string_lossy());
-                    return error.to_c_error_code();
-                }
-            }
+            return set_compile_error_output(out_error, error);
         }
 
         let transpile_result = compile_to_sql(code_str, &opts);
@@ -392,8 +472,9 @@ pub unsafe extern "C" fn dplyr_compile(
         // Panic occurred - set error message if possible
         unsafe {
             if !out_error.is_null() {
-                let panic_msg = CString::new("E-INTERNAL: Internal panic occurred").unwrap();
-                *out_error = panic_msg.into_raw();
+                if let Ok(panic_msg) = CString::new("E-INTERNAL: Internal panic occurred") {
+                    *out_error = panic_msg.into_raw();
+                }
             }
         }
         DPLYR_ERROR_PANIC
@@ -447,27 +528,28 @@ pub unsafe extern "C" fn dplyr_compile_query(
             unsafe { (*options).clone() }
         };
 
-        if let Err(error) = validate_compile_input(query_str, &opts) {
-            match error {
-                CompileInputError::InputTooLarge(message) => {
-                    set_error_output(out_error, &message);
-                    return DPLYR_ERROR_INPUT_TOO_LARGE;
-                }
-                CompileInputError::Transpile(error) => {
-                    let error_msg = error.to_c_string();
-                    set_error_output(out_error, &error_msg.to_string_lossy());
-                    return error.to_c_error_code();
-                }
-            }
+        if let Err(error) = opts.validate() {
+            let error_msg = error.to_c_string();
+            set_error_output(out_error, &error_msg.to_string_lossy());
+            return error.to_c_error_code();
         }
 
-        match compile_query_string(query_str, &opts) {
+        let trimmed_query = query_str.trim();
+        if trimmed_query.is_empty() || !trimmed_query.contains("%>%") {
+            return DPLYR_QUERY_NOT_HANDLED;
+        }
+
+        match compile_query_string(trimmed_query, &opts) {
             Ok(Some(sql)) => {
                 set_sql_output(out_sql, &sql);
                 DPLYR_SUCCESS
             }
             Ok(None) => DPLYR_QUERY_NOT_HANDLED,
-            Err(error) => {
+            Err(CompileInputError::InputTooLarge(message)) => {
+                set_error_output(out_error, &message);
+                DPLYR_ERROR_INPUT_TOO_LARGE
+            }
+            Err(CompileInputError::Transpile(error)) => {
                 let error_msg = if opts.debug_mode {
                     create_error_message_with_context(&error, Some(query_str))
                 } else {
@@ -482,8 +564,9 @@ pub unsafe extern "C" fn dplyr_compile_query(
     result.unwrap_or_else(|_| {
         unsafe {
             if !out_error.is_null() {
-                let panic_msg = CString::new("E-INTERNAL: Internal panic occurred").unwrap();
-                *out_error = panic_msg.into_raw();
+                if let Ok(panic_msg) = CString::new("E-INTERNAL: Internal panic occurred") {
+                    *out_error = panic_msg.into_raw();
+                }
             }
         }
         DPLYR_ERROR_PANIC

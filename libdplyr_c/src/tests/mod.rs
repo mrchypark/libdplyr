@@ -328,6 +328,22 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_skips_size_validation_for_plain_sql() {
+        let oversized_plain_sql = format!("SELECT 1 /* {} */", "x".repeat(2048));
+        let input = CString::new(oversized_plain_sql).unwrap();
+        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_null_output_pointers() {
         let input = CString::new("SELECT 42").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
@@ -410,6 +426,36 @@ mod ffi_tests {
         };
 
         assert!(sql.starts_with("SELECT * FROM (SELECT"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_accepts_parenthesized_select_output() {
+        let input = CString::new("(| mtcars %>% select(mpg, cyl) |)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("(SELECT"));
         assert!(!sql.contains("%>%"));
     }
 
