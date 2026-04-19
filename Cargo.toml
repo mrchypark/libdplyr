@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["libdplyr contributors"]
 description = "A Rust-based transpiler that converts R dplyr syntax to SQL queries"
 license = "MIT"
-repository = "https://github.com/example/libdplyr"
+repository = "https://github.com/mrchypark/libdplyr"
 keywords = ["dplyr", "sql", "transpiler", "r", "database"]
 categories = ["command-line-utilities", "parser-implementations"]
 

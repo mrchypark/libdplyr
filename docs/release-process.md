@@ -118,24 +118,29 @@ SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');
 
 #### 4.1 Community Repository 제출 (안정 릴리스만)
 ```bash
-# 1. 제출 아티팩트 다운로드
-gh run download --name community-submission-v1.0.0
-
-# 2. community-extensions 저장소 포크 및 클론
+# 1. community-extensions 저장소 포크 및 클론
 gh repo fork duckdb/community-extensions
 git clone https://github.com/yourusername/community-extensions.git
 
-# 3. 브랜치 생성 및 파일 추가
+# 2. 브랜치 생성 및 파일 추가
 cd community-extensions
 git checkout -b add-dplyr-extension-1.0.0
-cp ../community-submission/extension.json extensions/dplyr/
+mkdir -p extensions/dplyr
+cp ../libdplyr/community-pr/description.yml extensions/dplyr/description.yml
 
-# 4. PR 생성
-git add extensions/dplyr/extension.json
+# 3. PR 생성
+git add extensions/dplyr/description.yml
 git commit -m "Add dplyr extension v1.0.0"
 git push origin add-dplyr-extension-1.0.0
-gh pr create --title "Add dplyr extension v1.0.0" --body-file ../community-submission/SUBMISSION_INSTRUCTIONS.md
+gh pr create --title "Add dplyr extension v1.0.0" \
+  --body "Add the dplyr DuckDB community extension descriptor."
 ```
+
+참고:
+
+- community-extensions 제출은 현재 `extension.json`이 아니라 `description.yml` 한 파일 제출입니다.
+- `repo.ref`는 실제로 빌드할 커밋 해시여야 합니다.
+- community-extensions 배포는 최신 stable DuckDB 기준으로 이해하는 것이 맞고, `1.4.x` 검사는 저장소 내부 compatibility lane으로 유지합니다.
 
 #### 4.2 모니터링 및 지원
 - [ ] GitHub Issues 모니터링
