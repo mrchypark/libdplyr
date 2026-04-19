@@ -26,7 +26,7 @@ mod ffi_tests {
         assert!(!options.debug_mode);
         assert_eq!(options.max_input_length, 1024 * 1024);
         assert_eq!(options.max_processing_time_ms, MAX_PROCESSING_TIME_MS);
-        assert_eq!(options.dialect, DplyrDialect::DuckDb);
+        assert_eq!(options.dialect, DplyrDialect::DuckDb as u32);
     }
 
     #[test]
@@ -47,13 +47,13 @@ mod ffi_tests {
             custom_options.max_processing_time_ms,
             MAX_PROCESSING_TIME_MS
         );
-        assert_eq!(custom_options.dialect, DplyrDialect::MySql);
+        assert_eq!(custom_options.dialect, DplyrDialect::MySql as u32);
 
         let full_options = DplyrOptions::with_all_settings(true, 1024, 5000, DplyrDialect::DuckDb);
         assert!(full_options.debug_mode);
         assert_eq!(full_options.max_input_length, 1024);
         assert_eq!(full_options.max_processing_time_ms, 5000);
-        assert_eq!(full_options.dialect, DplyrDialect::DuckDb);
+        assert_eq!(full_options.dialect, DplyrDialect::DuckDb as u32);
     }
 
     #[test]
@@ -69,7 +69,7 @@ mod ffi_tests {
             debug_mode: false,
             max_input_length: (MAX_INPUT_LENGTH + 1) as u32,
             max_processing_time_ms: MAX_PROCESSING_TIME_MS,
-            dialect: DplyrDialect::DuckDb,
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(oversized_options.validate().is_err());
 
@@ -78,7 +78,7 @@ mod ffi_tests {
             debug_mode: false,
             max_input_length: 1024,
             max_processing_time_ms: 0, // Zero means use default
-            dialect: DplyrDialect::DuckDb,
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(zero_timeout_options.validate().is_ok());
 
@@ -86,9 +86,17 @@ mod ffi_tests {
             debug_mode: false,
             max_input_length: 1024,
             max_processing_time_ms: MAX_PROCESSING_TIME_MS + 1000, // Too large
-            dialect: DplyrDialect::DuckDb,
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(oversized_timeout_options.validate().is_err());
+
+        let invalid_dialect_options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        assert!(invalid_dialect_options.validate().is_err());
     }
 
     #[test]
@@ -109,10 +117,10 @@ mod ffi_tests {
         assert_eq!(default_opts, DplyrOptions::default());
 
         // Test custom options creation
-        let custom_opts = dplyr_options_create(true, 2048, DplyrDialect::DuckDb);
+        let custom_opts = dplyr_options_create(true, 2048, DplyrDialect::DuckDb as u32);
         assert!(custom_opts.debug_mode);
         assert_eq!(custom_opts.max_input_length, 2048);
-        assert_eq!(custom_opts.dialect, DplyrDialect::DuckDb);
+        assert_eq!(custom_opts.dialect, DplyrDialect::DuckDb as u32);
 
         // Test validation
         let valid_result = unsafe { dplyr_options_validate(&default_opts as *const DplyrOptions) };
@@ -121,6 +129,15 @@ mod ffi_tests {
         // Test null pointer validation
         let null_result = unsafe { dplyr_options_validate(std::ptr::null()) };
         assert_eq!(null_result, -1);
+    }
+
+    #[test]
+    fn test_ffi_options_creation_preserves_invalid_raw_dialect_for_validation() {
+        let options = dplyr_options_create(false, 1024, 99);
+        assert_eq!(options.dialect, 99);
+
+        let validation_result = unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
+        assert_eq!(validation_result, -2);
     }
 
     #[test]
@@ -298,7 +315,7 @@ mod ffi_tests {
 
     #[test]
     fn test_dplyr_compile_respects_selected_dialect_when_mysql_is_requested() {
-        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql);
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
         let sql = safe_dplyr_compile_test("users %>% select(name, age)", &options)
             .expect("mysql-targeted transpilation should succeed");
 
@@ -331,7 +348,7 @@ mod ffi_tests {
     fn test_dplyr_compile_query_skips_size_validation_for_plain_sql() {
         let oversized_plain_sql = format!("SELECT 1 /* {} */", "x".repeat(2048));
         let input = CString::new(oversized_plain_sql).unwrap();
-        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb);
+        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb as u32);
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
@@ -347,7 +364,7 @@ mod ffi_tests {
     fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
         let oversized_pipeline =
             CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
-        let options = dplyr_options_create(false, 24, DplyrDialect::DuckDb);
+        let options = dplyr_options_create(false, 24, DplyrDialect::DuckDb as u32);
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
@@ -400,6 +417,40 @@ mod ffi_tests {
         };
         assert_eq!(missing_error_result, DPLYR_ERROR_NULL_POINTER);
         assert!(out_sql.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_reports_invalid_dialect_without_ub() {
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile(
+                input.as_ptr(),
+                &options as *const DplyrOptions,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("Invalid dialect value"));
     }
 
     #[test]
@@ -707,15 +758,15 @@ mod ffi_tests {
     fn test_ffi_options_with_timeout() {
         // Test timeout creation
         let timeout_opts =
-            dplyr_options_create_with_timeout(true, 1024, 5000, DplyrDialect::PostgreSql);
+            dplyr_options_create_with_timeout(true, 1024, 5000, DplyrDialect::PostgreSql as u32);
         assert!(timeout_opts.debug_mode);
         assert_eq!(timeout_opts.max_input_length, 1024);
         assert_eq!(timeout_opts.max_processing_time_ms, 5000);
-        assert_eq!(timeout_opts.dialect, DplyrDialect::PostgreSql);
+        assert_eq!(timeout_opts.dialect, DplyrDialect::PostgreSql as u32);
 
         // Test default timeout (0 = use default)
         let default_timeout_opts =
-            dplyr_options_create_with_timeout(false, 1024, 0, DplyrDialect::DuckDb);
+            dplyr_options_create_with_timeout(false, 1024, 0, DplyrDialect::DuckDb as u32);
         assert_eq!(
             default_timeout_opts.max_processing_time_ms,
             MAX_PROCESSING_TIME_MS
@@ -974,9 +1025,9 @@ mod ffi_tests {
                     1024 * (thread_id as u32 + 1),    // max_input_length
                     5000 + (thread_id as u64 * 1000), // max_processing_time_ms
                     if thread_id % 2 == 0 {
-                        DplyrDialect::DuckDb
+                        DplyrDialect::DuckDb as u32
                     } else {
-                        DplyrDialect::MySql
+                        DplyrDialect::MySql as u32
                     },
                 );
 
@@ -1067,7 +1118,7 @@ mod ffi_tests {
                     assert!(!error_name.is_empty());
 
                     let is_success = dplyr_is_success(error_code);
-                    assert_eq!(is_success, error_code == DPLYR_SUCCESS);
+                    assert_eq!(is_success, error_code >= 0);
 
                     let _is_recoverable = dplyr_is_recoverable_error(error_code);
                     // Just test it doesn't crash

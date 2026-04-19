@@ -267,10 +267,10 @@ pub const extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char 
 /// * `error_code` - C error code
 ///
 /// # Returns
-/// true if success, false if error
+/// true if the result is non-error (`SUCCESS` or `QUERY_NOT_HANDLED`), false if error
 #[no_mangle]
 pub const extern "C" fn dplyr_is_success(error_code: i32) -> bool {
-    error_code == DPLYR_SUCCESS
+    error_code >= 0
 }
 
 /// Check if error code indicates a recoverable error
@@ -408,6 +408,7 @@ mod tests {
 
         // Test success check
         assert!(dplyr_is_success(DPLYR_SUCCESS));
+        assert!(dplyr_is_success(DPLYR_QUERY_NOT_HANDLED));
         assert!(!dplyr_is_success(DPLYR_ERROR_SYNTAX));
 
         // Test recoverability

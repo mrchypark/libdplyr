@@ -76,7 +76,7 @@ typedef struct DplyrOptions {
     bool debug_mode;                /**< Enable debug logging (R10-AC1) */
     uint32_t max_input_length;      /**< Maximum input length for DoS prevention (R9-AC2) */
     uint64_t max_processing_time_ms; /**< Maximum processing time in milliseconds (0 = use default) (R9-AC2) */
-    DplyrDialect dialect;           /**< SQL dialect selection (defaults to DuckDB) */
+    uint32_t dialect;               /**< SQL dialect selection as a DPLYR_DIALECT_* value */
 } DplyrOptions;
 
 /* ========================================================================
@@ -258,7 +258,7 @@ DplyrOptions dplyr_options_default(void);
 DplyrOptions dplyr_options_create(
     bool debug_mode,
     uint32_t max_input_length,
-    DplyrDialect dialect
+    uint32_t dialect
 );
 
 /**
@@ -274,7 +274,7 @@ DplyrOptions dplyr_options_create_with_timeout(
     bool debug_mode,
     uint32_t max_input_length,
     uint64_t max_processing_time_ms,
-    DplyrDialect dialect
+    uint32_t dialect
 );
 
 /**
@@ -301,7 +301,7 @@ const char* dplyr_error_code_name(int error_code);
  * @brief Check if error code indicates success
  * 
  * @param error_code Error code to check
- * @return true if success, false if error
+ * @return true if the result is non-error (`DPLYR_SUCCESS` or `DPLYR_QUERY_NOT_HANDLED`)
  */
 bool dplyr_is_success(int error_code);
 

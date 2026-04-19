@@ -17,6 +17,23 @@ pub enum DplyrDialect {
     Sqlite = 3,
 }
 
+impl TryFrom<u32> for DplyrDialect {
+    type Error = TranspileError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::DuckDb),
+            1 => Ok(Self::PostgreSql),
+            2 => Ok(Self::MySql),
+            3 => Ok(Self::Sqlite),
+            _ => Err(TranspileError::internal_error(&format!(
+                "Invalid dialect value '{}'",
+                value
+            ))),
+        }
+    }
+}
+
 // R3-AC1: C-compatible options structure
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +41,7 @@ pub struct DplyrOptions {
     pub debug_mode: bool,            // R10-AC1: Debug mode support
     pub max_input_length: u32,       // R9-AC2: DoS prevention
     pub max_processing_time_ms: u64, // R9-AC2: Processing time limit (0 = use default)
-    pub dialect: DplyrDialect,       // SQL dialect selection for generic C API
+    pub dialect: u32,                // SQL dialect selection for generic C API
 }
 
 impl Default for DplyrOptions {
@@ -33,7 +50,7 @@ impl Default for DplyrOptions {
             debug_mode: false,
             max_input_length: 1024 * 1024, // 1MB default limit
             max_processing_time_ms: MAX_PROCESSING_TIME_MS, // R9-AC2: Default timeout
-            dialect: DplyrDialect::DuckDb,
+            dialect: DplyrDialect::DuckDb as u32,
         }
     }
 }
@@ -61,7 +78,7 @@ impl DplyrOptions {
             debug_mode,
             max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
             max_processing_time_ms: MAX_PROCESSING_TIME_MS,
-            dialect,
+            dialect: dialect as u32,
         }
     }
 
@@ -90,7 +107,7 @@ impl DplyrOptions {
             debug_mode,
             max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
             max_processing_time_ms: timeout,
-            dialect,
+            dialect: dialect as u32,
         }
     }
 
@@ -120,6 +137,8 @@ impl DplyrOptions {
                 self.max_processing_time_ms, MAX_PROCESSING_TIME_MS
             )));
         }
+
+        DplyrDialect::try_from(self.dialect)?;
 
         Ok(())
     }
@@ -154,9 +173,14 @@ pub extern "C" fn dplyr_options_default() -> DplyrOptions {
 pub extern "C" fn dplyr_options_create(
     debug_mode: bool,
     max_input_length: u32,
-    dialect: DplyrDialect,
+    dialect: u32,
 ) -> DplyrOptions {
-    DplyrOptions::with_settings(debug_mode, max_input_length, dialect)
+    DplyrOptions {
+        debug_mode,
+        max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
+        max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+        dialect,
+    }
 }
 
 /// Create DplyrOptions with all settings including timeout
@@ -174,14 +198,19 @@ pub extern "C" fn dplyr_options_create_with_timeout(
     debug_mode: bool,
     max_input_length: u32,
     max_processing_time_ms: u64,
-    dialect: DplyrDialect,
+    dialect: u32,
 ) -> DplyrOptions {
-    DplyrOptions::with_all_settings(
+    let timeout = if max_processing_time_ms == 0 {
+        MAX_PROCESSING_TIME_MS
+    } else {
+        max_processing_time_ms.min(MAX_PROCESSING_TIME_MS)
+    };
+    DplyrOptions {
         debug_mode,
-        max_input_length,
-        max_processing_time_ms,
+        max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
+        max_processing_time_ms: timeout,
         dialect,
-    )
+    }
 }
 
 /// Validate DplyrOptions

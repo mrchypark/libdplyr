@@ -33,6 +33,10 @@ fn create_dialect(dialect: DplyrDialect) -> Box<dyn SqlDialect> {
     }
 }
 
+fn validated_dialect(raw_dialect: u32) -> Result<DplyrDialect, TranspileError> {
+    DplyrDialect::try_from(raw_dialect)
+}
+
 enum CompileInputError {
     InputTooLarge(String),
     Transpile(TranspileError),
@@ -89,7 +93,7 @@ fn compile_to_sql(code_str: &str, opts: &DplyrOptions) -> Result<String, Transpi
 
         validate_input_security(dplyr_code)?;
 
-        let transpiler = Transpiler::new(create_dialect(options.dialect));
+        let transpiler = Transpiler::new(create_dialect(validated_dialect(options.dialect)?));
         let transpile_start = Instant::now();
         let transpile_result = transpiler.transpile(dplyr_code);
 
@@ -129,18 +133,55 @@ fn strip_trailing_semicolon(input: &str) -> String {
         .to_string()
 }
 
-fn is_probably_identifier_chain(prefix: &str) -> bool {
+fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
     if prefix.is_empty() {
-        return false;
+        return None;
     }
 
-    let mut parts = 0;
-    for part in prefix.split('.') {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut quote_end = None;
+
+    for (idx, ch) in prefix.char_indices() {
+        match quote_end {
+            Some(end) => {
+                if ch == end {
+                    quote_end = None;
+                }
+            }
+            None => match ch {
+                '"' => quote_end = Some('"'),
+                '`' => quote_end = Some('`'),
+                '[' => quote_end = Some(']'),
+                '.' => {
+                    parts.push(&prefix[start..idx]);
+                    start = idx + ch.len_utf8();
+                }
+                _ => {}
+            },
+        }
+    }
+
+    if quote_end.is_some() {
+        return None;
+    }
+
+    parts.push(&prefix[start..]);
+    Some(parts)
+}
+
+fn is_probably_identifier_chain(prefix: &str) -> bool {
+    let Some(parts) = split_identifier_chain(prefix) else {
+        return false;
+    };
+
+    let mut part_count = 0;
+    for part in parts {
         let part = part.trim();
         if part.is_empty() {
             return false;
         }
-        parts += 1;
+        part_count += 1;
 
         let quoted = (part.starts_with('"') && part.ends_with('"'))
             || (part.starts_with('`') && part.ends_with('`'))
@@ -155,13 +196,13 @@ fn is_probably_identifier_chain(prefix: &str) -> bool {
 
         if !part
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
         {
             return false;
         }
     }
 
-    parts > 0
+    part_count > 0
 }
 
 fn extract_leading_table_name(dplyr_code: &str) -> Option<&str> {
@@ -635,5 +676,31 @@ pub fn convert_libdplyr_error(libdplyr_error: libdplyr::TranspileError) -> Trans
                 Some("Check system resources and permissions".to_string()),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod query_rewrite_tests {
+    use super::*;
+
+    #[test]
+    fn identifier_chain_accepts_quoted_segments_with_embedded_dots() {
+        assert!(is_probably_identifier_chain("schema.\"table.name\""));
+        assert!(is_probably_identifier_chain("`catalog.with.dot`.orders"));
+        assert!(is_probably_identifier_chain(
+            "[schema.with.dot].[table.name]"
+        ));
+    }
+
+    #[test]
+    fn identifier_chain_accepts_unicode_identifiers() {
+        assert!(is_probably_identifier_chain("데이터_원본"));
+        assert!(is_probably_identifier_chain("스키마.테이블"));
+    }
+
+    #[test]
+    fn identifier_chain_rejects_unterminated_quotes() {
+        assert!(!is_probably_identifier_chain("\"broken.table"));
+        assert!(!is_probably_identifier_chain("[broken.table"));
     }
 }

@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(key1, key3);
 
         let mysql_options = DplyrOptions {
-            dialect: DplyrDialect::MySql,
+            dialect: DplyrDialect::MySql as u32,
             ..options.clone()
         };
         let key4 = SimpleTranspileCache::create_cache_key("select(col1)", &mysql_options);
