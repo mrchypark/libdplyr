@@ -539,6 +539,18 @@ pub unsafe extern "C" fn dplyr_compile_query(
             return DPLYR_QUERY_NOT_HANDLED;
         }
 
+        if trimmed_query.len() > opts.max_input_length as usize {
+            set_error_output(
+                out_error,
+                &format!(
+                    "E-INPUT-TOO-LARGE: Input size {} exceeds maximum {}",
+                    trimmed_query.len(),
+                    opts.max_input_length
+                ),
+            );
+            return DPLYR_ERROR_INPUT_TOO_LARGE;
+        }
+
         match compile_query_string(trimmed_query, &opts) {
             Ok(Some(sql)) => {
                 set_sql_output(out_sql, &sql);

@@ -344,6 +344,36 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
+        let oversized_pipeline =
+            CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
+        let options = dplyr_options_create(false, 24, DplyrDialect::DuckDb);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                oversized_pipeline.as_ptr(),
+                &options,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("E-INPUT-TOO-LARGE"));
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_null_output_pointers() {
         let input = CString::new("SELECT 42").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
