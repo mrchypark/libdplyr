@@ -51,7 +51,7 @@ pub const extern "C" fn dplyr_version_detailed() -> *const c_char {
 #[no_mangle]
 pub const extern "C" fn dplyr_supported_dialects() -> *const c_char {
     // R8-AC1: Capability information
-    c"DuckDB".as_ptr()
+    c"DuckDB,PostgreSQL,MySQL,SQLite".as_ptr()
 }
 
 /// Get build timestamp.

@@ -25,7 +25,7 @@
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
-#include "../include/dplyr.h"
+#include "../include/dplyr_extension.hpp"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -419,18 +419,6 @@ public:
         log(LogLevel::DEBUG, LogCategory::PERFORMANCE, message);
     }
     
-    /**
-     * @brief Log cache statistics
-     */
-    static void log_cache_stats() {
-        if (get_log_level() < LogLevel::DEBUG) {
-            return;
-        }
-        
-        // Use the C API to get cache statistics
-        dplyr_cache_log_stats_detailed("DEBUG_LOGGER", true);
-    }
-
 private:
     static bool try_get_local_time(std::time_t t, std::tm &out) {
 #ifdef _WIN32
@@ -476,330 +464,65 @@ private:
     }
 };
 
-/**
- * @brief Input validation and security checker for DPLYR extension
- * 
- * Implements R9-AC2: Input validation and DoS prevention
- * Provides comprehensive security checks for malicious input
- */
-class DplyrInputValidator {
-public:
-    /**
-     * @brief Validate input for security and DoS prevention
-     * 
-     * @param code Input dplyr code to validate
-     * @throws ParserException if validation fails
-     */
-    static void validate_input_security(const string& code) {
-        // R9-AC2: NULL pointer and encoding checks are handled at C API level
-        
-        // Check for control characters and non-printable characters
-        validate_character_safety(code);
-        
-        // Check for nested depth to prevent stack overflow
-        validate_nesting_depth(code);
-        
-        // Check for repetitive patterns that might cause exponential processing
-        validate_repetitive_patterns(code);
-        
-        // Check for resource exhaustion patterns
-        validate_resource_patterns(code);
-        
-        // Advanced suspicious pattern detection
-        validate_advanced_security_patterns(code);
-    }
-    
-    /**
-     * @brief Validate processing time limits
-     * 
-     * @param start_time Processing start time
-     * @throws ParserException if timeout exceeded
-     */
-    static void check_processing_timeout(const std::chrono::high_resolution_clock::time_point& start_time) {
-        auto current_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
-        
-        if (duration.count() > static_cast<long>(dplyr_max_processing_time_ms())) {
-            DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                "Processing timeout exceeded", 
-                "Duration: " + std::to_string(duration.count()) + "ms");
-            
-            throw ParserException("DPLYR processing timeout exceeded: " + 
-                                std::to_string(duration.count()) + "ms > " + 
-                                std::to_string(dplyr_max_processing_time_ms()) + "ms");
-        }
-    }
-
-private:
-    /**
-     * @brief Validate character safety (control chars, encoding issues)
-     * 
-     * @param code Input code to validate
-     * @throws ParserException if unsafe characters found
-     */
-    static void validate_character_safety(const string& code) {
-        const int ASCII_CONTROL_LIMIT = 32;
-        const int ASCII_MAX = 127;
-        const int ASCII_EXTENDED_START = 128;
-        
-        for (size_t i = 0; i < code.length(); ++i) {
-            auto c = static_cast<unsigned char>(code[i]);
-            
-            // Check for control characters (except common whitespace)
-            if (c < ASCII_CONTROL_LIMIT && c != '\t' && c != '\n' && c != '\r') {
-                DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                    "Control character detected", 
-                    "Position: " + std::to_string(i) + ", Code: " + std::to_string(c));
-                
-                throw ParserException("DPLYR code contains invalid control character at position " + 
-                                    std::to_string(i));
-            }
-            
-            // Check for potential encoding issues (high-bit characters in suspicious contexts)
-            if (c > ASCII_MAX) {
-                // Allow UTF-8 sequences, but be cautious about isolated high-bit chars
-                if (i + 1 < code.length()) {
-                    auto next = static_cast<unsigned char>(code[i + 1]);
-                    if (next < ASCII_EXTENDED_START) {
-                        DplyrDebugLogger::log_warning(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                            "Potential encoding issue detected", 
-                            "Position: " + std::to_string(i));
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * @brief Validate nesting depth to prevent stack overflow
-     * 
-     * @param code Input code to validate
-     * @throws ParserException if nesting too deep
-     */
-    static void validate_nesting_depth(const string& code) {
-        const int MAX_NESTING_DEPTH = 50;
-        int current_depth = 0;
-        int max_depth = 0;
-        
-        for (char c : code) {
-            if (c == '(' || c == '[' || c == '{') {
-                current_depth++;
-                max_depth = std::max(max_depth, current_depth);
-                
-                if (current_depth > MAX_NESTING_DEPTH) {
-                    DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                        "Excessive nesting depth", 
-                        "Depth: " + std::to_string(current_depth));
-                    
-                    throw ParserException("DPLYR code has excessive nesting depth: " + 
-                                        std::to_string(current_depth) + " > " + 
-                                        std::to_string(MAX_NESTING_DEPTH));
-                }
-            } else if (c == ')' || c == ']' || c == '}') {
-                current_depth--;
-            }
-        }
-        
-        DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-            "Nesting depth validation passed: " + std::to_string(max_depth));
-    }
-    
-    /**
-     * @brief Validate repetitive patterns that might cause exponential processing
-     * 
-     * @param code Input code to validate
-     * @throws ParserException if dangerous patterns found
-     */
-    static void validate_repetitive_patterns(const string& code) {
-        const int MAX_REPETITIONS = 100;
-        
-        // Check for excessive repetition of operators
-        vector<string> operators = {"%>%", "==", "!=", "<=", ">=", "&&", "||"};
-        
-        for (const auto& op : operators) {
-            size_t count = 0;
-            size_t pos = 0;
-            
-            while ((pos = code.find(op, pos)) != string::npos) {
-                count++;
-                pos += op.length();
-                
-                if (count > MAX_REPETITIONS) {
-                    DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                        "Excessive operator repetition", 
-                        "Operator: " + op + ", Count: " + std::to_string(count));
-                    
-                    throw ParserException("DPLYR code has excessive repetition of operator '" + op + 
-                                        "': " + std::to_string(count) + " times");
-                }
-            }
-        }
-    }
-    
-    /**
-     * @brief Validate patterns that might exhaust resources
-     * 
-     * @param code Input code to validate
-     * @throws ParserException if resource exhaustion patterns found
-     */
-    static void validate_resource_patterns(const string& code) {
-        // Check for patterns that might cause memory exhaustion
-        vector<string> resource_patterns = {
-            "rep(", "replicate(", "expand.grid(", "crossing(",
-            "paste(", "paste0(", "sprintf(", "format("
-        };
-        
-        for (const auto& pattern : resource_patterns) {
-            if (code.find(pattern) != string::npos) {
-                DplyrDebugLogger::log_warning(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                    "Potential resource-intensive pattern detected", 
-                    "Pattern: " + pattern);
-                
-                // Don't throw error, just warn - these might be legitimate
-            }
-        }
-        
-        // Check for very long string literals that might cause memory issues
-        bool in_string = false;
-        char string_delimiter = '\0';
-        size_t string_start = 0;
-        const size_t MAX_STRING_LENGTH = 10000;
-        
-        for (size_t i = 0; i < code.length(); ++i) {
-            char c = code[i];
-            
-            if (!in_string && (c == '"' || c == '\'')) {
-                in_string = true;
-                string_delimiter = c;
-                string_start = i;
-            } else if (in_string && c == string_delimiter) {
-                // Check if it's escaped
-                if (i > 0 && code[i-1] != '\\') {
-                    in_string = false;
-                    size_t string_length = i - string_start;
-                    
-                    if (string_length > MAX_STRING_LENGTH) {
-                        DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                            "Excessive string literal length", 
-                            "Length: " + std::to_string(string_length));
-                        
-                        throw ParserException("DPLYR code contains excessively long string literal: " + 
-                                            std::to_string(string_length) + " characters");
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * @brief Advanced security pattern validation
-     * 
-     * @param code Input code to validate
-     * @throws ParserException if advanced threats detected
-     */
-    static void validate_advanced_security_patterns(const string& code) {
-        // Check for potential code injection patterns
-        vector<string> injection_patterns = {
-            "system(", "shell(", "exec(", "eval(", "parse(",
-            "source(", "load(", "library(", "require(",
-            "Sys.setenv(", "options(", "getOption(",
-            ".Call(", ".External(", ".C(", ".Fortran(",
-            "dyn.load(", "dyn.unload("
-        };
-        
-        for (const auto& pattern : injection_patterns) {
-            if (code.find(pattern) != string::npos) {
-                DplyrDebugLogger::log_error(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                    "Potential code injection pattern detected", 
-                    "Pattern: " + pattern);
-                
-                throw ParserException("DPLYR code contains potentially dangerous pattern: " + pattern);
-            }
-        }
-        
-        // Check for file system access patterns
-        vector<string> filesystem_patterns = {
-            "file(", "file.path(", "dir(", "list.files(",
-            "read.", "write.", "save(", "load(",
-            "unlink(", "file.remove(", "file.create("
-        };
-        
-        for (const auto& pattern : filesystem_patterns) {
-            if (code.find(pattern) != string::npos) {
-                DplyrDebugLogger::log_warning(DplyrDebugLogger::LogCategory::ERROR_HANDLING, 
-                    "File system access pattern detected", 
-                    "Pattern: " + pattern);
-                
-                // Don't throw error for filesystem patterns, just warn
-                // They might be legitimate in some contexts
-            }
-        }
-    }
-};
-
 // DplyrParseData is defined in the header
 
-static string TranspileDplyrCode(const string& dplyr_code) {
-    char* sql_output = nullptr;
-    char* error_output = nullptr;
+enum class QueryCompileStatus {
+    Success,
+    NotHandled
+};
 
+static DplyrOptions DefaultDplyrOptions() {
     DplyrOptions options = dplyr_options_default();
     if (DplyrDebugLogger::is_debug_enabled()) {
         options.debug_mode = true;
     }
+    return options;
+}
+
+static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out, string &error_out) {
+    char* sql_output = nullptr;
+    char* error_output = nullptr;
+    DplyrOptions options = DefaultDplyrOptions();
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    int result = dplyr_compile(dplyr_code.c_str(), &options, &sql_output, &error_output);
-
-    DplyrInputValidator::check_processing_timeout(start_time);
+    int result = dplyr_compile_query(query.c_str(), &options, &sql_output, &error_output);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     const double MS_TO_SEC = 1000.0;
     double duration_ms = static_cast<double>(duration.count()) / MS_TO_SEC; // NOLINT(bugprone-narrowing-conversions)
 
+    if (result == DPLYR_QUERY_NOT_HANDLED) {
+        return QueryCompileStatus::NotHandled;
+    }
+
     if (!dplyr_is_success(result)) {
-        string error_msg = (error_output != nullptr) ? string(error_output) : "Unknown dplyr compilation error";
+        error_out = (error_output != nullptr) ? string(error_output) : "Unknown dplyr compilation error";
         if (error_output != nullptr) {
             dplyr_free_string(error_output);
         }
-        DplyrErrorHandler::handle_error(result, error_msg, dplyr_code);
+        return QueryCompileStatus::Success;
     }
 
-    string sql = (sql_output != nullptr) ? string(sql_output) : "";
+    sql_out = (sql_output != nullptr) ? string(sql_output) : "";
     if (sql_output != nullptr) {
         dplyr_free_string(sql_output);
     }
 
-    if (sql.empty()) {
-        throw ParserException("DPLYR generated empty SQL");
+    if (sql_out.empty()) {
+        error_out = "DPLYR generated empty SQL";
+        return QueryCompileStatus::Success;
     }
 
     if (DplyrDebugLogger::is_debug_enabled()) {
         DplyrDebugLogger::log_debug(DplyrDebugLogger::LogCategory::TRANSPILER,
-            "Generated SQL: " + sql);
+            "Generated SQL: " + sql_out);
     }
 
     DplyrDebugLogger::log_performance("transpilation", duration_ms,
-        "Input: " + std::to_string(dplyr_code.length()) + " chars");
+        "Input: " + std::to_string(query.length()) + " chars");
 
-    return sql;
-}
-
-static string ExtractLeadingTableName(const string& dplyr_code) {
-    auto pipe_pos = dplyr_code.find("%>%");
-    string prefix = pipe_pos == string::npos ? dplyr_code : dplyr_code.substr(0, pipe_pos);
-    StringUtil::Trim(prefix);
-
-    if (prefix.empty()) {
-        return "";
-    }
-
-    bool valid = std::all_of(prefix.begin(), prefix.end(), [](char c) {
-        return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '.';
-    });
-
-    return valid ? prefix : "";
+    return QueryCompileStatus::Success;
 }
 
 static string StripTrailingSemicolon(string input) {
@@ -811,143 +534,17 @@ static string StripTrailingSemicolon(string input) {
     return input;
 }
 
-static bool FindEmbeddedStartMarker(const string& query, size_t from, size_t &marker_start, size_t &content_start) {
-    for (size_t i = from; i < query.size(); i++) {
-        if (query[i] != '(') {
-            continue;
-        }
-        size_t j = i + 1;
-        while (j < query.size() && std::isspace(static_cast<unsigned char>(query[j]))) {
-            j++;
-        }
-        if (j < query.size() && query[j] == '|') {
-            marker_start = i;
-            content_start = j + 1;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool FindEmbeddedEndMarker(const string& query, size_t from, size_t &content_end, size_t &marker_end) {
-    for (size_t i = from; i < query.size(); i++) {
-        if (query[i] != '|') {
-            continue;
-        }
-        size_t j = i + 1;
-        while (j < query.size() && std::isspace(static_cast<unsigned char>(query[j]))) {
-            j++;
-        }
-        if (j < query.size() && query[j] == ')') {
-            content_end = i;
-            marker_end = j;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool ContainsEmbeddedPipelines(const string& query) {
-    size_t marker_start = 0;
-    size_t content_start = 0;
-    return FindEmbeddedStartMarker(query, 0, marker_start, content_start);
-}
-
-static string ReplaceEmbeddedPipelines(const string& query) {
-    string output;
-    output.reserve(query.size());
-
-    size_t cursor = 0;
-    while (cursor < query.size()) {
-        size_t marker_start = 0;
-        size_t content_start = 0;
-        if (!FindEmbeddedStartMarker(query, cursor, marker_start, content_start)) {
-            output.append(query.substr(cursor));
-            break;
-        }
-
-        output.append(query.substr(cursor, marker_start - cursor));
-
-        size_t content_end = 0;
-        size_t marker_end = 0;
-        if (!FindEmbeddedEndMarker(query, content_start, content_end, marker_end)) {
-            throw ParserException("Unterminated embedded dplyr segment: expected '|)'");
-        }
-
-        string embedded = query.substr(content_start, content_end - content_start);
-        StringUtil::Trim(embedded);
-        embedded = StripTrailingSemicolon(std::move(embedded));
-
-        if (embedded.empty()) {
-            throw ParserException("Embedded dplyr segment cannot be empty");
-        }
-        if (embedded.find("%>%") == string::npos) {
-            throw ParserException("Embedded dplyr segment must contain a %>% pipeline");
-        }
-
-        auto table_name = ExtractLeadingTableName(embedded);
-        if (table_name.empty()) {
-            throw ParserException("DPLYR pipeline must start with a table name");
-        }
-
-        DplyrInputValidator::validate_input_security(embedded);
-        auto sql = TranspileDplyrCode(embedded);
-
-        output.append("(");
-        output.append(sql);
-        output.append(")");
-
-        cursor = marker_end + 1;
-    }
-
-    return output;
-}
-
 ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const string& query) {
-    
-    string trimmed = query;
-    StringUtil::Trim(trimmed);
-    bool looks_like_pipeline = trimmed.find("%>%") != string::npos;
-    
-    if (!looks_like_pipeline) {
-        return ParserExtensionParseResult(); // Not for this extension
-    }
-
     try {
-        if (trimmed.empty()) {
-            return ParserExtensionParseResult("DPLYR pipeline cannot be empty");
-        }
-
-        const bool has_embedded = ContainsEmbeddedPipelines(trimmed);
-
         string sql;
-        if (has_embedded) {
-            sql = ReplaceEmbeddedPipelines(trimmed);
-            if (sql.find("%>%") != string::npos) {
-                return ParserExtensionParseResult(
-                    "Unprocessed %>% pipeline remains. Wrap pipelines with (| ... |) or provide a pure pipeline statement.");
-            }
-        } else {
-            string dplyr_code = StripTrailingSemicolon(trimmed);
-
-            auto table_name = ExtractLeadingTableName(dplyr_code);
-            if (table_name.empty()) {
-                return ParserExtensionParseResult("DPLYR pipeline must start with a table name");
-            }
-
-            DplyrInputValidator::validate_input_security(dplyr_code);
-            sql = TranspileDplyrCode(dplyr_code);
+        string error;
+        auto status = CompileDplyrQuery(query, sql, error);
+        if (status == QueryCompileStatus::NotHandled) {
+            return ParserExtensionParseResult();
         }
-
-        // Validate SQL syntax by checking if it starts with SELECT (basic validation)
-        // Full parsing will be done when the query is executed
-        string sql_upper = sql;
-        std::transform(sql_upper.begin(), sql_upper.end(), sql_upper.begin(), ::toupper);
-        StringUtil::Trim(sql_upper);
-        if (sql_upper.rfind("SELECT", 0) != 0 && sql_upper.rfind("WITH", 0) != 0) {
-            return ParserExtensionParseResult("DPLYR generated a non-SELECT statement; only SELECT is supported");
+        if (!error.empty()) {
+            return ParserExtensionParseResult(error);
         }
-
         return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(std::move(sql)));
     } catch (const Exception& ex) {
         return ParserExtensionParseResult(ex.what());
@@ -1036,17 +633,19 @@ static string GetDplyrQuery(const TableFunctionBindInput &input) {
 static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
     auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
-    DplyrInputValidator::validate_input_security(dplyr_code);
-
-    auto table_name = ExtractLeadingTableName(dplyr_code);
-    if (table_name.empty()) {
-        throw InvalidInputException("dplyr() pipeline must start with a table name");
-    }
 
     auto &db = DatabaseInstance::GetDatabase(context);
     Connection conn(db);
 
-    string sql = TranspileDplyrCode(dplyr_code);
+    string sql;
+    string error;
+    auto status = CompileDplyrQuery(dplyr_code, sql, error);
+    if (status == QueryCompileStatus::NotHandled) {
+        throw InvalidInputException("dplyr() requires a %>% pipeline expression");
+    }
+    if (!error.empty()) {
+        throw InvalidInputException("dplyr() transpilation failed: %s", error.c_str());
+    }
 
     // Bind should be lightweight: infer schema without materializing rows.
     string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";

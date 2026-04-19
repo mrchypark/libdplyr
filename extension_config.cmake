@@ -25,18 +25,20 @@ endif()
 set(EXTENSION_SEMVER_POLICY "Semantic Versioning 2.0.0")
 set(EXTENSION_API_VERSION "1")  # API compatibility version
 
-# R8-AC1: DuckDB compatibility policy - Version agnostic approach
-# Extension is designed to be compatible with a wide range of DuckDB versions
-# by using stable APIs and avoiding version-specific features
-set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "VERSION_AGNOSTIC")
-set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.0")  # Minimum supported DuckDB version
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.0;1.4.4")
+# R8-AC1: DuckDB compatibility policy
+# - 1.5.x is the primary supported current line
+# - 1.4.0 remains the minimum supported compatibility target
+set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "PRIMARY_CURRENT_PLUS_MINIMUM_COMPAT")
+set(DUCKDB_EXTENSION_PRIMARY_SERIES "1.5.x")
+set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.2")
+set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.0")
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.0;1.5.2")
 
 # R8-AC1: Extension compatibility strategy
-# - Use only stable DuckDB APIs that are unlikely to change
-# - Implement runtime feature detection instead of compile-time version checks
-# - Graceful degradation for unsupported features
-set(EXTENSION_COMPATIBILITY_STRATEGY "RUNTIME_FEATURE_DETECTION")
+# - Keep the current CI gate on the primary 1.5.x line across platforms
+# - Run the minimum supported 1.4.0 line as an explicit compatibility lane
+# - Keep implementation on stable APIs where possible
+set(EXTENSION_COMPATIBILITY_STRATEGY "PRIMARY_SUPPORT_PLUS_COMPATIBILITY_CHECK")
 
 # R8-AC1: Deprecation and breaking change policy
 # Breaking changes require 1 minor version advance notice
@@ -187,9 +189,9 @@ set(EXTENSION_FEATURES
     "error_recovery"       # Graceful error handling
     "debug_logging"        # Debug logging support
     "performance_metrics"  # Performance monitoring
-    "version_agnostic"     # Works across DuckDB versions
-    "runtime_detection"    # Runtime feature detection
-    "graceful_degradation" # Graceful feature degradation
+    "cross_version_source" # Same source targets multiple DuckDB versions
+    "primary_support_line" # Primary CI and release focus on 1.5.x
+    "compatibility_check"  # Minimum supported 1.4.0 is explicitly tested
 )
 
 # R8-AC1: Supported dplyr operations (minimum operation set from R1-AC2)
@@ -234,22 +236,26 @@ function(check_duckdb_version DUCKDB_VERSION)
     message(STATUS "Checking DuckDB version compatibility...")
     message(STATUS "  DuckDB version: ${DUCKDB_VERSION}")
     message(STATUS "  Compatibility approach: ${DUCKDB_EXTENSION_COMPATIBILITY_APPROACH}")
+    message(STATUS "  Primary supported series: ${DUCKDB_EXTENSION_PRIMARY_SERIES}")
+    message(STATUS "  Primary supported version: ${DUCKDB_EXTENSION_PRIMARY_VERSION}")
 
-    # Only check for very old versions that lack basic extension API
     if(DUCKDB_VERSION VERSION_LESS ${DUCKDB_EXTENSION_MIN_SUPPORTED})
         message(WARNING
-            "DuckDB version ${DUCKDB_VERSION} is very old. "
-            "Minimum supported version: ${DUCKDB_EXTENSION_MIN_SUPPORTED}. "
-            "Extension may not work properly with very old DuckDB versions.")
+            "DuckDB version ${DUCKDB_VERSION} is below the minimum supported version "
+            "${DUCKDB_EXTENSION_MIN_SUPPORTED}. Extension compatibility is not guaranteed.")
     endif()
 
-    # Check if version is in tested versions list
     list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS ${DUCKDB_VERSION} VERSION_INDEX)
     if(VERSION_INDEX GREATER -1)
         message(STATUS "  ✓ DuckDB version ${DUCKDB_VERSION} is fully tested and supported")
+    elseif(DUCKDB_VERSION VERSION_LESS ${DUCKDB_EXTENSION_PRIMARY_VERSION})
+        message(STATUS
+            "  ℹ DuckDB version ${DUCKDB_VERSION} is within the supported range but outside the "
+            "current explicit compatibility lane")
     else()
-        message(STATUS "  ℹ DuckDB version ${DUCKDB_VERSION} is not explicitly tested but should work")
-        message(STATUS "    Extension uses runtime feature detection for compatibility")
+        message(STATUS
+            "  ℹ DuckDB version ${DUCKDB_VERSION} is newer than the current tested set. "
+            "Compatibility depends on the stable API surface used by the extension.")
     endif()
 
     message(STATUS "  Strategy: ${EXTENSION_COMPATIBILITY_STRATEGY}")

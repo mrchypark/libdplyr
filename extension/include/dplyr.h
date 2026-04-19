@@ -14,7 +14,6 @@
  * - R9-AC1: Panic safety across FFI boundaries
  * - R9-AC2: Input validation and DoS prevention
  * - R10-AC1: Debug mode support
- * - R10-AC2: Cache metadata exposure
  */
 
 #ifndef DPLYR_H
@@ -34,6 +33,8 @@ extern "C" {
 
 /** @brief Success return code */
 #define DPLYR_SUCCESS 0
+/** @brief Query did not contain a dplyr pipeline and should be ignored by parser hooks */
+#define DPLYR_QUERY_NOT_HANDLED 1
 
 /** @brief FFI-related errors (invalid parameters, encoding issues) */
 #define DPLYR_ERROR_NULL_POINTER (-1)
@@ -51,6 +52,16 @@ extern "C" {
 #define DPLYR_ERROR_INTERNAL (-7)
 #define DPLYR_ERROR_PANIC (-8)
 
+/**
+ * @brief Supported SQL dialects for the generic C API.
+ */
+typedef enum DplyrDialect {
+    DPLYR_DIALECT_DUCKDB = 0,
+    DPLYR_DIALECT_POSTGRESQL = 1,
+    DPLYR_DIALECT_MYSQL = 2,
+    DPLYR_DIALECT_SQLITE = 3
+} DplyrDialect;
+
 /* ========================================================================
  * DATA STRUCTURES
  * ======================================================================== */
@@ -62,11 +73,10 @@ extern "C" {
  * to ensure C ABI compatibility (R3-AC1).
  */
 typedef struct DplyrOptions {
-    bool strict_mode;               /**< Enable strict parsing mode */
-    bool preserve_comments;         /**< Preserve comments in output SQL */
     bool debug_mode;                /**< Enable debug logging (R10-AC1) */
     uint32_t max_input_length;      /**< Maximum input length for DoS prevention (R9-AC2) */
     uint64_t max_processing_time_ms; /**< Maximum processing time in milliseconds (0 = use default) (R9-AC2) */
+    DplyrDialect dialect;           /**< SQL dialect selection (defaults to DuckDB) */
 } DplyrOptions;
 
 /* ========================================================================
@@ -77,7 +87,7 @@ typedef struct DplyrOptions {
  * @brief Convert dplyr pipeline code to SQL
  * 
  * This function transpiles dplyr pipeline syntax to equivalent SQL
- * for the DuckDB dialect. It handles the minimum operation set
+ * for the selected SQL dialect. It handles the minimum operation set
  * (select, filter, mutate, arrange, summarise, group_by) as specified
  * in requirement R1-AC2.
  * 
@@ -106,7 +116,7 @@ typedef struct DplyrOptions {
  * @code
  * char* sql = NULL;
  * char* error = NULL;
- * DplyrOptions options = {false, false, false, 1024*1024};
+ * DplyrOptions options = {false, 1024*1024, 0, DPLYR_DIALECT_DUCKDB};
  * 
  * int result = dplyr_compile("mtcars %>% select(mpg, cyl)", &options, &sql, &error);
  * if (result == 0) {
@@ -120,6 +130,20 @@ typedef struct DplyrOptions {
  */
 int dplyr_compile(
     const char* code,
+    const DplyrOptions* options,
+    char** out_sql,
+    char** out_error
+);
+
+/**
+ * @brief Compile a full query, including embedded `(| ... |)` dplyr segments.
+ *
+ * Returns `DPLYR_QUERY_NOT_HANDLED` when the query does not contain a dplyr
+ * pipeline. On success, `out_sql` receives either the rewritten SQL query or
+ * the compiled pure pipeline SQL.
+ */
+int dplyr_compile_query(
+    const char* query,
     const DplyrOptions* options,
     char** out_sql,
     char** out_error
@@ -157,18 +181,8 @@ int dplyr_free_string(char* s);
  */
 int dplyr_free_strings(char** strings, size_t count);
 
-/**
- * @brief Check if a pointer looks like a valid C string (for debugging)
- * 
- * @param s Pointer to check
- * @return true if pointer appears valid, false otherwise
- * 
- * @note This is a best-effort check and cannot guarantee validity
- */
-bool dplyr_is_valid_string_pointer(const char* s);
-
 /* ========================================================================
- * VERSION AND SYSTEM INFORMATION
+ * VERSION INFORMATION
  * ======================================================================== */
 
 /**
@@ -222,13 +236,6 @@ uint32_t dplyr_max_input_length(void);
  */
 uint64_t dplyr_max_processing_time_ms(void);
 
-/**
- * @brief Validate system requirements and configuration
- * 
- * @return 0 if system is ready, negative error code if issues found
- */
-int dplyr_check_system(void);
-
 /* ========================================================================
  * OPTIONS MANAGEMENT
  * ======================================================================== */
@@ -243,35 +250,31 @@ DplyrOptions dplyr_options_default(void);
 /**
  * @brief Create DplyrOptions with custom settings
  * 
- * @param strict_mode Enable strict parsing mode
- * @param preserve_comments Keep comments in output  
  * @param debug_mode Enable debug information
  * @param max_input_length Maximum input size in bytes
+ * @param dialect SQL dialect to target
  * @return DplyrOptions with specified settings
  */
 DplyrOptions dplyr_options_create(
-    bool strict_mode,
-    bool preserve_comments,
     bool debug_mode,
-    uint32_t max_input_length
+    uint32_t max_input_length,
+    DplyrDialect dialect
 );
 
 /**
  * @brief Create DplyrOptions with all settings including timeout
  * 
- * @param strict_mode Enable strict parsing mode
- * @param preserve_comments Keep comments in output  
  * @param debug_mode Enable debug information
  * @param max_input_length Maximum input size in bytes
  * @param max_processing_time_ms Maximum processing time in milliseconds (0 = use default)
+ * @param dialect SQL dialect to target
  * @return DplyrOptions with specified settings
  */
 DplyrOptions dplyr_options_create_with_timeout(
-    bool strict_mode,
-    bool preserve_comments,
     bool debug_mode,
     uint32_t max_input_length,
-    uint64_t max_processing_time_ms
+    uint64_t max_processing_time_ms,
+    DplyrDialect dialect
 );
 
 /**
@@ -311,104 +314,6 @@ bool dplyr_is_success(int error_code);
 bool dplyr_is_recoverable_error(int error_code);
 
 /* ========================================================================
- * CACHE MANAGEMENT FUNCTIONS (R10-AC2)
- * ======================================================================== */
-
-/**
- * @brief Get cache statistics as JSON string
- * 
- * @return JSON string with cache statistics (must be freed with dplyr_free_string)
- */
-char* dplyr_cache_get_stats(void);
-
-/**
- * @brief Get cache hit rate as percentage
- * 
- * @return Hit rate as percentage (0.0 to 100.0)
- */
-double dplyr_cache_get_hit_rate(void);
-
-/**
- * @brief Check if cache is performing effectively
- * 
- * @return true if hit rate > 50%, false otherwise
- */
-bool dplyr_cache_is_effective(void);
-
-/**
- * @brief Clear cache and reset all metrics
- * 
- * @return 0 on success, negative error code on failure
- * 
- * @note This function is thread-safe but only affects the current thread's cache
- */
-int dplyr_cache_clear(void);
-
-/**
- * @brief Get current cache size
- * 
- * @return Number of entries currently in cache
- */
-size_t dplyr_cache_get_size(void);
-
-/**
- * @brief Get maximum cache capacity
- * 
- * @return Maximum number of entries cache can hold
- */
-size_t dplyr_cache_get_capacity(void);
-
-/**
- * @brief Get total number of cache hits
- * 
- * @return Total cache hits since last clear
- */
-uint64_t dplyr_cache_get_hits(void);
-
-/**
- * @brief Get total number of cache misses
- * 
- * @return Total cache misses since last clear
- */
-uint64_t dplyr_cache_get_misses(void);
-
-/**
- * @brief Get total number of cache evictions
- * 
- * @return Total evictions since last clear
- */
-uint64_t dplyr_cache_get_evictions(void);
-
-/**
- * @brief Log cache statistics to stderr (for debugging)
- * 
- * @param prefix Optional prefix for log message (can be NULL)
- */
-void dplyr_cache_log_stats(const char* prefix);
-
-/**
- * @brief Log cache statistics with timestamp (R10-AC2: Debug mode logging)
- * 
- * @param prefix Optional prefix for log message (can be NULL)
- * @param include_timestamp Whether to include timestamp in log
- */
-void dplyr_cache_log_stats_detailed(const char* prefix, bool include_timestamp);
-
-/**
- * @brief Log cache performance warning if performance is poor (R10-AC2)
- * 
- * @return true if warning was logged, false if performance is acceptable
- */
-bool dplyr_cache_log_performance_warning(void);
-
-/**
- * @brief Check if cache should be cleared based on performance
- * 
- * @return true if cache performance is poor and should be cleared
- */
-bool dplyr_cache_should_clear(void);
-
-/* ========================================================================
  * USAGE EXAMPLES
  * ======================================================================== */
 
@@ -440,10 +345,6 @@ bool dplyr_cache_should_clear(void);
  *         printf("Generated SQL: %s\n", sql);
  *         dplyr_free_string(sql);
  *         
- *         // Check cache performance
- *         if (dplyr_cache_is_effective()) {
- *             printf("Cache hit rate: %.1f%%\n", dplyr_cache_get_hit_rate());
- *         }
  *     } else {
  *         fprintf(stderr, "Error (%s): %s\n", 
  *                 dplyr_error_code_name(result), error);
@@ -460,47 +361,12 @@ bool dplyr_cache_should_clear(void);
  */
 
 /**
- * @example Cache Management
- * @code
- * #include "dplyr_extension.h"
- * #include <stdio.h>
- * 
- * void monitor_cache_performance() {
- *     // Get cache statistics
- *     char* stats = dplyr_cache_get_stats();
- *     printf("Cache stats: %s\n", stats);
- *     dplyr_free_string(stats);
- *     
- *     // Check if cache needs attention
- *     if (dplyr_cache_should_clear()) {
- *         printf("Cache performance is poor, clearing...\n");
- *         dplyr_cache_clear();
- *     }
- *     
- *     // Log detailed statistics in debug mode
- *     dplyr_cache_log_stats_detailed("MONITOR", true);
- *     
- *     // Check for performance warnings
- *     if (dplyr_cache_log_performance_warning()) {
- *         printf("Cache performance warnings logged\n");
- *     }
- * }
- * @endcode
- */
-
-/**
  * @example Error Handling
  * @code
  * #include "dplyr_extension.h"
  * #include <stdio.h>
  * 
  * int safe_transpile(const char* code) {
- *     // Validate system first
- *     if (dplyr_check_system() != 0) {
- *         fprintf(stderr, "System check failed\n");
- *         return -1;
- *     }
- *     
  *     char* sql = NULL;
  *     char* error = NULL;
  *     DplyrOptions options = dplyr_options_default();
@@ -564,7 +430,6 @@ bool dplyr_cache_should_clear(void);
  * - All utility functions (dplyr_version, dplyr_max_*, etc.) - Read-only static data
  * - All error handling functions - Stateless operations
  * - All options functions - Value-based operations
- * - All cache functions - Use thread-local storage
  * 
  * **Cache Isolation:**
  * Each thread maintains its own cache (thread_local storage). This means:
@@ -645,7 +510,7 @@ bool dplyr_cache_should_clear(void);
 /**
  * @brief Maximum supported DuckDB version
  */
-#define DPLYR_MAX_DUCKDB_VERSION "2.1.0"
+#define DPLYR_MAX_DUCKDB_VERSION "1.5.2"
 
 /**
  * @brief API version for compatibility checking
@@ -664,43 +529,6 @@ static inline bool dplyr_is_api_compatible(int required_version) {
 
 #ifdef __cplusplus
 }
-#endif
-
-#ifdef __cplusplus
-#include "duckdb.hpp"
-
-namespace dplyr {
-
-class DplyrExtension : public duckdb::Extension {
-public:
-    void Load(duckdb::ExtensionLoader &loader) override;
-    std::string Name() override;
-    std::string Version() const override { return dplyr_version(); }
-};
-
-// Parser Extension
-struct DplyrParserExtension : public duckdb::ParserExtension {
-    DplyrParserExtension();
-};
-
-// Parse Data
-struct DplyrParseData : duckdb::ParserExtensionParseData {
-    std::string sql;
-
-    explicit DplyrParseData(std::string sql_p) : sql(std::move(sql_p)) {}
-
-    duckdb::unique_ptr<duckdb::ParserExtensionParseData> Copy() const override {
-        return duckdb::make_uniq_base<duckdb::ParserExtensionParseData, DplyrParseData>(sql);
-    }
-
-    std::string ToString() const override { return "DplyrParseData"; }
-};
-
-// Function declarations
-duckdb::ParserExtensionParseResult dplyr_parse(duckdb::ParserExtensionInfo *info, const std::string &query);
-duckdb::ParserExtensionPlanResult dplyr_plan(duckdb::ParserExtensionInfo *info, duckdb::ClientContext &context, duckdb::unique_ptr<duckdb::ParserExtensionParseData> parse_data);
-
-} // namespace dplyr
 #endif
 
 #endif /* DPLYR_EXTENSION_H */

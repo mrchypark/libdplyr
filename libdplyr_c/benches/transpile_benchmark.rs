@@ -10,7 +10,7 @@
 //! - R6-AC2: Caching effectiveness measurement
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
+use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrDialect, DplyrOptions};
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
@@ -48,33 +48,30 @@ const EDGE_CASE_QUERIES: &[&str] = &[
 // Helper function to create default options
 const fn create_default_options() -> DplyrOptions {
     DplyrOptions {
-        strict_mode: false,
-        preserve_comments: false,
         debug_mode: false,
         max_input_length: 10000,
         max_processing_time_ms: 5000,
+        dialect: DplyrDialect::DuckDb,
     }
 }
 
-// Helper function to create strict options
-const fn create_strict_options() -> DplyrOptions {
+// Helper function to create alternative dialect options
+const fn create_mysql_options() -> DplyrOptions {
     DplyrOptions {
-        strict_mode: true,
-        preserve_comments: false,
         debug_mode: false,
         max_input_length: 10000,
         max_processing_time_ms: 5000,
+        dialect: DplyrDialect::MySql,
     }
 }
 
 // Helper function to create debug options
 const fn create_debug_options() -> DplyrOptions {
     DplyrOptions {
-        strict_mode: false,
-        preserve_comments: true,
         debug_mode: true,
         max_input_length: 50000,
         max_processing_time_ms: 10000,
+        dialect: DplyrDialect::DuckDb,
     }
 }
 
@@ -157,7 +154,7 @@ fn bench_complex_queries(c: &mut Criterion) {
 
 // Benchmark error handling performance
 fn bench_error_handling(c: &mut Criterion) {
-    let options = create_strict_options();
+    let options = create_mysql_options();
 
     let mut group = c.benchmark_group("error_handling");
     group.significance_level(0.1).sample_size(500);
@@ -222,7 +219,7 @@ fn bench_options_impact(c: &mut Criterion) {
 
     let configs = [
         ("default", create_default_options()),
-        ("strict", create_strict_options()),
+        ("mysql", create_mysql_options()),
         ("debug", create_debug_options()),
     ];
 

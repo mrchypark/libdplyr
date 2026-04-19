@@ -19,11 +19,10 @@ mod ffi_safety;
 mod memory;
 mod metadata;
 pub mod options;
-pub mod performance_tests;
 mod system;
 mod validation;
 
-pub use compile::dplyr_compile;
+pub use compile::{dplyr_compile, dplyr_compile_query};
 pub use ffi_safety::dplyr_is_valid_string_pointer;
 pub use memory::{dplyr_free_string, dplyr_free_strings};
 #[cfg(target_family = "wasm")]
@@ -44,21 +43,16 @@ pub use cache::{
 };
 
 // Re-export error handling functions for C header generation
+pub use error::DPLYR_QUERY_NOT_HANDLED;
 pub use error::{dplyr_error_code_name, dplyr_is_recoverable_error, dplyr_is_success};
 pub use error::{DPLYR_ERROR_SYNTAX, DPLYR_ERROR_UNSUPPORTED};
 
 pub use options::{
     dplyr_options_create, dplyr_options_create_with_timeout, dplyr_options_default,
-    dplyr_options_validate, DplyrOptions, MAX_FUNCTION_CALLS, MAX_INPUT_LENGTH, MAX_NESTING_DEPTH,
-    MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS,
+    dplyr_options_validate, DplyrDialect, DplyrOptions, MAX_FUNCTION_CALLS, MAX_INPUT_LENGTH,
+    MAX_NESTING_DEPTH, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS,
 };
 
 #[cfg(test)]
 #[path = "tests/mod.rs"]
 mod tests;
-
-// DuckDB C Extension API init function
-// This function is required for C API-based DuckDB extensions
-// (Removed dplyr_extension_init_c_api to avoid conflict with C++ extension init)
-// Initialization for C API extension
-// (Removed dangling code)

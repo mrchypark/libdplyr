@@ -9,6 +9,7 @@ use thiserror::Error;
 
 // R2-AC3: C-compatible error codes from Appendix C
 pub const DPLYR_SUCCESS: i32 = 0;
+pub const DPLYR_QUERY_NOT_HANDLED: i32 = 1;
 pub const DPLYR_ERROR_NULL_POINTER: i32 = -1;
 pub const DPLYR_ERROR_INVALID_UTF8: i32 = -2;
 pub const DPLYR_ERROR_INPUT_TOO_LARGE: i32 = -3;
@@ -247,6 +248,7 @@ impl TranspileError {
 pub const extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
     match error_code {
         DPLYR_SUCCESS => c"SUCCESS".as_ptr(),
+        DPLYR_QUERY_NOT_HANDLED => c"QUERY-NOT-HANDLED".as_ptr(),
         DPLYR_ERROR_NULL_POINTER => c"E-NULL-POINTER".as_ptr(),
         DPLYR_ERROR_INVALID_UTF8 => c"E-INVALID-UTF8".as_ptr(),
         DPLYR_ERROR_INPUT_TOO_LARGE => c"E-INPUT-TOO-LARGE".as_ptr(),

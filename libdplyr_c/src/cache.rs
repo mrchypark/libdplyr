@@ -140,10 +140,8 @@ impl SimpleTranspileCache {
     fn create_cache_key(dplyr_code: &str, options: &DplyrOptions) -> String {
         let mut hasher = DefaultHasher::new();
         dplyr_code.hash(&mut hasher);
-        "duckdb".hash(&mut hasher); // Fixed dialect for DuckDB extension
-        options.strict_mode.hash(&mut hasher);
-        options.preserve_comments.hash(&mut hasher);
         options.debug_mode.hash(&mut hasher);
+        options.dialect.hash(&mut hasher);
 
         format!("{}_{}", hasher.finish(), dplyr_code.len())
     }
@@ -520,6 +518,7 @@ pub extern "C" fn dplyr_cache_should_clear() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DplyrDialect;
 
     #[test]
     fn test_cache_key_generation() {
@@ -533,6 +532,13 @@ mod tests {
         // Same code should generate same key
         let key3 = SimpleTranspileCache::create_cache_key("select(col1)", &options);
         assert_eq!(key1, key3);
+
+        let mysql_options = DplyrOptions {
+            dialect: DplyrDialect::MySql,
+            ..options.clone()
+        };
+        let key4 = SimpleTranspileCache::create_cache_key("select(col1)", &mysql_options);
+        assert_ne!(key1, key4, "dialect changes should fragment the cache");
     }
 
     #[test]
