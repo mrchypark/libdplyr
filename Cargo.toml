@@ -11,18 +11,18 @@ categories = ["command-line-utilities", "parser-implementations"]
 
 [dependencies]
 # Core dependencies (wasm-compatible)
-thiserror = "1.0"
-lazy_static = "1.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+thiserror = "2.0"
+lazy_static = "1.5"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 
 # CLI-only dependencies (not available on wasm)
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-clap = { version = "4.0", features = ["derive"] }
-is-terminal = "0.4"
-signal-hook = { version = "0.3", features = ["iterator"], default-features = false }
-libc = "0.2"
-colored = "2.0"
+clap = { version = "4.6", features = ["derive"] }
+is-terminal = "0.4.17"
+signal-hook = { version = "0.4", features = ["iterator"], default-features = false }
+libc = "0.2.185"
+colored = "3.0"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
@@ -30,11 +30,11 @@ winapi = { version = "0.3", features = ["consoleapi", "wincon", "minwindef"] }
 
 [dev-dependencies]
 # Dependencies for benchmarking
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 # Additional dependencies for testing
-pretty_assertions = "1.4"
-tempfile = "3.20.0"
+pretty_assertions = "1.4.1"
+tempfile = "3.27.0"
 
 # C binding generation
 

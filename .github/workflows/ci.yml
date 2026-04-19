@@ -373,7 +373,6 @@ jobs:
 
   compatibility-check:
     name: Compatibility Check (${{ matrix.os }} / DuckDB v1.4.0)
-    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     runs-on: ${{ matrix.os }}
 
     strategy:

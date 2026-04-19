@@ -399,6 +399,14 @@ pub unsafe extern "C" fn dplyr_compile(
 }
 
 #[no_mangle]
+/// Compile a DuckDB query string, rewriting dplyr pipelines when present.
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `query` is a valid null-terminated C string.
+/// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()`.
+/// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char`.
+/// - Any returned string pointer is freed with `dplyr_free_string`.
 pub unsafe extern "C" fn dplyr_compile_query(
     query: *const c_char,
     options: *const DplyrOptions,

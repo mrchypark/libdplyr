@@ -7,9 +7,9 @@
 //! - Dialect-specific performance
 //! - Stage-by-stage performance analysis
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use libdplyr::{MySqlDialect, PostgreSqlDialect, SqliteDialect, Transpiler};
-use std::hint::black_box as std_black_box;
+use std::hint::black_box;
 
 /// Simple conversion benchmark
 fn benchmark_simple_transpile(c: &mut Criterion) {
@@ -171,7 +171,7 @@ fn benchmark_throughput(c: &mut Criterion) {
     group.bench_function("simple_queries_batch", |b| {
         b.iter(|| {
             for query in &simple_queries {
-                let _ = std_black_box(transpiler.transpile(black_box(query)));
+                let _ = black_box(transpiler.transpile(black_box(query)));
             }
         })
     });
@@ -187,7 +187,7 @@ fn benchmark_throughput(c: &mut Criterion) {
     group.bench_function("complex_queries_batch", |b| {
         b.iter(|| {
             for query in &complex_queries {
-                let _ = std_black_box(transpiler.transpile(black_box(query)));
+                let _ = black_box(transpiler.transpile(black_box(query)));
             }
         })
     });
@@ -206,7 +206,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
     group.bench_function("repeated_same_query", |b| {
         b.iter(|| {
             for _ in 0..10 {
-                let _ = std_black_box(transpiler.transpile(black_box(repeated_query)));
+                let _ = black_box(transpiler.transpile(black_box(repeated_query)));
             }
         })
     });
@@ -219,7 +219,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
     group.bench_function("many_small_queries", |b| {
         b.iter(|| {
             for query in &small_queries {
-                let _ = std_black_box(transpiler.transpile(black_box(query.as_str())));
+                let _ = black_box(transpiler.transpile(black_box(query.as_str())));
             }
         })
     });
@@ -290,7 +290,7 @@ fn benchmark_lexer_performance(c: &mut Criterion) {
                 }
                 tokens.push(token);
             }
-            std_black_box(tokens);
+            black_box(tokens);
         })
     });
 
@@ -314,7 +314,7 @@ fn benchmark_lexer_performance(c: &mut Criterion) {
                 }
                 tokens.push(token);
             }
-            std_black_box(tokens);
+            black_box(tokens);
         })
     });
 

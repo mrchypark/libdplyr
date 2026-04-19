@@ -6,11 +6,12 @@
 //! - Validation performance
 //! - Memory usage patterns
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use libdplyr::cli::{
     DplyrValidator, InputInfo, JsonOutputFormatter, MetadataBuilder, OutputFormat, OutputFormatter,
     ProcessingStats,
 };
+use std::hint::black_box;
 
 /// Benchmark JSON serialization performance
 fn benchmark_json_serialization(c: &mut Criterion) {

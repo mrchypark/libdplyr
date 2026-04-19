@@ -8,18 +8,13 @@ use std::panic;
 use crate::error::TranspileError;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DplyrDialect {
+    #[default]
     DuckDb = 0,
     PostgreSql = 1,
     MySql = 2,
     Sqlite = 3,
-}
-
-impl Default for DplyrDialect {
-    fn default() -> Self {
-        Self::DuckDb
-    }
 }
 
 // R3-AC1: C-compatible options structure

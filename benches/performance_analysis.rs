@@ -3,8 +3,9 @@
 //! This module provides utilities for analyzing performance characteristics
 //! and identifying optimization opportunities in the libdplyr transpiler.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use libdplyr::{MySqlDialect, PostgreSqlDialect, SqliteDialect, Transpiler};
+use std::hint::black_box;
 use std::time::Instant;
 
 /// Memory usage estimation for different operations

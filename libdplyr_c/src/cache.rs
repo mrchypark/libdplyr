@@ -255,7 +255,7 @@ impl SimpleTranspileCache {
                 .collect();
 
             // Sort by access count descending
-            entries.sort_by(|a, b| b.1.cmp(&a.1));
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.1));
             entries.truncate(limit);
             entries
         })
@@ -416,20 +416,21 @@ pub unsafe extern "C" fn dplyr_cache_log_stats_detailed(
     );
 
     // R10-AC2: Additional debug information in detailed mode
-    if metrics.hits + metrics.misses > 0 {
+    let total_requests = metrics.hits + metrics.misses;
+    if total_requests > 0 {
+        let avg_processing_time = metrics
+            .total_processing_time_us
+            .checked_div(metrics.misses)
+            .unwrap_or(0);
+        let avg_cache_overhead = metrics
+            .cache_processing_time_us
+            .checked_div(total_requests)
+            .unwrap_or(0);
         eprintln!(
             "{}CACHE_PERFORMANCE: avg_processing_time: {}μs, cache_overhead: {}μs",
             timestamp_str,
-            if metrics.misses > 0 {
-                metrics.total_processing_time_us / metrics.misses
-            } else {
-                0
-            },
-            if metrics.hits + metrics.misses > 0 {
-                metrics.cache_processing_time_us / (metrics.hits + metrics.misses)
-            } else {
-                0
-            }
+            avg_processing_time,
+            avg_cache_overhead
         );
     }
 }
@@ -456,13 +457,16 @@ pub extern "C" fn dplyr_cache_log_performance_warning() -> bool {
     }
 
     // Check cache overhead
-    if metrics.hits + metrics.misses > 0 {
-        let avg_cache_overhead = metrics.cache_processing_time_us / (metrics.hits + metrics.misses);
-        let avg_processing_time = if metrics.misses > 0 {
-            metrics.total_processing_time_us / metrics.misses
-        } else {
-            0
-        };
+    let total_requests = metrics.hits + metrics.misses;
+    if total_requests > 0 {
+        let avg_cache_overhead = metrics
+            .cache_processing_time_us
+            .checked_div(total_requests)
+            .unwrap_or(0);
+        let avg_processing_time = metrics
+            .total_processing_time_us
+            .checked_div(metrics.misses)
+            .unwrap_or(0);
 
         // Warn if cache overhead is more than 10% of processing time
         if avg_cache_overhead > avg_processing_time / 10 {
@@ -478,11 +482,7 @@ pub extern "C" fn dplyr_cache_log_performance_warning() -> bool {
         warnings.push(format!(
             "Excessive evictions: {} ({}% of hits)",
             metrics.evictions,
-            if metrics.hits > 0 {
-                metrics.evictions * 100 / metrics.hits
-            } else {
-                0
-            }
+            metrics.evictions.checked_mul(100).unwrap_or(0).checked_div(metrics.hits).unwrap_or(0)
         ));
     }
 

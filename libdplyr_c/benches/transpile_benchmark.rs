@@ -9,8 +9,9 @@
 //! - R6-AC1: Performance target validation
 //! - R6-AC2: Caching effectiveness measurement
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrDialect, DplyrOptions};
+use std::hint::black_box;
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};

@@ -2,8 +2,9 @@
 //!
 //! This is a minimal benchmark to test the basic functionality
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use libdplyr_c::{dplyr_compile, dplyr_free_string, DplyrOptions};
+use std::hint::black_box;
 use std::ffi::CString;
 use std::ptr;
 
