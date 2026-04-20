@@ -361,6 +361,26 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_ignores_pipe_operator_inside_sql_literals_and_comments() {
+        let input = CString::new("SELECT '%>%' AS marker /* %>% */ -- %>%\nFROM tbl").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
         let oversized_pipeline =
             CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
@@ -507,6 +527,38 @@ mod ffi_tests {
         };
 
         assert!(sql.starts_with("SELECT * FROM (SELECT"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_embedded_markers_inside_literals() {
+        let input =
+            CString::new("SELECT '(|' AS literal FROM (| mtcars %>% select(mpg, cyl) |) AS q")
+                .unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.contains("SELECT '(|' AS literal FROM (SELECT"));
         assert!(!sql.contains("%>%"));
     }
 

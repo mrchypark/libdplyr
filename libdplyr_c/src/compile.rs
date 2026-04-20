@@ -133,36 +133,220 @@ fn strip_trailing_semicolon(input: &str) -> String {
         .to_string()
 }
 
+#[derive(Clone, Copy)]
+enum SqlScanState {
+    Normal,
+    SingleQuoted,
+    DoubleQuoted,
+    BacktickQuoted,
+    BracketQuoted,
+    LineComment,
+    BlockComment(usize),
+}
+
+fn find_pipe_operator(sql: &str, from: usize) -> Option<usize> {
+    find_unquoted_sequence(sql, from, b"%>%")
+}
+
+fn find_unquoted_sequence(sql: &str, from: usize, needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || from >= sql.len() {
+        return None;
+    }
+
+    let bytes = sql.as_bytes();
+    let mut state = SqlScanState::Normal;
+    let mut i = from;
+
+    while i < bytes.len() {
+        match state {
+            SqlScanState::Normal => {
+                if bytes[i..].starts_with(needle) {
+                    return Some(i);
+                }
+
+                match bytes[i] {
+                    b'\'' => {
+                        state = SqlScanState::SingleQuoted;
+                        i += 1;
+                    }
+                    b'"' => {
+                        state = SqlScanState::DoubleQuoted;
+                        i += 1;
+                    }
+                    b'`' => {
+                        state = SqlScanState::BacktickQuoted;
+                        i += 1;
+                    }
+                    b'[' => {
+                        state = SqlScanState::BracketQuoted;
+                        i += 1;
+                    }
+                    b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                        state = SqlScanState::LineComment;
+                        i += 2;
+                    }
+                    b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                        state = SqlScanState::BlockComment(1);
+                        i += 2;
+                    }
+                    _ => i += 1,
+                }
+            }
+            SqlScanState::SingleQuoted => {
+                if bytes[i] == b'\'' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::DoubleQuoted => {
+                if bytes[i] == b'"' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BacktickQuoted => {
+                if bytes[i] == b'`' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BracketQuoted => {
+                if bytes[i] == b']' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::LineComment => {
+                if bytes[i] == b'\n' {
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment(depth) => {
+                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                    state = SqlScanState::BlockComment(depth + 1);
+                    i += 2;
+                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    if depth == 1 {
+                        state = SqlScanState::Normal;
+                    } else {
+                        state = SqlScanState::BlockComment(depth - 1);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
     if prefix.is_empty() {
         return None;
     }
 
+    #[derive(Clone, Copy)]
+    enum IdentifierQuote {
+        Double,
+        Backtick,
+        Bracket,
+    }
+
     let mut parts = Vec::new();
     let mut start = 0;
-    let mut quote_end = None;
+    let bytes = prefix.as_bytes();
+    let mut quote = None;
+    let mut i = 0usize;
 
-    for (idx, ch) in prefix.char_indices() {
-        match quote_end {
-            Some(end) => {
-                if ch == end {
-                    quote_end = None;
+    while i < bytes.len() {
+        match quote {
+            Some(IdentifierQuote::Double) => {
+                if bytes[i] == b'"' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                        i += 2;
+                    } else {
+                        quote = None;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
                 }
             }
-            None => match ch {
-                '"' => quote_end = Some('"'),
-                '`' => quote_end = Some('`'),
-                '[' => quote_end = Some(']'),
-                '.' => {
-                    parts.push(&prefix[start..idx]);
-                    start = idx + ch.len_utf8();
+            Some(IdentifierQuote::Backtick) => {
+                if bytes[i] == b'`' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                        i += 2;
+                    } else {
+                        quote = None;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
                 }
-                _ => {}
+            }
+            Some(IdentifierQuote::Bracket) => {
+                if bytes[i] == b']' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                        i += 2;
+                    } else {
+                        quote = None;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            None => match bytes[i] {
+                b'"' => {
+                    quote = Some(IdentifierQuote::Double);
+                    i += 1;
+                }
+                b'`' => {
+                    quote = Some(IdentifierQuote::Backtick);
+                    i += 1;
+                }
+                b'[' => {
+                    quote = Some(IdentifierQuote::Bracket);
+                    i += 1;
+                }
+                b'.' => {
+                    parts.push(&prefix[start..i]);
+                    start = i + 1;
+                    i += 1;
+                }
+                _ => i += 1,
             },
         }
     }
 
-    if quote_end.is_some() {
+    if quote.is_some() {
         return None;
     }
 
@@ -206,7 +390,7 @@ fn is_probably_identifier_chain(prefix: &str) -> bool {
 }
 
 fn extract_leading_table_name(dplyr_code: &str) -> Option<&str> {
-    let pipe_pos = dplyr_code.find("%>%");
+    let pipe_pos = find_pipe_operator(dplyr_code, 0);
     let prefix = match pipe_pos {
         Some(pos) => &dplyr_code[..pos],
         None => dplyr_code,
@@ -239,19 +423,117 @@ fn require_pipeline_table_name(dplyr_code: &str) -> Result<(), TranspileError> {
 fn find_embedded_start_marker(query: &str, from: usize) -> Option<(usize, usize)> {
     let bytes = query.as_bytes();
     let mut i = from;
+    let mut state = SqlScanState::Normal;
+
     while i < bytes.len() {
-        if bytes[i] != b'(' {
-            i += 1;
-            continue;
+        match state {
+            SqlScanState::Normal => match bytes[i] {
+                b'\'' => {
+                    state = SqlScanState::SingleQuoted;
+                    i += 1;
+                }
+                b'"' => {
+                    state = SqlScanState::DoubleQuoted;
+                    i += 1;
+                }
+                b'`' => {
+                    state = SqlScanState::BacktickQuoted;
+                    i += 1;
+                }
+                b'[' => {
+                    state = SqlScanState::BracketQuoted;
+                    i += 1;
+                }
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    state = SqlScanState::LineComment;
+                    i += 2;
+                }
+                b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                    state = SqlScanState::BlockComment(1);
+                    i += 2;
+                }
+                b'(' => {
+                    let mut j = i + 1;
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b'|' {
+                        return Some((i, j + 1));
+                    }
+                    i += 1;
+                }
+                _ => i += 1,
+            },
+            SqlScanState::SingleQuoted => {
+                if bytes[i] == b'\'' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::DoubleQuoted => {
+                if bytes[i] == b'"' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BacktickQuoted => {
+                if bytes[i] == b'`' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BracketQuoted => {
+                if bytes[i] == b']' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::LineComment => {
+                if bytes[i] == b'\n' {
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment(depth) => {
+                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                    state = SqlScanState::BlockComment(depth + 1);
+                    i += 2;
+                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    if depth == 1 {
+                        state = SqlScanState::Normal;
+                    } else {
+                        state = SqlScanState::BlockComment(depth - 1);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
         }
-        let mut j = i + 1;
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
-        }
-        if j < bytes.len() && bytes[j] == b'|' {
-            return Some((i, j + 1));
-        }
-        i += 1;
     }
     None
 }
@@ -259,19 +541,117 @@ fn find_embedded_start_marker(query: &str, from: usize) -> Option<(usize, usize)
 fn find_embedded_end_marker(query: &str, from: usize) -> Option<(usize, usize)> {
     let bytes = query.as_bytes();
     let mut i = from;
+    let mut state = SqlScanState::Normal;
+
     while i < bytes.len() {
-        if bytes[i] != b'|' {
-            i += 1;
-            continue;
+        match state {
+            SqlScanState::Normal => match bytes[i] {
+                b'\'' => {
+                    state = SqlScanState::SingleQuoted;
+                    i += 1;
+                }
+                b'"' => {
+                    state = SqlScanState::DoubleQuoted;
+                    i += 1;
+                }
+                b'`' => {
+                    state = SqlScanState::BacktickQuoted;
+                    i += 1;
+                }
+                b'[' => {
+                    state = SqlScanState::BracketQuoted;
+                    i += 1;
+                }
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    state = SqlScanState::LineComment;
+                    i += 2;
+                }
+                b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                    state = SqlScanState::BlockComment(1);
+                    i += 2;
+                }
+                b'|' => {
+                    let mut j = i + 1;
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b')' {
+                        return Some((i, j));
+                    }
+                    i += 1;
+                }
+                _ => i += 1,
+            },
+            SqlScanState::SingleQuoted => {
+                if bytes[i] == b'\'' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::DoubleQuoted => {
+                if bytes[i] == b'"' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BacktickQuoted => {
+                if bytes[i] == b'`' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::BracketQuoted => {
+                if bytes[i] == b']' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                        i += 2;
+                    } else {
+                        state = SqlScanState::Normal;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::LineComment => {
+                if bytes[i] == b'\n' {
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment(depth) => {
+                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                    state = SqlScanState::BlockComment(depth + 1);
+                    i += 2;
+                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    if depth == 1 {
+                        state = SqlScanState::Normal;
+                    } else {
+                        state = SqlScanState::BlockComment(depth - 1);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
         }
-        let mut j = i + 1;
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
-        }
-        if j < bytes.len() && bytes[j] == b')' {
-            return Some((i, j));
-        }
-        i += 1;
     }
     None
 }
@@ -312,7 +692,7 @@ fn replace_embedded_pipelines(
                 ),
             ));
         }
-        if !embedded.contains("%>%") {
+        if find_pipe_operator(&embedded, 0).is_none() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     "Embedded dplyr segment must contain a %>% pipeline",
@@ -341,18 +721,28 @@ fn strip_leading_sql_comments_and_whitespace(mut sql: &str) -> &str {
         sql = sql.trim_start();
 
         if let Some(rest) = sql.strip_prefix("--") {
-            sql = match rest.find('\n') {
-                Some(pos) => &rest[pos + 1..],
-                None => "",
-            };
+            sql = rest.find('\n').map_or("", |pos| &rest[pos + 1..]);
             continue;
         }
 
         if let Some(rest) = sql.strip_prefix("/*") {
-            sql = match rest.find("*/") {
-                Some(pos) => &rest[pos + 2..],
-                None => "",
-            };
+            let bytes = rest.as_bytes();
+            let mut depth = 1usize;
+            let mut i = 0usize;
+
+            while i + 1 < bytes.len() && depth > 0 {
+                if bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                    depth += 1;
+                    i += 2;
+                } else if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+
+            sql = if depth == 0 { &rest[i..] } else { "" };
             continue;
         }
 
@@ -375,13 +765,13 @@ fn compile_query_string(
     opts: &DplyrOptions,
 ) -> Result<Option<String>, CompileInputError> {
     let trimmed = query.trim();
-    if trimmed.is_empty() || !trimmed.contains("%>%") {
+    if trimmed.is_empty() || find_pipe_operator(trimmed, 0).is_none() {
         return Ok(None);
     }
 
     let sql = if find_embedded_start_marker(trimmed, 0).is_some() {
         let rewritten = replace_embedded_pipelines(trimmed, opts)?;
-        if rewritten.contains("%>%") {
+        if find_pipe_operator(&rewritten, 0).is_some() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     "Unprocessed %>% pipeline remains",
@@ -576,7 +966,7 @@ pub unsafe extern "C" fn dplyr_compile_query(
         }
 
         let trimmed_query = query_str.trim();
-        if trimmed_query.is_empty() || !trimmed_query.contains("%>%") {
+        if trimmed_query.is_empty() || find_pipe_operator(trimmed_query, 0).is_none() {
             return DPLYR_QUERY_NOT_HANDLED;
         }
 
@@ -702,5 +1092,36 @@ mod query_rewrite_tests {
     fn identifier_chain_rejects_unterminated_quotes() {
         assert!(!is_probably_identifier_chain("\"broken.table"));
         assert!(!is_probably_identifier_chain("[broken.table"));
+    }
+
+    #[test]
+    fn identifier_chain_accepts_escaped_quotes_inside_identifiers() {
+        assert!(is_probably_identifier_chain("\"table\"\"name\""));
+        assert!(is_probably_identifier_chain("`table``name`.col"));
+        assert!(is_probably_identifier_chain("[table]]name].[col]"));
+    }
+
+    #[test]
+    fn pipe_operator_detection_ignores_literals_and_comments() {
+        assert_eq!(find_pipe_operator("SELECT '%>%'", 0), None);
+        assert_eq!(find_pipe_operator("SELECT 1 -- %>%\nFROM tbl", 0), None);
+        assert_eq!(find_pipe_operator("/* %>% */ SELECT 1", 0), None);
+        assert!(find_pipe_operator("tbl %>% select(col)", 0).is_some());
+    }
+
+    #[test]
+    fn embedded_marker_detection_ignores_literals_and_comments() {
+        assert_eq!(find_embedded_start_marker("SELECT '(|' AS marker", 0), None);
+        assert_eq!(
+            find_embedded_start_marker("SELECT 1 /* (| */ FROM tbl", 0),
+            None
+        );
+        assert!(find_embedded_start_marker("SELECT * FROM (| tbl %>% select(col) |)", 0).is_some());
+    }
+
+    #[test]
+    fn strip_leading_comments_handles_nested_block_comments() {
+        let sql = "/* outer /* nested */ still outer */ SELECT 1";
+        assert_eq!(strip_leading_sql_comments_and_whitespace(sql), "SELECT 1");
     }
 }
