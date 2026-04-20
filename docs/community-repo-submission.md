@@ -4,7 +4,7 @@
 
 - 제출 대상 저장소: `duckdb/community-extensions`
 - 제출 파일: `extensions/dplyr/description.yml` 하나
-- 현재 준비 파일: [community-pr/description.yml](/Users/cypark/Documents/project/libdplyr/community-pr/description.yml)
+- 현재 준비 파일: [community-pr/description.yml](../community-pr/description.yml)
 - 현재 최신 stable DuckDB: `1.5.2`
 
 ## libdplyr에 중요한 해석
