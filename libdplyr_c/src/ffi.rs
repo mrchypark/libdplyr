@@ -30,8 +30,8 @@ pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
     }
 }
 
-/// Replace an existing owned output string, freeing the previous allocation first.
-pub fn replace_output_string(out: *mut *mut c_char, value: &str) {
+/// Clear an owned output string, freeing the previous allocation when present.
+pub fn clear_output_string(out: *mut *mut c_char) {
     if out.is_null() {
         return;
     }
@@ -39,9 +39,20 @@ pub fn replace_output_string(out: *mut *mut c_char, value: &str) {
     unsafe {
         if !(*out).is_null() {
             let _ = CString::from_raw(*out);
-            *out = ptr::null_mut();
         }
+        *out = ptr::null_mut();
+    }
+}
 
+/// Replace an existing owned output string, freeing the previous allocation first.
+pub fn replace_output_string(out: *mut *mut c_char, value: &str) {
+    if out.is_null() {
+        return;
+    }
+
+    clear_output_string(out);
+
+    unsafe {
         if let Ok(c_string) = CString::new(value) {
             *out = c_string.into_raw();
         }
@@ -67,5 +78,14 @@ mod tests {
         };
 
         assert_eq!(message, "fresh error");
+    }
+
+    #[test]
+    fn clear_output_string_frees_existing_allocation_and_nulls_slot() {
+        let mut out = CString::new("stale error").unwrap().into_raw();
+
+        clear_output_string(&mut out);
+
+        assert!(out.is_null());
     }
 }

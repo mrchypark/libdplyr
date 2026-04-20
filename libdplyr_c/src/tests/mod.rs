@@ -165,7 +165,6 @@ mod ffi_tests {
 
         unsafe {
             dplyr_free_string(out_sql);
-            dplyr_free_string(stale_error);
         }
     }
 
@@ -194,7 +193,6 @@ mod ffi_tests {
 
         unsafe {
             dplyr_free_string(out_error);
-            dplyr_free_string(stale_sql);
         }
     }
 
@@ -329,6 +327,28 @@ mod ffi_tests {
         let input = CString::new("SELECT 42").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_frees_stale_output_pointers_before_reuse() {
+        let input = CString::new("SELECT 42").unwrap();
+        let stale_sql = CString::new("stale sql").unwrap().into_raw();
+        let stale_error = CString::new("stale error").unwrap().into_raw();
+        let mut out_sql: *mut c_char = stale_sql;
+        let mut out_error: *mut c_char = stale_error;
 
         let result = unsafe {
             dplyr_compile_query(

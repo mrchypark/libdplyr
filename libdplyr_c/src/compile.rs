@@ -3,7 +3,6 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic;
-use std::ptr;
 use std::time::{Duration, Instant};
 
 use libdplyr::{
@@ -13,7 +12,7 @@ use libdplyr::{
 use crate::cache;
 use crate::cache::SimpleTranspileCache;
 use crate::error::{create_error_message_with_context, TranspileError};
-use crate::ffi::{replace_output_string, set_error_output, set_sql_output};
+use crate::ffi::{clear_output_string, replace_output_string, set_error_output, set_sql_output};
 use crate::options::{DplyrDialect, DplyrOptions, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS};
 use crate::validation::{
     validate_input_encoding, validate_input_security, validate_input_structure,
@@ -666,10 +665,8 @@ pub unsafe extern "C" fn dplyr_compile(
             return DPLYR_ERROR_NULL_POINTER;
         }
 
-        unsafe {
-            *out_sql = ptr::null_mut();
-            *out_error = ptr::null_mut();
-        }
+        clear_output_string(out_sql);
+        clear_output_string(out_error);
 
         // Convert C string to Rust string with UTF-8 validation
         let code_str = match unsafe { CStr::from_ptr(code) }.to_str() {
@@ -756,10 +753,8 @@ pub unsafe extern "C" fn dplyr_compile_query(
             return DPLYR_ERROR_NULL_POINTER;
         }
 
-        unsafe {
-            *out_sql = ptr::null_mut();
-            *out_error = ptr::null_mut();
-        }
+        clear_output_string(out_sql);
+        clear_output_string(out_error);
 
         if query.is_null() {
             set_error_output(out_error, "E-NULL-POINTER: query parameter is null");
