@@ -8,6 +8,8 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::ptr;
 
+use crate::memory::free_owned_string;
+
 /// Set SQL output pointer safely
 pub fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
     if !out_sql.is_null() {
@@ -40,7 +42,7 @@ pub fn clear_output_string(out: *mut *mut c_char) {
 
     unsafe {
         if !(*out).is_null() {
-            let _ = CString::from_raw(*out);
+            free_owned_string(*out);
         }
         *out = ptr::null_mut();
     }

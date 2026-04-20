@@ -55,6 +55,10 @@ fn set_compile_error_output(out_error: *mut *mut c_char, error: CompileInputErro
     }
 }
 
+fn validate_compile_options(opts: &DplyrOptions) -> Result<(), CompileInputError> {
+    opts.validate().map_err(CompileInputError::Transpile)
+}
+
 fn validate_compile_input(code_str: &str, opts: &DplyrOptions) -> Result<(), CompileInputError> {
     if code_str.len() > opts.max_input_length as usize {
         return Err(CompileInputError::InputTooLarge(format!(
@@ -66,7 +70,7 @@ fn validate_compile_input(code_str: &str, opts: &DplyrOptions) -> Result<(), Com
 
     validate_input_encoding(code_str).map_err(CompileInputError::Transpile)?;
     validate_input_structure(code_str).map_err(CompileInputError::Transpile)?;
-    opts.validate().map_err(CompileInputError::Transpile)?;
+    validate_compile_options(opts)?;
     Ok(())
 }
 
@@ -795,10 +799,8 @@ pub unsafe extern "C" fn dplyr_compile_query(
             unsafe { (*options).clone() }
         };
 
-        if let Err(error) = opts.validate() {
-            let error_msg = error.to_c_string();
-            set_error_output(out_error, &error_msg.to_string_lossy());
-            return error.to_c_error_code();
+        if let Err(error) = validate_compile_options(&opts) {
+            return set_compile_error_output(out_error, error);
         }
 
         let trimmed_query = query_str.trim();

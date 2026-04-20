@@ -502,6 +502,40 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_reports_invalid_dialect_without_ub() {
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                &options as *const DplyrOptions,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("Invalid dialect value"));
+    }
+
+    #[test]
     fn test_dplyr_compile_query_reports_null_query() {
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();

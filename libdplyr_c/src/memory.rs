@@ -6,6 +6,19 @@ use std::panic;
 
 use crate::error::{DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS};
 
+/// Free a single string owned by libdplyr.
+///
+/// The caller must only pass a pointer previously returned by libdplyr, or null.
+pub(crate) unsafe fn free_owned_string(s: *mut c_char) {
+    if s.is_null() {
+        return;
+    }
+
+    unsafe {
+        let _ = CString::from_raw(s);
+    }
+}
+
 /// Free string allocated by `libdplyr_c` functions.
 ///
 /// # Safety
@@ -25,11 +38,7 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 
     // R9-AC1: Panic safety for memory operations
     let result = panic::catch_unwind(|| {
-        unsafe {
-            // R3-AC3: Proper memory management with CString::from_raw
-            // This will properly deallocate the memory allocated by CString::into_raw
-            let _ = CString::from_raw(s);
-        }
+        unsafe { free_owned_string(s) };
         DPLYR_SUCCESS
     });
 
