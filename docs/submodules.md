@@ -14,7 +14,7 @@
 - `duckdb`: `6ddac802ffa9bcfbcc3f5f0d71de5dff9b0bc250` (`v1.4.4`)
 - `extension-ci-tools`: `00a4d1a464a0ebd30c7427396c0271105592d63b`
 
-## 호환성 매트릭스
+## Compatibility Matrix
 
 - 최소 지원 DuckDB 버전: `v1.4.0`
 - 주 지원 DuckDB 버전: `v1.5.2`
