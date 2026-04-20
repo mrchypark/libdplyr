@@ -112,21 +112,27 @@ fn compile_to_sql(code_str: &str, opts: &DplyrOptions) -> Result<String, Transpi
 
         match transpile_result {
             Ok(sql) => {
-                if sql.len() > MAX_OUTPUT_LENGTH {
-                    return Err(TranspileError::internal_error_with_hint(
-                        &format!(
-                            "Output too large: {} bytes exceeds maximum {}",
-                            sql.len(),
-                            MAX_OUTPUT_LENGTH
-                        ),
-                        Some("Input generates excessive SQL output".to_string()),
-                    ));
-                }
+                validate_output_length(&sql)?;
                 Ok(sql)
             }
             Err(libdplyr_error) => Err(convert_libdplyr_error(libdplyr_error)),
         }
     })
+}
+
+fn validate_output_length(sql: &str) -> Result<(), TranspileError> {
+    if sql.len() > MAX_OUTPUT_LENGTH {
+        return Err(TranspileError::internal_error_with_hint(
+            &format!(
+                "Output too large: {} bytes exceeds maximum {}",
+                sql.len(),
+                MAX_OUTPUT_LENGTH
+            ),
+            Some("Input generates excessive SQL output".to_string()),
+        ));
+    }
+
+    Ok(())
 }
 
 fn strip_trailing_semicolon(input: &str) -> String {
@@ -638,6 +644,8 @@ fn compile_query_string(
         compile_to_sql(&dplyr_code, opts).map_err(CompileInputError::Transpile)?
     };
 
+    validate_output_length(&sql).map_err(CompileInputError::Transpile)?;
+
     if !starts_with_supported_query_prefix(&sql) {
         return Err(CompileInputError::Transpile(
             TranspileError::unsupported_operation_with_alternative(
@@ -975,5 +983,12 @@ mod query_rewrite_tests {
         ));
         assert!(!starts_with_supported_query_prefix("SELECTED * FROM tbl"));
         assert!(!starts_with_supported_query_prefix("WITHIN grp AS value"));
+    }
+
+    #[test]
+    fn validate_output_length_rejects_excessive_sql() {
+        let oversized = "x".repeat(MAX_OUTPUT_LENGTH + 1);
+        let error = validate_output_length(&oversized).expect_err("oversized SQL must fail");
+        assert!(error.to_string().contains("Output too large"));
     }
 }
