@@ -1,6 +1,6 @@
 //! Compile/transpile entrypoints.
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic;
 use std::ptr;
@@ -13,7 +13,7 @@ use libdplyr::{
 use crate::cache;
 use crate::cache::SimpleTranspileCache;
 use crate::error::{create_error_message_with_context, TranspileError};
-use crate::ffi::{set_error_output, set_sql_output};
+use crate::ffi::{replace_output_string, set_error_output, set_sql_output};
 use crate::options::{DplyrDialect, DplyrOptions, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS};
 use crate::validation::{
     validate_input_encoding, validate_input_security, validate_input_structure,
@@ -139,7 +139,7 @@ enum SqlScanState {
     SingleQuoted,
     DoubleQuoted,
     BacktickQuoted,
-    BracketQuoted,
+    BracketQuoted(usize),
     LineComment,
     BlockComment(usize),
 }
@@ -148,8 +148,124 @@ fn find_pipe_operator(sql: &str, from: usize) -> Option<usize> {
     find_unquoted_sequence(sql, from, b"%>%")
 }
 
-fn find_unquoted_sequence(sql: &str, from: usize, needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || from >= sql.len() {
+fn advance_sql_scan(bytes: &[u8], i: usize, state: &mut SqlScanState) -> usize {
+    match *state {
+        SqlScanState::Normal => match bytes[i] {
+            b'\'' => {
+                *state = SqlScanState::SingleQuoted;
+                i + 1
+            }
+            b'"' => {
+                *state = SqlScanState::DoubleQuoted;
+                i + 1
+            }
+            b'`' => {
+                *state = SqlScanState::BacktickQuoted;
+                i + 1
+            }
+            b'[' => {
+                *state = SqlScanState::BracketQuoted(1);
+                i + 1
+            }
+            b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                *state = SqlScanState::LineComment;
+                i + 2
+            }
+            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                *state = SqlScanState::BlockComment(1);
+                i + 2
+            }
+            _ => i + 1,
+        },
+        SqlScanState::SingleQuoted => {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i + 2
+            } else if bytes[i] == b'\'' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    i + 2
+                } else {
+                    *state = SqlScanState::Normal;
+                    i + 1
+                }
+            } else {
+                i + 1
+            }
+        }
+        SqlScanState::DoubleQuoted => {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i + 2
+            } else if bytes[i] == b'"' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                    i + 2
+                } else {
+                    *state = SqlScanState::Normal;
+                    i + 1
+                }
+            } else {
+                i + 1
+            }
+        }
+        SqlScanState::BacktickQuoted => {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i + 2
+            } else if bytes[i] == b'`' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                    i + 2
+                } else {
+                    *state = SqlScanState::Normal;
+                    i + 1
+                }
+            } else {
+                i + 1
+            }
+        }
+        SqlScanState::BracketQuoted(depth) => {
+            if bytes[i] == b'[' {
+                *state = SqlScanState::BracketQuoted(depth + 1);
+                i + 1
+            } else if bytes[i] == b']' {
+                if depth == 1 && i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                    i + 2
+                } else if depth == 1 {
+                    *state = SqlScanState::Normal;
+                    i + 1
+                } else {
+                    *state = SqlScanState::BracketQuoted(depth - 1);
+                    i + 1
+                }
+            } else {
+                i + 1
+            }
+        }
+        SqlScanState::LineComment => {
+            if bytes[i] == b'\n' {
+                *state = SqlScanState::Normal;
+            }
+            i + 1
+        }
+        SqlScanState::BlockComment(depth) => {
+            if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+                *state = SqlScanState::BlockComment(depth + 1);
+                i + 2
+            } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                if depth == 1 {
+                    *state = SqlScanState::Normal;
+                } else {
+                    *state = SqlScanState::BlockComment(depth - 1);
+                }
+                i + 2
+            } else {
+                i + 1
+            }
+        }
+    }
+}
+
+fn find_unquoted_match<T, F>(sql: &str, from: usize, mut matcher: F) -> Option<T>
+where
+    F: FnMut(&[u8], usize) -> Option<T>,
+{
+    if from >= sql.len() {
         return None;
     }
 
@@ -158,113 +274,25 @@ fn find_unquoted_sequence(sql: &str, from: usize, needle: &[u8]) -> Option<usize
     let mut i = from;
 
     while i < bytes.len() {
-        match state {
-            SqlScanState::Normal => {
-                if bytes[i..].starts_with(needle) {
-                    return Some(i);
-                }
-
-                match bytes[i] {
-                    b'\'' => {
-                        state = SqlScanState::SingleQuoted;
-                        i += 1;
-                    }
-                    b'"' => {
-                        state = SqlScanState::DoubleQuoted;
-                        i += 1;
-                    }
-                    b'`' => {
-                        state = SqlScanState::BacktickQuoted;
-                        i += 1;
-                    }
-                    b'[' => {
-                        state = SqlScanState::BracketQuoted;
-                        i += 1;
-                    }
-                    b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
-                        state = SqlScanState::LineComment;
-                        i += 2;
-                    }
-                    b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
-                        state = SqlScanState::BlockComment(1);
-                        i += 2;
-                    }
-                    _ => i += 1,
-                }
-            }
-            SqlScanState::SingleQuoted => {
-                if bytes[i] == b'\'' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::DoubleQuoted => {
-                if bytes[i] == b'"' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BacktickQuoted => {
-                if bytes[i] == b'`' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BracketQuoted => {
-                if bytes[i] == b']' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::LineComment => {
-                if bytes[i] == b'\n' {
-                    state = SqlScanState::Normal;
-                }
-                i += 1;
-            }
-            SqlScanState::BlockComment(depth) => {
-                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-                    state = SqlScanState::BlockComment(depth + 1);
-                    i += 2;
-                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
-                    if depth == 1 {
-                        state = SqlScanState::Normal;
-                    } else {
-                        state = SqlScanState::BlockComment(depth - 1);
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
+        if matches!(state, SqlScanState::Normal) {
+            if let Some(found) = matcher(bytes, i) {
+                return Some(found);
             }
         }
+
+        i = advance_sql_scan(bytes, i, &mut state);
     }
 
     None
+}
+
+fn find_unquoted_sequence(sql: &str, from: usize, needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    find_unquoted_match(sql, from, |bytes, i| {
+        bytes[i..].starts_with(needle).then_some(i)
+    })
 }
 
 fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
@@ -276,7 +304,7 @@ fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
     enum IdentifierQuote {
         Double,
         Backtick,
-        Bracket,
+        Bracket(usize),
     }
 
     let mut parts = Vec::new();
@@ -311,12 +339,18 @@ fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
                     i += 1;
                 }
             }
-            Some(IdentifierQuote::Bracket) => {
-                if bytes[i] == b']' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+            Some(IdentifierQuote::Bracket(depth)) => {
+                if bytes[i] == b'[' {
+                    quote = Some(IdentifierQuote::Bracket(depth + 1));
+                    i += 1;
+                } else if bytes[i] == b']' {
+                    if depth == 1 && i + 1 < bytes.len() && bytes[i + 1] == b']' {
                         i += 2;
-                    } else {
+                    } else if depth == 1 {
                         quote = None;
+                        i += 1;
+                    } else {
+                        quote = Some(IdentifierQuote::Bracket(depth - 1));
                         i += 1;
                     }
                 } else {
@@ -333,7 +367,7 @@ fn split_identifier_chain(prefix: &str) -> Option<Vec<&str>> {
                     i += 1;
                 }
                 b'[' => {
-                    quote = Some(IdentifierQuote::Bracket);
+                    quote = Some(IdentifierQuote::Bracket(1));
                     i += 1;
                 }
                 b'.' => {
@@ -421,239 +455,31 @@ fn require_pipeline_table_name(dplyr_code: &str) -> Result<(), TranspileError> {
 }
 
 fn find_embedded_start_marker(query: &str, from: usize) -> Option<(usize, usize)> {
-    let bytes = query.as_bytes();
-    let mut i = from;
-    let mut state = SqlScanState::Normal;
-
-    while i < bytes.len() {
-        match state {
-            SqlScanState::Normal => match bytes[i] {
-                b'\'' => {
-                    state = SqlScanState::SingleQuoted;
-                    i += 1;
-                }
-                b'"' => {
-                    state = SqlScanState::DoubleQuoted;
-                    i += 1;
-                }
-                b'`' => {
-                    state = SqlScanState::BacktickQuoted;
-                    i += 1;
-                }
-                b'[' => {
-                    state = SqlScanState::BracketQuoted;
-                    i += 1;
-                }
-                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
-                    state = SqlScanState::LineComment;
-                    i += 2;
-                }
-                b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
-                    state = SqlScanState::BlockComment(1);
-                    i += 2;
-                }
-                b'(' => {
-                    let mut j = i + 1;
-                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                        j += 1;
-                    }
-                    if j < bytes.len() && bytes[j] == b'|' {
-                        return Some((i, j + 1));
-                    }
-                    i += 1;
-                }
-                _ => i += 1,
-            },
-            SqlScanState::SingleQuoted => {
-                if bytes[i] == b'\'' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::DoubleQuoted => {
-                if bytes[i] == b'"' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BacktickQuoted => {
-                if bytes[i] == b'`' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BracketQuoted => {
-                if bytes[i] == b']' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::LineComment => {
-                if bytes[i] == b'\n' {
-                    state = SqlScanState::Normal;
-                }
-                i += 1;
-            }
-            SqlScanState::BlockComment(depth) => {
-                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-                    state = SqlScanState::BlockComment(depth + 1);
-                    i += 2;
-                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
-                    if depth == 1 {
-                        state = SqlScanState::Normal;
-                    } else {
-                        state = SqlScanState::BlockComment(depth - 1);
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
+    find_unquoted_match(query, from, |bytes, i| {
+        if bytes[i] != b'(' {
+            return None;
         }
-    }
-    None
+
+        let mut j = i + 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        (j < bytes.len() && bytes[j] == b'|').then_some((i, j + 1))
+    })
 }
 
 fn find_embedded_end_marker(query: &str, from: usize) -> Option<(usize, usize)> {
-    let bytes = query.as_bytes();
-    let mut i = from;
-    let mut state = SqlScanState::Normal;
-
-    while i < bytes.len() {
-        match state {
-            SqlScanState::Normal => match bytes[i] {
-                b'\'' => {
-                    state = SqlScanState::SingleQuoted;
-                    i += 1;
-                }
-                b'"' => {
-                    state = SqlScanState::DoubleQuoted;
-                    i += 1;
-                }
-                b'`' => {
-                    state = SqlScanState::BacktickQuoted;
-                    i += 1;
-                }
-                b'[' => {
-                    state = SqlScanState::BracketQuoted;
-                    i += 1;
-                }
-                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
-                    state = SqlScanState::LineComment;
-                    i += 2;
-                }
-                b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
-                    state = SqlScanState::BlockComment(1);
-                    i += 2;
-                }
-                b'|' => {
-                    let mut j = i + 1;
-                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                        j += 1;
-                    }
-                    if j < bytes.len() && bytes[j] == b')' {
-                        return Some((i, j));
-                    }
-                    i += 1;
-                }
-                _ => i += 1,
-            },
-            SqlScanState::SingleQuoted => {
-                if bytes[i] == b'\'' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::DoubleQuoted => {
-                if bytes[i] == b'"' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BacktickQuoted => {
-                if bytes[i] == b'`' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::BracketQuoted => {
-                if bytes[i] == b']' {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b']' {
-                        i += 2;
-                    } else {
-                        state = SqlScanState::Normal;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            SqlScanState::LineComment => {
-                if bytes[i] == b'\n' {
-                    state = SqlScanState::Normal;
-                }
-                i += 1;
-            }
-            SqlScanState::BlockComment(depth) => {
-                if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-                    state = SqlScanState::BlockComment(depth + 1);
-                    i += 2;
-                } else if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
-                    if depth == 1 {
-                        state = SqlScanState::Normal;
-                    } else {
-                        state = SqlScanState::BlockComment(depth - 1);
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
+    find_unquoted_match(query, from, |bytes, i| {
+        if bytes[i] != b'|' {
+            return None;
         }
-    }
-    None
+
+        let mut j = i + 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        (j < bytes.len() && bytes[j] == b')').then_some((i, j))
+    })
 }
 
 fn replace_embedded_pipelines(
@@ -748,6 +574,10 @@ fn strip_leading_sql_comments_and_whitespace(mut sql: &str) -> &str {
 
         return sql;
     }
+}
+
+fn set_panic_error_output(out_error: *mut *mut c_char) {
+    replace_output_string(out_error, "E-INTERNAL: Internal panic occurred");
 }
 
 fn starts_with_supported_query_prefix(sql: &str) -> bool {
@@ -901,13 +731,7 @@ pub unsafe extern "C" fn dplyr_compile(
 
     result.unwrap_or_else(|_| {
         // Panic occurred - set error message if possible
-        unsafe {
-            if !out_error.is_null() {
-                if let Ok(panic_msg) = CString::new("E-INTERNAL: Internal panic occurred") {
-                    *out_error = panic_msg.into_raw();
-                }
-            }
-        }
+        set_panic_error_output(out_error);
         DPLYR_ERROR_PANIC
     })
 }
@@ -1005,13 +829,7 @@ pub unsafe extern "C" fn dplyr_compile_query(
     });
 
     result.unwrap_or_else(|_| {
-        unsafe {
-            if !out_error.is_null() {
-                if let Ok(panic_msg) = CString::new("E-INTERNAL: Internal panic occurred") {
-                    *out_error = panic_msg.into_raw();
-                }
-            }
-        }
+        set_panic_error_output(out_error);
         DPLYR_ERROR_PANIC
     })
 }
@@ -1102,10 +920,20 @@ mod query_rewrite_tests {
     }
 
     #[test]
+    fn identifier_chain_accepts_nested_bracket_segments() {
+        assert!(is_probably_identifier_chain("[arr[arr2[1]]].value"));
+    }
+
+    #[test]
     fn pipe_operator_detection_ignores_literals_and_comments() {
         assert_eq!(find_pipe_operator("SELECT '%>%'", 0), None);
+        assert_eq!(
+            find_pipe_operator(r"SELECT 'value with escaped quote \' and %>%' AS marker", 0),
+            None
+        );
         assert_eq!(find_pipe_operator("SELECT 1 -- %>%\nFROM tbl", 0), None);
         assert_eq!(find_pipe_operator("/* %>% */ SELECT 1", 0), None);
+        assert_eq!(find_pipe_operator("SELECT [arr[%>%]] FROM tbl", 0), None);
         assert!(find_pipe_operator("tbl %>% select(col)", 0).is_some());
     }
 

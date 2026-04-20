@@ -6,6 +6,7 @@
 
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::ptr;
 
 /// Set SQL output pointer safely
 pub fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
@@ -26,5 +27,45 @@ pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
                 *out_error = c_string.into_raw();
             }
         }
+    }
+}
+
+/// Replace an existing owned output string, freeing the previous allocation first.
+pub fn replace_output_string(out: *mut *mut c_char, value: &str) {
+    if out.is_null() {
+        return;
+    }
+
+    unsafe {
+        if !(*out).is_null() {
+            let _ = CString::from_raw(*out);
+            *out = ptr::null_mut();
+        }
+
+        if let Ok(c_string) = CString::new(value) {
+            *out = c_string.into_raw();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CStr;
+
+    #[test]
+    fn replace_output_string_overwrites_existing_allocation() {
+        let mut out = CString::new("stale error").unwrap().into_raw();
+
+        replace_output_string(&mut out, "fresh error");
+
+        let message = unsafe {
+            let c_str = CStr::from_ptr(out);
+            let message = c_str.to_string_lossy().into_owned();
+            let _ = CString::from_raw(out);
+            message
+        };
+
+        assert_eq!(message, "fresh error");
     }
 }
