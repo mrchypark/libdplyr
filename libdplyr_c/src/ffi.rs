@@ -30,7 +30,9 @@ pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
     }
 }
 
-/// Clear an owned output string, freeing the previous allocation when present.
+/// Clear an owned output string, freeing the previous libdplyr allocation when present.
+///
+/// The caller must only pass null or pointers previously allocated by libdplyr.
 pub fn clear_output_string(out: *mut *mut c_char) {
     if out.is_null() {
         return;

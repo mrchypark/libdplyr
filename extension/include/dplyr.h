@@ -104,6 +104,8 @@ typedef struct DplyrOptions {
  * 
  * @note Memory management (R3-AC3): 
  *       - out_sql and out_error are allocated by this function
+ *       - On entry, *out_sql and *out_error must be NULL or pointers previously allocated by libdplyr
+ *       - Any non-NULL incoming libdplyr-owned pointer is reclaimed by this function before reuse
  *       - Caller MUST call dplyr_free_string() to release memory
  *       - Only one of out_sql or out_error will be set (never both)
  * 
@@ -141,6 +143,10 @@ int dplyr_compile(
  * Returns `DPLYR_QUERY_NOT_HANDLED` when the query does not contain a dplyr
  * pipeline. On success, `out_sql` receives either the rewritten SQL query or
  * the compiled pure pipeline SQL.
+ *
+ * On entry, `*out_sql` and `*out_error` must be `NULL` or pointers previously
+ * allocated by libdplyr. Any non-NULL incoming libdplyr-owned pointer is
+ * reclaimed by this function before reuse.
  */
 int dplyr_compile_query(
     const char* query,

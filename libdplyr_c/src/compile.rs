@@ -579,14 +579,27 @@ fn set_panic_error_output(out_error: *mut *mut c_char) {
     replace_output_string(out_error, "E-INTERNAL: Internal panic occurred");
 }
 
+fn has_sql_keyword_prefix(sql: &str, keyword: &str) -> bool {
+    let Some(head) = sql.get(..keyword.len()) else {
+        return false;
+    };
+    if !head.eq_ignore_ascii_case(keyword) {
+        return false;
+    }
+
+    sql[keyword.len()..]
+        .chars()
+        .next()
+        .map(|c| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(true)
+}
+
 fn starts_with_supported_query_prefix(sql: &str) -> bool {
     let sql = strip_leading_sql_comments_and_whitespace(sql);
     sql.starts_with('(')
-        || ["SELECT", "WITH"].iter().any(|prefix| {
-            sql.get(..prefix.len())
-                .map(|head| head.eq_ignore_ascii_case(prefix))
-                .unwrap_or(false)
-        })
+        || ["SELECT", "WITH"]
+            .iter()
+            .any(|prefix| has_sql_keyword_prefix(sql, prefix))
 }
 
 fn compile_query_string(
@@ -641,6 +654,8 @@ fn compile_query_string(
 /// - `code` is a valid null-terminated C string.
 /// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()` if default options are desired.
 /// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char` where results can be stored.
+/// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
+///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
 /// - Any `*mut c_char` returned must be freed using `dplyr_free_string`.
 ///
 /// # Returns
@@ -655,18 +670,18 @@ pub unsafe extern "C" fn dplyr_compile(
 ) -> i32 {
     // R9-AC1: Panic safety - catch all panics at FFI boundary
     let result = panic::catch_unwind(|| {
-        // R9-AC2: Input validation - check for null pointers
-        if code.is_null() {
-            set_error_output(out_error, "E-NULL-POINTER: code parameter is null");
-            return DPLYR_ERROR_NULL_POINTER;
-        }
-
         if out_sql.is_null() || out_error.is_null() {
             return DPLYR_ERROR_NULL_POINTER;
         }
 
         clear_output_string(out_sql);
         clear_output_string(out_error);
+
+        // R9-AC2: Input validation - check for null pointers
+        if code.is_null() {
+            set_error_output(out_error, "E-NULL-POINTER: code parameter is null");
+            return DPLYR_ERROR_NULL_POINTER;
+        }
 
         // Convert C string to Rust string with UTF-8 validation
         let code_str = match unsafe { CStr::from_ptr(code) }.to_str() {
@@ -741,6 +756,8 @@ pub unsafe extern "C" fn dplyr_compile(
 /// - `query` is a valid null-terminated C string.
 /// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()`.
 /// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char`.
+/// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
+///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
 /// - Any returned string pointer is freed with `dplyr_free_string`.
 pub unsafe extern "C" fn dplyr_compile_query(
     query: *const c_char,
@@ -946,5 +963,15 @@ mod query_rewrite_tests {
     fn strip_leading_comments_handles_nested_block_comments() {
         let sql = "/* outer /* nested */ still outer */ SELECT 1";
         assert_eq!(strip_leading_sql_comments_and_whitespace(sql), "SELECT 1");
+    }
+
+    #[test]
+    fn supported_query_prefix_requires_keyword_boundary() {
+        assert!(starts_with_supported_query_prefix("SELECT * FROM tbl"));
+        assert!(starts_with_supported_query_prefix(
+            "WITH cte AS (SELECT 1) SELECT * FROM cte"
+        ));
+        assert!(!starts_with_supported_query_prefix("SELECTED * FROM tbl"));
+        assert!(!starts_with_supported_query_prefix("WITHIN grp AS value"));
     }
 }

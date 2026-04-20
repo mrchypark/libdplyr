@@ -198,7 +198,8 @@ mod ffi_tests {
 
     #[test]
     fn test_dplyr_compile_null_pointers() {
-        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let stale_sql = CString::new("stale sql").unwrap().into_raw();
+        let mut out_sql: *mut c_char = stale_sql;
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test null code pointer
@@ -213,8 +214,15 @@ mod ffi_tests {
 
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
         assert!(!out_error.is_null());
+        assert!(
+            out_sql.is_null(),
+            "null-code path should clear stale SQL outputs"
+        );
 
         // Clean up
+        if !out_sql.is_null() {
+            unsafe { dplyr_free_string(out_sql) };
+        }
         if !out_error.is_null() {
             unsafe { dplyr_free_string(out_error) };
         }
