@@ -66,6 +66,7 @@ pub unsafe extern "C" fn dplyr_init_output_string(out: *mut *mut c_char) -> i32 
 }
 
 /// Replace an existing owned output string, freeing the previous allocation first.
+#[cfg(test)]
 pub fn replace_output_string(out: *mut *mut c_char, value: &str) {
     if out.is_null() {
         return;

@@ -12,7 +12,7 @@ use libdplyr::{
 use crate::cache;
 use crate::cache::SimpleTranspileCache;
 use crate::error::{create_error_message_with_context, TranspileError};
-use crate::ffi::{clear_output_string, replace_output_string, set_error_output, set_sql_output};
+use crate::ffi::{clear_output_string, set_error_output, set_sql_output};
 use crate::options::{DplyrDialect, DplyrOptions, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS};
 use crate::validation::{
     validate_input_encoding, validate_input_security, validate_input_structure,
@@ -693,10 +693,6 @@ fn strip_leading_sql_comments_and_whitespace(mut sql: &str) -> &str {
     }
 }
 
-fn set_panic_error_output(out_error: *mut *mut c_char) {
-    replace_output_string(out_error, "E-INTERNAL: Internal panic occurred");
-}
-
 fn has_sql_keyword_prefix(sql: &str, keyword: &str) -> bool {
     let Some(head) = sql.get(..keyword.len()) else {
         return false;
@@ -782,6 +778,7 @@ fn compile_query_string_with_deadline(
 /// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
 ///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
 /// - Any `*mut c_char` returned must be freed using `dplyr_free_string`.
+/// - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `*out_error` was populated.
 ///
 /// # Returns
 /// - 0 on success
@@ -866,11 +863,7 @@ pub unsafe extern "C" fn dplyr_compile(
         }
     });
 
-    result.unwrap_or_else(|_| {
-        // Panic occurred - set error message if possible
-        set_panic_error_output(out_error);
-        DPLYR_ERROR_PANIC
-    })
+    result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
 #[no_mangle]
@@ -884,6 +877,7 @@ pub unsafe extern "C" fn dplyr_compile(
 /// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
 ///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
 /// - Any returned string pointer is freed with `dplyr_free_string`.
+/// - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `*out_error` was populated.
 pub unsafe extern "C" fn dplyr_compile_query(
     query: *const c_char,
     options: *const DplyrOptions,
@@ -966,10 +960,7 @@ pub unsafe extern "C" fn dplyr_compile_query(
         }
     });
 
-    result.unwrap_or_else(|_| {
-        set_panic_error_output(out_error);
-        DPLYR_ERROR_PANIC
-    })
+    result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
 /// Convert libdplyr error to our TranspileError type

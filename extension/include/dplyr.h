@@ -112,6 +112,8 @@ typedef struct DplyrOptions {
  *         validate foreign pointer provenance at runtime before reclaiming a reused output pointer
  *       - Caller MUST call dplyr_free_string() to release memory
  *       - Only one of out_sql or out_error will be set (never both)
+ *       - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `out_error`
+ *         contains a valid message because the panic fallback avoids heap work
  * 
  * @note Thread safety (R9-AC3): This function is thread-safe. Multiple threads
  *       can call this function concurrently without external synchronization.
@@ -154,6 +156,8 @@ int dplyr_compile(
  * slots to `NULL` before the first call; use dplyr_init_output_string() if you
  * want an explicit helper for that setup. libdplyr cannot validate foreign
  * pointer provenance at runtime before reclaiming a reused output pointer.
+ * If the function returns `DPLYR_ERROR_PANIC`, callers must not assume
+ * `out_error` contains a valid message because the panic fallback avoids heap work.
  */
 int dplyr_compile_query(
     const char* query,
