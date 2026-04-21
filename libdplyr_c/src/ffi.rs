@@ -35,6 +35,9 @@ pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
 /// Clear an owned output string, freeing the previous libdplyr allocation when present.
 ///
 /// The caller must only pass null or pointers previously allocated by libdplyr.
+/// Pointer provenance cannot be validated safely at runtime across the FFI
+/// boundary, so callers must initialize output slots to null before the first
+/// call and only reuse values originally returned by libdplyr.
 pub fn clear_output_string(out: *mut *mut c_char) {
     if out.is_null() {
         return;

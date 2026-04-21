@@ -106,6 +106,8 @@ typedef struct DplyrOptions {
  *       - out_sql and out_error are allocated by this function
  *       - On entry, *out_sql and *out_error must be NULL or pointers previously allocated by libdplyr
  *       - Any non-NULL incoming libdplyr-owned pointer is reclaimed by this function before reuse
+ *       - Callers must initialize output slots to NULL before the first call; libdplyr cannot
+ *         validate foreign pointer provenance at runtime before reclaiming a reused output pointer
  *       - Caller MUST call dplyr_free_string() to release memory
  *       - Only one of out_sql or out_error will be set (never both)
  * 
@@ -146,7 +148,9 @@ int dplyr_compile(
  *
  * On entry, `*out_sql` and `*out_error` must be `NULL` or pointers previously
  * allocated by libdplyr. Any non-NULL incoming libdplyr-owned pointer is
- * reclaimed by this function before reuse.
+ * reclaimed by this function before reuse. Callers must initialize output
+ * slots to `NULL` before the first call; libdplyr cannot validate foreign
+ * pointer provenance at runtime before reclaiming a reused output pointer.
  */
 int dplyr_compile_query(
     const char* query,
