@@ -1,22 +1,54 @@
 //! Memory management for FFI-owned strings.
 
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::os::raw::c_char;
 use std::panic;
+use std::sync::{Mutex, OnceLock};
 
 use crate::error::{DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS};
+
+fn owned_strings() -> &'static Mutex<HashSet<usize>> {
+    static OWNED_STRINGS: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    OWNED_STRINGS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn alloc_owned_string(value: &str) -> Option<*mut c_char> {
+    let c_string = CString::new(value).ok()?;
+    let ptr = c_string.into_raw();
+    let registry = owned_strings();
+    if let Ok(mut owned) = registry.lock() {
+        owned.insert(ptr as usize);
+        Some(ptr)
+    } else {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+        None
+    }
+}
 
 /// Free a single string owned by libdplyr.
 ///
 /// The caller must only pass a pointer previously returned by libdplyr, or null.
-pub(crate) unsafe fn free_owned_string(s: *mut c_char) {
+pub(crate) unsafe fn free_owned_string(s: *mut c_char) -> bool {
     if s.is_null() {
-        return;
+        return true;
+    }
+
+    let registry = owned_strings();
+    let Ok(mut owned) = registry.lock() else {
+        return false;
+    };
+
+    if !owned.remove(&(s as usize)) {
+        return false;
     }
 
     unsafe {
         let _ = CString::from_raw(s);
     }
+    true
 }
 
 /// Free string allocated by `libdplyr_c` functions.
@@ -38,8 +70,11 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 
     // R9-AC1: Panic safety for memory operations
     let result = panic::catch_unwind(|| {
-        unsafe { free_owned_string(s) };
-        DPLYR_SUCCESS
+        if unsafe { free_owned_string(s) } {
+            DPLYR_SUCCESS
+        } else {
+            DPLYR_ERROR_PANIC
+        }
     });
 
     result.unwrap_or_else(|_| {

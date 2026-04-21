@@ -918,26 +918,25 @@ pub unsafe extern "C" fn dplyr_compile_query(
             return set_compile_error_output(out_error, error);
         }
 
-        let trimmed_query = query_str.trim();
         let scan_config = scan_config_for_options(&opts);
-        if trimmed_query.is_empty()
-            || find_pipe_operator_with_config(trimmed_query, 0, scan_config).is_none()
-        {
+        let has_pipeline = find_pipe_operator_with_config(query_str, 0, scan_config).is_some();
+        if !has_pipeline {
             return DPLYR_QUERY_NOT_HANDLED;
         }
 
-        if trimmed_query.len() > opts.max_input_length as usize {
+        if query_str.len() > opts.max_input_length as usize {
             set_error_output(
                 out_error,
                 &format!(
                     "E-INPUT-TOO-LARGE: Input size {} exceeds maximum {}",
-                    trimmed_query.len(),
+                    query_str.len(),
                     opts.max_input_length
                 ),
             );
             return DPLYR_ERROR_INPUT_TOO_LARGE;
         }
 
+        let trimmed_query = query_str.trim();
         match compile_query_string_with_deadline(trimmed_query, &opts, processing_deadline(&opts)) {
             Ok(Some(sql)) => {
                 set_sql_output(out_sql, &sql);

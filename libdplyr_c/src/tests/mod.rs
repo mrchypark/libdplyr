@@ -10,6 +10,7 @@ use crate::error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
     DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
 };
+use crate::memory::alloc_owned_string;
 use crate::validation::{
     calculate_nesting_depth, contains_suspicious_patterns, count_function_calls,
     has_excessive_repetition, validate_input_encoding, validate_input_security,
@@ -454,6 +455,24 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_rejects_pipeline_with_oversized_whitespace_padding() {
+        let padded = format!("{}mtcars %>% select(mpg)", " ".repeat(256));
+        let input = CString::new(padded).unwrap();
+        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        unsafe { dplyr_free_string(out_error) };
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_null_output_pointers() {
         let input = CString::new("SELECT 42").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
@@ -720,8 +739,7 @@ mod ffi_tests {
         assert_eq!(result, DPLYR_SUCCESS);
 
         // Test freeing valid string
-        let test_string = CString::new("test string").unwrap();
-        let raw_ptr = test_string.into_raw();
+        let raw_ptr = alloc_owned_string("test string").unwrap();
 
         // Verify pointer looks valid
         assert!(unsafe { dplyr_is_valid_string_pointer(raw_ptr) });
@@ -746,9 +764,9 @@ mod ffi_tests {
     #[test]
     fn test_dplyr_free_strings_batch() {
         // Create multiple test strings
-        let string1 = CString::new("string1").unwrap().into_raw();
-        let string2 = CString::new("string2").unwrap().into_raw();
-        let string3 = CString::new("string3").unwrap().into_raw();
+        let string1 = alloc_owned_string("string1").unwrap();
+        let string2 = alloc_owned_string("string2").unwrap();
+        let string3 = alloc_owned_string("string3").unwrap();
 
         // Create array of pointers
         let mut strings = vec![string1, string2, string3, std::ptr::null_mut()];
@@ -1018,7 +1036,6 @@ mod ffi_tests {
 
     #[test]
     fn test_ffi_thread_safety() {
-        use std::ffi::CString;
         use std::thread;
 
         let handles = [0, 1, 2, 3].map(|thread_id| {
@@ -1108,7 +1125,6 @@ mod ffi_tests {
 
     #[test]
     fn test_memory_management_thread_safety() {
-        use std::ffi::CString;
         use std::thread;
 
         // Test that memory management functions are thread-safe
@@ -1116,8 +1132,9 @@ mod ffi_tests {
             thread::spawn(move || {
                 // Create and free strings in each thread
                 let raw_pointers: Vec<*mut c_char> = (0..10)
-                    .map(|i| CString::new(format!("thread_{}_string_{}", thread_id, i)).unwrap())
-                    .map(|s| s.into_raw())
+                    .map(|i| {
+                        alloc_owned_string(&format!("thread_{}_string_{}", thread_id, i)).unwrap()
+                    })
                     .collect();
 
                 // Free all strings
@@ -1129,9 +1146,9 @@ mod ffi_tests {
                 // Test batch free
                 let mut batch_pointers: Vec<*mut c_char> = (0..5)
                     .map(|i| {
-                        CString::new(format!("batch_thread_{}_string_{}", thread_id, i)).unwrap()
+                        alloc_owned_string(&format!("batch_thread_{}_string_{}", thread_id, i))
+                            .unwrap()
                     })
-                    .map(|s| s.into_raw())
                     .collect();
 
                 let freed_count = unsafe {
@@ -1410,8 +1427,7 @@ mod ffi_tests {
 fn test_memory_management() {
     // Test string allocation and deallocation
     let test_str = "test string for memory management";
-    let c_string = CString::new(test_str).unwrap();
-    let raw_ptr = c_string.into_raw();
+    let raw_ptr = alloc_owned_string(test_str).unwrap();
 
     // Verify the string is valid
     let recovered = unsafe { CStr::from_ptr(raw_ptr) };
@@ -1427,8 +1443,8 @@ fn test_memory_management() {
     );
 
     // Test multiple string freeing
-    let str1 = CString::new("test1").unwrap().into_raw();
-    let str2 = CString::new("test2").unwrap().into_raw();
+    let str1 = alloc_owned_string("test1").unwrap();
+    let str2 = alloc_owned_string("test2").unwrap();
     let mut string_array = [str1, str2];
 
     let freed_count = unsafe { dplyr_free_strings(string_array.as_mut_ptr(), 2) };

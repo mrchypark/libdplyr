@@ -96,20 +96,23 @@ typedef struct DplyrOptions {
  * @param out_sql Pointer to receive the generated SQL string (allocated by this function)
  * @param out_error Pointer to receive error message if transpilation fails
  * 
- * @return 0 on success, negative error code on failure:
- *         -1: E-FFI (invalid parameters, encoding issues)
- *         -2: E-INPUT-TOO-LARGE or E-TIMEOUT (resource limits and timeouts)
- *         -3: E-SYNTAX or E-UNSUPPORTED (transpilation errors)
- *         -4: E-INTERNAL or E-PANIC (internal failure occurred)
+ * @return 0 on success, or a negative error code on failure:
+ *         - `DPLYR_ERROR_NULL_POINTER` (-1): A required pointer argument was null
+ *         - `DPLYR_ERROR_INVALID_UTF8` (-2): Input string is not valid UTF-8
+ *         - `DPLYR_ERROR_INPUT_TOO_LARGE` (-3): Input exceeds the configured size limit
+ *         - `DPLYR_ERROR_TIMEOUT` (-4): Processing exceeded the configured time limit
+ *         - `DPLYR_ERROR_SYNTAX` (-5): The dplyr pipeline has a syntax error
+ *         - `DPLYR_ERROR_UNSUPPORTED` (-6): The pipeline uses an unsupported feature
+ *         - `DPLYR_ERROR_INTERNAL` (-7): An unexpected internal error occurred
+ *         - `DPLYR_ERROR_PANIC` (-8): A panic occurred, indicating a bug
  * 
  * @note Memory management (R3-AC3): 
  *       - out_sql and out_error are allocated by this function
- *       - On entry, *out_sql and *out_error must be NULL or pointers previously allocated by libdplyr
+ *       - On entry, *out_sql and *out_error should be NULL or pointers previously allocated by libdplyr
  *       - Any non-NULL incoming libdplyr-owned pointer is reclaimed by this function before reuse
  *       - Callers must initialize output slots to NULL before the first call; use
  *         dplyr_init_output_string() if you want an explicit helper for this step
- *       - libdplyr cannot
- *         validate foreign pointer provenance at runtime before reclaiming a reused output pointer
+ *       - Foreign pointers are not reclaimed; libdplyr only frees pointers it can prove it allocated
  *       - Caller MUST call dplyr_free_string() to release memory
  *       - Only one of out_sql or out_error will be set (never both)
  *       - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `out_error`
