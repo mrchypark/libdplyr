@@ -8,6 +8,7 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::ptr;
 
+use crate::error::{DPLYR_ERROR_NULL_POINTER, DPLYR_SUCCESS};
 use crate::memory::free_owned_string;
 
 /// Set SQL output pointer safely
@@ -49,6 +50,19 @@ pub fn clear_output_string(out: *mut *mut c_char) {
         }
         *out = ptr::null_mut();
     }
+}
+
+/// Initialize an output slot to null before first use from C callers.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_init_output_string(out: *mut *mut c_char) -> i32 {
+    if out.is_null() {
+        return DPLYR_ERROR_NULL_POINTER;
+    }
+
+    unsafe {
+        *out = ptr::null_mut();
+    }
+    DPLYR_SUCCESS
 }
 
 /// Replace an existing owned output string, freeing the previous allocation first.
@@ -93,6 +107,16 @@ mod tests {
 
         clear_output_string(&mut out);
 
+        assert!(out.is_null());
+    }
+
+    #[test]
+    fn init_output_string_sets_slot_to_null() {
+        let mut out: *mut c_char = 1usize as *mut c_char;
+
+        let result = unsafe { dplyr_init_output_string(&mut out) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
         assert!(out.is_null());
     }
 }

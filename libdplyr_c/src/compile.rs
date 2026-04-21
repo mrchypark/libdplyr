@@ -36,6 +36,7 @@ fn validated_dialect(raw_dialect: u32) -> Result<DplyrDialect, TranspileError> {
     DplyrDialect::try_from(raw_dialect)
 }
 
+#[derive(Debug)]
 enum CompileInputError {
     InputTooLarge(String),
     Transpile(TranspileError),
@@ -74,50 +75,95 @@ fn validate_compile_input(code_str: &str, opts: &DplyrOptions) -> Result<(), Com
     Ok(())
 }
 
-fn compile_to_sql(code_str: &str, opts: &DplyrOptions) -> Result<String, TranspileError> {
-    let processing_start = Instant::now();
+fn processing_timeout(opts: &DplyrOptions) -> Duration {
     let timeout_ms = if opts.max_processing_time_ms == 0 {
         MAX_PROCESSING_TIME_MS
     } else {
         opts.max_processing_time_ms
     };
-    let max_processing_time = Duration::from_millis(timeout_ms);
+    Duration::from_millis(timeout_ms)
+}
 
-    SimpleTranspileCache::get_or_transpile(code_str, opts, |dplyr_code, options| {
-        if processing_start.elapsed() > max_processing_time {
-            return Err(TranspileError::internal_error_with_hint(
-                &format!(
-                    "Processing timeout: exceeded {}ms limit",
-                    max_processing_time.as_millis()
-                ),
-                Some("Reduce input complexity or increase timeout limit".to_string()),
-            ));
-        }
+fn processing_deadline(opts: &DplyrOptions) -> Instant {
+    Instant::now() + processing_timeout(opts)
+}
+
+fn timeout_error(max_processing_time: Duration, phase: &str, hint: &str) -> TranspileError {
+    TranspileError::internal_error_with_hint(
+        &format!(
+            "{} timeout: exceeded {}ms limit",
+            phase,
+            max_processing_time.as_millis()
+        ),
+        Some(hint.to_string()),
+    )
+}
+
+fn ensure_before_deadline(
+    deadline: Instant,
+    max_processing_time: Duration,
+    phase: &str,
+    hint: &str,
+) -> Result<(), TranspileError> {
+    if Instant::now() > deadline {
+        return Err(timeout_error(max_processing_time, phase, hint));
+    }
+
+    Ok(())
+}
+
+fn compile_to_sql_with_deadline(
+    code_str: &str,
+    opts: &DplyrOptions,
+    deadline: Instant,
+) -> Result<String, TranspileError> {
+    let max_processing_time = processing_timeout(opts);
+
+    ensure_before_deadline(
+        deadline,
+        max_processing_time,
+        "Processing",
+        "Reduce input complexity or increase timeout limit",
+    )?;
+
+    let sql = SimpleTranspileCache::get_or_transpile(code_str, opts, |dplyr_code, options| {
+        ensure_before_deadline(
+            deadline,
+            max_processing_time,
+            "Processing",
+            "Reduce input complexity or increase timeout limit",
+        )?;
 
         validate_input_security(dplyr_code)?;
 
         let transpiler = Transpiler::new(create_dialect(validated_dialect(options.dialect)?));
-        let transpile_start = Instant::now();
         let transpile_result = transpiler.transpile(dplyr_code);
 
-        if transpile_start.elapsed() > max_processing_time {
-            return Err(TranspileError::internal_error_with_hint(
-                &format!(
-                    "Transpilation timeout: exceeded {}ms limit",
-                    max_processing_time.as_millis()
-                ),
-                Some("Input may be too complex for processing".to_string()),
-            ));
-        }
+        ensure_before_deadline(
+            deadline,
+            max_processing_time,
+            "Transpilation",
+            "Input may be too complex for processing",
+        )?;
 
         match transpile_result {
-            Ok(sql) => {
-                validate_output_length(&sql)?;
-                Ok(sql)
-            }
+            Ok(sql) => Ok(sql),
             Err(libdplyr_error) => Err(convert_libdplyr_error(libdplyr_error)),
         }
-    })
+    })?;
+
+    ensure_before_deadline(
+        deadline,
+        max_processing_time,
+        "Processing",
+        "Reduce input complexity or increase timeout limit",
+    )?;
+    validate_output_length(&sql)?;
+    Ok(sql)
+}
+
+fn compile_to_sql(code_str: &str, opts: &DplyrOptions) -> Result<String, TranspileError> {
+    compile_to_sql_with_deadline(code_str, opts, processing_deadline(opts))
 }
 
 fn validate_output_length(sql: &str) -> Result<(), TranspileError> {
@@ -143,6 +189,25 @@ fn strip_trailing_semicolon(input: &str) -> String {
 }
 
 #[derive(Clone, Copy)]
+struct SqlScanConfig {
+    hash_line_comments: bool,
+}
+
+impl Default for SqlScanConfig {
+    fn default() -> Self {
+        Self {
+            hash_line_comments: false,
+        }
+    }
+}
+
+fn scan_config_for_options(opts: &DplyrOptions) -> SqlScanConfig {
+    SqlScanConfig {
+        hash_line_comments: opts.dialect == DplyrDialect::MySql as u32,
+    }
+}
+
+#[derive(Clone, Copy)]
 enum SqlScanState {
     Normal,
     SingleQuoted,
@@ -154,10 +219,19 @@ enum SqlScanState {
 }
 
 fn find_pipe_operator(sql: &str, from: usize) -> Option<usize> {
-    find_unquoted_sequence(sql, from, b"%>%")
+    find_pipe_operator_with_config(sql, from, SqlScanConfig::default())
 }
 
-fn advance_sql_scan(bytes: &[u8], i: usize, state: &mut SqlScanState) -> usize {
+fn find_pipe_operator_with_config(sql: &str, from: usize, config: SqlScanConfig) -> Option<usize> {
+    find_unquoted_sequence(sql, from, b"%>%", config)
+}
+
+fn advance_sql_scan(
+    bytes: &[u8],
+    i: usize,
+    state: &mut SqlScanState,
+    config: SqlScanConfig,
+) -> usize {
     match *state {
         SqlScanState::Normal => match bytes[i] {
             b'\'' => {
@@ -183,6 +257,10 @@ fn advance_sql_scan(bytes: &[u8], i: usize, state: &mut SqlScanState) -> usize {
             b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
                 *state = SqlScanState::BlockComment(1);
                 i + 2
+            }
+            b'#' if config.hash_line_comments => {
+                *state = SqlScanState::LineComment;
+                i + 1
             }
             _ => i + 1,
         },
@@ -270,7 +348,12 @@ fn advance_sql_scan(bytes: &[u8], i: usize, state: &mut SqlScanState) -> usize {
     }
 }
 
-fn find_unquoted_match<T, F>(sql: &str, from: usize, mut matcher: F) -> Option<T>
+fn find_unquoted_match<T, F>(
+    sql: &str,
+    from: usize,
+    config: SqlScanConfig,
+    mut matcher: F,
+) -> Option<T>
 where
     F: FnMut(&[u8], usize) -> Option<T>,
 {
@@ -289,17 +372,22 @@ where
             }
         }
 
-        i = advance_sql_scan(bytes, i, &mut state);
+        i = advance_sql_scan(bytes, i, &mut state, config);
     }
 
     None
 }
 
-fn find_unquoted_sequence(sql: &str, from: usize, needle: &[u8]) -> Option<usize> {
+fn find_unquoted_sequence(
+    sql: &str,
+    from: usize,
+    needle: &[u8],
+    config: SqlScanConfig,
+) -> Option<usize> {
     if needle.is_empty() {
         return None;
     }
-    find_unquoted_match(sql, from, |bytes, i| {
+    find_unquoted_match(sql, from, config, |bytes, i| {
         bytes[i..].starts_with(needle).then_some(i)
     })
 }
@@ -463,8 +551,17 @@ fn require_pipeline_table_name(dplyr_code: &str) -> Result<(), TranspileError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn find_embedded_start_marker(query: &str, from: usize) -> Option<(usize, usize)> {
-    find_unquoted_match(query, from, |bytes, i| {
+    find_embedded_start_marker_with_config(query, from, SqlScanConfig::default())
+}
+
+fn find_embedded_start_marker_with_config(
+    query: &str,
+    from: usize,
+    config: SqlScanConfig,
+) -> Option<(usize, usize)> {
+    find_unquoted_match(query, from, config, |bytes, i| {
         if bytes[i] != b'(' {
             return None;
         }
@@ -477,8 +574,12 @@ fn find_embedded_start_marker(query: &str, from: usize) -> Option<(usize, usize)
     })
 }
 
-fn find_embedded_end_marker(query: &str, from: usize) -> Option<(usize, usize)> {
-    find_unquoted_match(query, from, |bytes, i| {
+fn find_embedded_end_marker_with_config(
+    query: &str,
+    from: usize,
+    config: SqlScanConfig,
+) -> Option<(usize, usize)> {
+    find_unquoted_match(query, from, config, |bytes, i| {
         if bytes[i] != b'|' {
             return None;
         }
@@ -491,21 +592,27 @@ fn find_embedded_end_marker(query: &str, from: usize) -> Option<(usize, usize)> 
     })
 }
 
-fn replace_embedded_pipelines(
+fn replace_embedded_pipelines_with_deadline(
     query: &str,
     opts: &DplyrOptions,
+    deadline: Instant,
+    scan_config: SqlScanConfig,
 ) -> Result<String, CompileInputError> {
     let mut output = String::with_capacity(query.len());
     let mut cursor = 0;
 
     while cursor < query.len() {
-        let Some((marker_start, content_start)) = find_embedded_start_marker(query, cursor) else {
+        let Some((marker_start, content_start)) =
+            find_embedded_start_marker_with_config(query, cursor, scan_config)
+        else {
             output.push_str(&query[cursor..]);
             break;
         };
 
         output.push_str(&query[cursor..marker_start]);
-        let Some((content_end, marker_end)) = find_embedded_end_marker(query, content_start) else {
+        let Some((content_end, marker_end)) =
+            find_embedded_end_marker_with_config(query, content_start, scan_config)
+        else {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     "Unterminated embedded dplyr segment",
@@ -527,7 +634,7 @@ fn replace_embedded_pipelines(
                 ),
             ));
         }
-        if find_pipe_operator(&embedded, 0).is_none() {
+        if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     "Embedded dplyr segment must contain a %>% pipeline",
@@ -540,7 +647,8 @@ fn replace_embedded_pipelines(
 
         validate_compile_input(&embedded, opts)?;
         require_pipeline_table_name(&embedded).map_err(CompileInputError::Transpile)?;
-        let sql = compile_to_sql(&embedded, opts).map_err(CompileInputError::Transpile)?;
+        let sql = compile_to_sql_with_deadline(&embedded, opts, deadline)
+            .map_err(CompileInputError::Transpile)?;
         output.push('(');
         output.push_str(&sql);
         output.push(')');
@@ -612,18 +720,22 @@ fn starts_with_supported_query_prefix(sql: &str) -> bool {
             .any(|prefix| has_sql_keyword_prefix(sql, prefix))
 }
 
-fn compile_query_string(
+fn compile_query_string_with_deadline(
     query: &str,
     opts: &DplyrOptions,
+    deadline: Instant,
 ) -> Result<Option<String>, CompileInputError> {
     let trimmed = query.trim();
-    if trimmed.is_empty() || find_pipe_operator(trimmed, 0).is_none() {
+    let scan_config = scan_config_for_options(opts);
+
+    if trimmed.is_empty() || find_pipe_operator_with_config(trimmed, 0, scan_config).is_none() {
         return Ok(None);
     }
 
-    let sql = if find_embedded_start_marker(trimmed, 0).is_some() {
-        let rewritten = replace_embedded_pipelines(trimmed, opts)?;
-        if find_pipe_operator(&rewritten, 0).is_some() {
+    let sql = if find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some() {
+        let rewritten =
+            replace_embedded_pipelines_with_deadline(trimmed, opts, deadline, scan_config)?;
+        if find_pipe_operator_with_config(&rewritten, 0, scan_config).is_some() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     "Unprocessed %>% pipeline remains",
@@ -641,7 +753,8 @@ fn compile_query_string(
         let dplyr_code = strip_trailing_semicolon(trimmed);
         validate_compile_input(&dplyr_code, opts)?;
         require_pipeline_table_name(&dplyr_code).map_err(CompileInputError::Transpile)?;
-        compile_to_sql(&dplyr_code, opts).map_err(CompileInputError::Transpile)?
+        compile_to_sql_with_deadline(&dplyr_code, opts, deadline)
+            .map_err(CompileInputError::Transpile)?
     };
 
     validate_output_length(&sql).map_err(CompileInputError::Transpile)?;
@@ -812,7 +925,10 @@ pub unsafe extern "C" fn dplyr_compile_query(
         }
 
         let trimmed_query = query_str.trim();
-        if trimmed_query.is_empty() || find_pipe_operator(trimmed_query, 0).is_none() {
+        let scan_config = scan_config_for_options(&opts);
+        if trimmed_query.is_empty()
+            || find_pipe_operator_with_config(trimmed_query, 0, scan_config).is_none()
+        {
             return DPLYR_QUERY_NOT_HANDLED;
         }
 
@@ -828,7 +944,7 @@ pub unsafe extern "C" fn dplyr_compile_query(
             return DPLYR_ERROR_INPUT_TOO_LARGE;
         }
 
-        match compile_query_string(trimmed_query, &opts) {
+        match compile_query_string_with_deadline(trimmed_query, &opts, processing_deadline(&opts)) {
             Ok(Some(sql)) => {
                 set_sql_output(out_sql, &sql);
                 DPLYR_SUCCESS
@@ -960,6 +1076,19 @@ mod query_rewrite_tests {
     }
 
     #[test]
+    fn pipe_operator_detection_ignores_mysql_hash_comments_when_enabled() {
+        let config = SqlScanConfig {
+            hash_line_comments: true,
+        };
+
+        assert_eq!(
+            find_pipe_operator_with_config("# %>%\nSELECT 1", 0, config),
+            None
+        );
+        assert!(find_pipe_operator_with_config("tbl %>% select(col)", 0, config).is_some());
+    }
+
+    #[test]
     fn embedded_marker_detection_ignores_literals_and_comments() {
         assert_eq!(find_embedded_start_marker("SELECT '(|' AS marker", 0), None);
         assert_eq!(
@@ -990,5 +1119,24 @@ mod query_rewrite_tests {
         let oversized = "x".repeat(MAX_OUTPUT_LENGTH + 1);
         let error = validate_output_length(&oversized).expect_err("oversized SQL must fail");
         assert!(error.to_string().contains("Output too large"));
+    }
+
+    #[test]
+    fn embedded_pipeline_rewrite_respects_shared_deadline() {
+        let opts = DplyrOptions::default();
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let result = replace_embedded_pipelines_with_deadline(
+            "(| mtcars %>% select(mpg) |) UNION ALL (| mtcars %>% select(cyl) |)",
+            &opts,
+            deadline,
+            scan_config_for_options(&opts),
+        );
+
+        match result {
+            Err(CompileInputError::Transpile(error)) => {
+                assert!(error.to_c_string().to_string_lossy().contains("timeout"));
+            }
+            other => panic!("expected timeout error, got {other:?}"),
+        }
     }
 }

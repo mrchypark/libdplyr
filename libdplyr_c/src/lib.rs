@@ -23,6 +23,7 @@ mod system;
 mod validation;
 
 pub use compile::{dplyr_compile, dplyr_compile_query};
+pub use ffi::dplyr_init_output_string;
 pub use ffi_safety::dplyr_is_valid_string_pointer;
 pub use memory::{dplyr_free_string, dplyr_free_strings};
 #[cfg(target_family = "wasm")]

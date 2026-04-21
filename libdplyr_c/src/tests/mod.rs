@@ -409,6 +409,21 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_ignores_mysql_hash_comments() {
+        let input = CString::new("# %>%\nSELECT 42").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
         let oversized_pipeline =
             CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
@@ -716,6 +731,16 @@ mod ffi_tests {
         assert_eq!(result, DPLYR_SUCCESS);
 
         // Note: We can't test double-free safely as it would be undefined behavior
+    }
+
+    #[test]
+    fn test_dplyr_init_output_string_initializes_slot() {
+        let mut out = 1usize as *mut c_char;
+
+        let result = unsafe { dplyr_init_output_string(&mut out) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(out.is_null());
     }
 
     #[test]
