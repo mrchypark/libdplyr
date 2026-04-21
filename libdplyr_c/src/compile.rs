@@ -1,10 +1,14 @@
 //! Compile/transpile entrypoints.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use libdplyr::{
@@ -29,8 +33,74 @@ use crate::error::{
 static FORCE_FFI_PANIC: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
-pub(crate) fn set_force_ffi_panic(enabled: bool) {
-    FORCE_FFI_PANIC.store(enabled, Ordering::SeqCst);
+static FFI_TEST_GATE: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+thread_local! {
+    static HOLDS_FFI_TEST_GATE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+struct FfiTestGateGuard {
+    _guard: Option<MutexGuard<'static, ()>>,
+    reentrant: bool,
+}
+
+#[cfg(test)]
+impl FfiTestGateGuard {
+    fn acquire() -> Self {
+        let reentrant = HOLDS_FFI_TEST_GATE.with(|holds| {
+            let already_holding = holds.get();
+            if !already_holding {
+                holds.set(true);
+            }
+            already_holding
+        });
+
+        if reentrant {
+            Self {
+                _guard: None,
+                reentrant: true,
+            }
+        } else {
+            Self {
+                _guard: Some(
+                    FFI_TEST_GATE
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner()),
+                ),
+                reentrant: false,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for FfiTestGateGuard {
+    fn drop(&mut self) {
+        if !self.reentrant {
+            HOLDS_FFI_TEST_GATE.with(|holds| holds.set(false));
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ForcedFfiPanicGuard {
+    _gate: FfiTestGateGuard,
+}
+
+#[cfg(test)]
+pub(crate) fn force_ffi_panic_for_test() -> ForcedFfiPanicGuard {
+    let gate = FfiTestGateGuard::acquire();
+    FORCE_FFI_PANIC.store(true, Ordering::SeqCst);
+    ForcedFfiPanicGuard { _gate: gate }
+}
+
+#[cfg(test)]
+impl Drop for ForcedFfiPanicGuard {
+    fn drop(&mut self) {
+        FORCE_FFI_PANIC.store(false, Ordering::SeqCst);
+    }
 }
 
 fn maybe_force_test_panic() {
@@ -903,6 +973,9 @@ pub unsafe extern "C" fn dplyr_compile(
     out_sql: *mut *mut c_char,
     out_error: *mut *mut c_char,
 ) -> i32 {
+    #[cfg(test)]
+    let _test_gate = FfiTestGateGuard::acquire();
+
     // R9-AC1: Panic safety - catch all panics at FFI boundary
     let result = panic::catch_unwind(|| {
         if out_sql.is_null() || out_error.is_null() {
@@ -1003,6 +1076,9 @@ pub unsafe extern "C" fn dplyr_compile_query(
     out_sql: *mut *mut c_char,
     out_error: *mut *mut c_char,
 ) -> i32 {
+    #[cfg(test)]
+    let _test_gate = FfiTestGateGuard::acquire();
+
     let result = panic::catch_unwind(|| {
         if out_sql.is_null() || out_error.is_null() {
             return DPLYR_ERROR_NULL_POINTER;

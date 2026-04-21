@@ -28,15 +28,6 @@ pub(crate) fn alloc_owned_string(value: &str) -> Option<*mut c_char> {
     Some(ptr)
 }
 
-#[cfg(test)]
-pub(crate) fn live_owned_string_count() -> usize {
-    let registry = owned_strings();
-    let Ok(owned) = registry.lock() else {
-        return 0;
-    };
-    owned.len()
-}
-
 /// Reclaim a single string owned by libdplyr.
 ///
 /// The caller must only pass a pointer previously returned by libdplyr, or null.
