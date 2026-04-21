@@ -134,8 +134,10 @@ typedef struct DplyrOptions {
  *     printf("Generated SQL: %s\n", sql);
  *     dplyr_free_string(sql);
  * } else {
- *     printf("Error: %s\n", error);
- *     dplyr_free_string(error);
+ *     if (error != NULL) {
+ *         printf("Error: %s\n", error);
+ *         dplyr_free_string(error);
+ *     }
  * }
  * @endcode
  */
@@ -378,9 +380,12 @@ bool dplyr_is_recoverable_error(int error_code);
  *         dplyr_free_string(sql);
  *         
  *     } else {
- *         fprintf(stderr, "Error (%s): %s\n", 
- *                 dplyr_error_code_name(result), error);
- *         dplyr_free_string(error);
+ *         fprintf(stderr, "Error (%s)", dplyr_error_code_name(result));
+ *         if (error != NULL) {
+ *             fprintf(stderr, ": %s", error);
+ *             dplyr_free_string(error);
+ *         }
+ *         fprintf(stderr, "\n");
  *         
  *         if (!dplyr_is_recoverable_error(result)) {
  *             return 1;
@@ -481,15 +486,15 @@ bool dplyr_is_recoverable_error(int error_code);
  * **Memory Management:**
  * - Strings allocated by one thread can be safely freed by another thread
  * - Memory allocation/deallocation is handled by the Rust runtime
- * - No shared mutable state in memory management functions
+ * - Ownership tracking uses internal synchronization for libdplyr-owned strings
  * 
  * **Panic Safety:**
  * All FFI functions use panic::catch_unwind to prevent Rust panics from
  * crossing the FFI boundary, ensuring thread stability.
  * 
  * **Reentrancy:**
- * Functions are reentrant - the same function can be called recursively
- * or from signal handlers without issues.
+ * Functions are safe for ordinary concurrent calls from multiple threads, but
+ * they are not async-signal-safe and must not be called from signal handlers.
  * 
  * @example Thread Safety Example
  * @code
@@ -512,8 +517,10 @@ bool dplyr_is_recoverable_error(int error_code);
  *         printf("Thread %d: %s\n", thread_id, sql);
  *         dplyr_free_string(sql);
  *     } else {
- *         printf("Thread %d error: %s\n", thread_id, error);
- *         dplyr_free_string(error);
+ *         if (error != NULL) {
+ *             printf("Thread %d error: %s\n", thread_id, error);
+ *             dplyr_free_string(error);
+ *         }
  *     }
  *     
  *     return NULL;
