@@ -11,25 +11,35 @@ use crate::error::{DPLYR_ERROR_NULL_POINTER, DPLYR_SUCCESS};
 use crate::memory::{alloc_owned_string, free_owned_string};
 
 /// Set SQL output pointer safely
-pub fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) {
-    if !out_sql.is_null() {
-        if let Some(raw) = alloc_owned_string(sql) {
-            unsafe {
-                *out_sql = raw;
-            }
-        }
+pub fn set_sql_output(out_sql: *mut *mut c_char, sql: &str) -> bool {
+    if out_sql.is_null() {
+        return false;
     }
+
+    let Some(raw) = alloc_owned_string(sql) else {
+        return false;
+    };
+
+    unsafe {
+        *out_sql = raw;
+    }
+    true
 }
 
 /// Set error output pointer safely
-pub fn set_error_output(out_error: *mut *mut c_char, error: &str) {
-    if !out_error.is_null() {
-        if let Some(raw) = alloc_owned_string(error) {
-            unsafe {
-                *out_error = raw;
-            }
-        }
+pub fn set_error_output(out_error: *mut *mut c_char, error: &str) -> bool {
+    if out_error.is_null() {
+        return false;
     }
+
+    let Some(raw) = alloc_owned_string(error) else {
+        return false;
+    };
+
+    unsafe {
+        *out_error = raw;
+    }
+    true
 }
 
 /// Clear an owned output string, freeing the previous libdplyr allocation when present.

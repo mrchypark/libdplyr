@@ -273,6 +273,18 @@ pub const extern "C" fn dplyr_is_success(error_code: i32) -> bool {
     error_code >= 0
 }
 
+/// Check if the result code guarantees a populated output string.
+///
+/// # Arguments
+/// * `error_code` - C result code
+///
+/// # Returns
+/// true only when the API contract guarantees an owned output string was produced
+#[no_mangle]
+pub const extern "C" fn dplyr_result_has_output(error_code: i32) -> bool {
+    error_code == DPLYR_SUCCESS
+}
+
 /// Check if error code indicates a recoverable error
 ///
 /// # Arguments
@@ -410,6 +422,9 @@ mod tests {
         assert!(dplyr_is_success(DPLYR_SUCCESS));
         assert!(dplyr_is_success(DPLYR_QUERY_NOT_HANDLED));
         assert!(!dplyr_is_success(DPLYR_ERROR_SYNTAX));
+        assert!(dplyr_result_has_output(DPLYR_SUCCESS));
+        assert!(!dplyr_result_has_output(DPLYR_QUERY_NOT_HANDLED));
+        assert!(!dplyr_result_has_output(DPLYR_ERROR_SYNTAX));
 
         // Test recoverability
         assert!(dplyr_is_recoverable_error(DPLYR_ERROR_SYNTAX));

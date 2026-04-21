@@ -3,6 +3,8 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use libdplyr::{
@@ -19,9 +21,24 @@ use crate::validation::{
 };
 
 use crate::error::{
-    DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INVALID_UTF8, DPLYR_ERROR_NULL_POINTER,
-    DPLYR_ERROR_PANIC, DPLYR_QUERY_NOT_HANDLED, DPLYR_SUCCESS,
+    DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
+    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_QUERY_NOT_HANDLED, DPLYR_SUCCESS,
 };
+
+#[cfg(test)]
+static FORCE_FFI_PANIC: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) fn set_force_ffi_panic(enabled: bool) {
+    FORCE_FFI_PANIC.store(enabled, Ordering::SeqCst);
+}
+
+fn maybe_force_test_panic() {
+    #[cfg(test)]
+    if FORCE_FFI_PANIC.load(Ordering::SeqCst) {
+        panic!("forced ffi panic for testing");
+    }
+}
 
 fn create_dialect(dialect: DplyrDialect) -> Box<dyn SqlDialect> {
     match dialect {
@@ -45,14 +62,44 @@ enum CompileInputError {
 fn set_compile_error_output(out_error: *mut *mut c_char, error: CompileInputError) -> i32 {
     match error {
         CompileInputError::InputTooLarge(message) => {
-            set_error_output(out_error, &message);
-            DPLYR_ERROR_INPUT_TOO_LARGE
+            if set_error_output(out_error, &message) {
+                DPLYR_ERROR_INPUT_TOO_LARGE
+            } else {
+                DPLYR_ERROR_INTERNAL
+            }
         }
         CompileInputError::Transpile(error) => {
             let error_msg = error.to_c_string();
-            set_error_output(out_error, &error_msg.to_string_lossy());
-            error.to_c_error_code()
+            if set_error_output(out_error, &error_msg.to_string_lossy()) {
+                error.to_c_error_code()
+            } else {
+                DPLYR_ERROR_INTERNAL
+            }
         }
+    }
+}
+
+fn publish_error_or_internal(error_code: i32, out_error: *mut *mut c_char, message: &str) -> i32 {
+    if set_error_output(out_error, message) {
+        error_code
+    } else {
+        DPLYR_ERROR_INTERNAL
+    }
+}
+
+fn publish_sql_or_internal_error(
+    out_sql: *mut *mut c_char,
+    out_error: *mut *mut c_char,
+    sql: &str,
+) -> i32 {
+    if set_sql_output(out_sql, sql) {
+        DPLYR_SUCCESS
+    } else {
+        let _ = set_error_output(
+            out_error,
+            "E-INTERNAL: Failed to publish generated SQL across the FFI boundary",
+        );
+        DPLYR_ERROR_INTERNAL
     }
 }
 
@@ -208,7 +255,10 @@ enum SqlScanState {
     DoubleQuoted,
     BacktickQuoted,
     BracketQuoted(usize),
-    DollarQuoted { delimiter_start: usize, delimiter_len: usize },
+    DollarQuoted {
+        delimiter_start: usize,
+        delimiter_len: usize,
+    },
     LineComment,
     BlockComment(usize),
 }
@@ -861,22 +911,26 @@ pub unsafe extern "C" fn dplyr_compile(
 
         clear_output_string(out_sql);
         clear_output_string(out_error);
+        maybe_force_test_panic();
 
         // R9-AC2: Input validation - check for null pointers
         if code.is_null() {
-            set_error_output(out_error, "E-NULL-POINTER: code parameter is null");
-            return DPLYR_ERROR_NULL_POINTER;
+            return publish_error_or_internal(
+                DPLYR_ERROR_NULL_POINTER,
+                out_error,
+                "E-NULL-POINTER: code parameter is null",
+            );
         }
 
         // Convert C string to Rust string with UTF-8 validation
         let code_str = match unsafe { CStr::from_ptr(code) }.to_str() {
             Ok(s) => s,
             Err(_) => {
-                set_error_output(
+                return publish_error_or_internal(
+                    DPLYR_ERROR_INVALID_UTF8,
                     out_error,
                     "E-INVALID-UTF8: Input code contains invalid UTF-8",
                 );
-                return DPLYR_ERROR_INVALID_UTF8;
             }
         };
 
@@ -910,8 +964,7 @@ pub unsafe extern "C" fn dplyr_compile(
                     cache::dplyr_cache_log_performance_warning();
                 }
 
-                set_sql_output(out_sql, &sql);
-                DPLYR_SUCCESS
+                publish_sql_or_internal_error(out_sql, out_error, &sql)
             }
             Err(error) => {
                 let error_msg = if opts.debug_mode {
@@ -920,8 +973,11 @@ pub unsafe extern "C" fn dplyr_compile(
                     error.to_c_string()
                 };
 
-                set_error_output(out_error, &error_msg.to_string_lossy());
-                error.to_c_error_code()
+                publish_error_or_internal(
+                    error.to_c_error_code(),
+                    out_error,
+                    &error_msg.to_string_lossy(),
+                )
             }
         }
     });
@@ -954,20 +1010,24 @@ pub unsafe extern "C" fn dplyr_compile_query(
 
         clear_output_string(out_sql);
         clear_output_string(out_error);
+        maybe_force_test_panic();
 
         if query.is_null() {
-            set_error_output(out_error, "E-NULL-POINTER: query parameter is null");
-            return DPLYR_ERROR_NULL_POINTER;
+            return publish_error_or_internal(
+                DPLYR_ERROR_NULL_POINTER,
+                out_error,
+                "E-NULL-POINTER: query parameter is null",
+            );
         }
 
         let query_str = match unsafe { CStr::from_ptr(query) }.to_str() {
             Ok(s) => s,
             Err(_) => {
-                set_error_output(
+                return publish_error_or_internal(
+                    DPLYR_ERROR_INVALID_UTF8,
                     out_error,
                     "E-INVALID-UTF8: Input query contains invalid UTF-8",
                 );
-                return DPLYR_ERROR_INVALID_UTF8;
             }
         };
 
@@ -988,7 +1048,8 @@ pub unsafe extern "C" fn dplyr_compile_query(
         }
 
         if query_str.len() > opts.max_input_length as usize {
-            set_error_output(
+            return publish_error_or_internal(
+                DPLYR_ERROR_INPUT_TOO_LARGE,
                 out_error,
                 &format!(
                     "E-INPUT-TOO-LARGE: Input size {} exceeds maximum {}",
@@ -996,19 +1057,14 @@ pub unsafe extern "C" fn dplyr_compile_query(
                     opts.max_input_length
                 ),
             );
-            return DPLYR_ERROR_INPUT_TOO_LARGE;
         }
 
         let trimmed_query = query_str.trim();
         match compile_query_string_with_deadline(trimmed_query, &opts, processing_deadline(&opts)) {
-            Ok(Some(sql)) => {
-                set_sql_output(out_sql, &sql);
-                DPLYR_SUCCESS
-            }
+            Ok(Some(sql)) => publish_sql_or_internal_error(out_sql, out_error, &sql),
             Ok(None) => DPLYR_QUERY_NOT_HANDLED,
             Err(CompileInputError::InputTooLarge(message)) => {
-                set_error_output(out_error, &message);
-                DPLYR_ERROR_INPUT_TOO_LARGE
+                publish_error_or_internal(DPLYR_ERROR_INPUT_TOO_LARGE, out_error, &message)
             }
             Err(CompileInputError::Transpile(error)) => {
                 let error_msg = if opts.debug_mode {
@@ -1016,8 +1072,11 @@ pub unsafe extern "C" fn dplyr_compile_query(
                 } else {
                     error.to_c_string()
                 };
-                set_error_output(out_error, &error_msg.to_string_lossy());
-                error.to_c_error_code()
+                publish_error_or_internal(
+                    error.to_c_error_code(),
+                    out_error,
+                    &error_msg.to_string_lossy(),
+                )
             }
         }
     });
@@ -1207,7 +1266,11 @@ mod query_rewrite_tests {
         };
 
         assert_eq!(
-            find_embedded_start_marker_with_config("SELECT $tag$(| %>% |)$tag$ AS marker", 0, config),
+            find_embedded_start_marker_with_config(
+                "SELECT $tag$(| %>% |)$tag$ AS marker",
+                0,
+                config
+            ),
             None
         );
         assert_eq!(

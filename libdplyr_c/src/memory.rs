@@ -17,18 +17,27 @@ pub(crate) fn alloc_owned_string(value: &str) -> Option<*mut c_char> {
     let c_string = CString::new(value).ok()?;
     let ptr = c_string.into_raw();
     let registry = owned_strings();
-    if let Ok(mut owned) = registry.lock() {
-        owned.insert(ptr as usize);
-        Some(ptr)
-    } else {
+    let Ok(mut owned) = registry.lock() else {
         unsafe {
             let _ = CString::from_raw(ptr);
         }
-        None
-    }
+        return None;
+    };
+
+    owned.insert(ptr as usize);
+    Some(ptr)
 }
 
-/// Free a single string owned by libdplyr.
+#[cfg(test)]
+pub(crate) fn live_owned_string_count() -> usize {
+    let registry = owned_strings();
+    let Ok(owned) = registry.lock() else {
+        return 0;
+    };
+    owned.len()
+}
+
+/// Reclaim a single string owned by libdplyr.
 ///
 /// The caller must only pass a pointer previously returned by libdplyr, or null.
 pub(crate) unsafe fn free_owned_string(s: *mut c_char) -> bool {
@@ -63,6 +72,9 @@ pub(crate) unsafe fn free_owned_string(s: *mut c_char) -> bool {
 /// - `DPLYR_SUCCESS` when the pointer was null or reclaimed successfully
 /// - `DPLYR_ERROR_PANIC` when the pointer is not a currently owned libdplyr allocation
 ///   or a panic occurred while handling the request
+///
+/// Passing a pointer after it has already been released is a caller bug. The
+/// implementation only rejects that pattern on a best-effort basis.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
     // R3-AC3: Safe memory management with null pointer check
@@ -96,8 +108,8 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 /// * `count` - Number of strings in the array
 ///
 /// # Returns
-/// Number of strings successfully reclaimed. Unknown or already released
-/// pointers are skipped and do not contribute to the count.
+/// Number of strings successfully reclaimed. Unknown pointers are skipped and
+/// do not contribute to the count.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) -> i32 {
     if strings.is_null() {

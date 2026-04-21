@@ -33,19 +33,12 @@ pub use metadata::{
     dplyr_max_processing_time_ms, dplyr_supported_dialects, dplyr_version, dplyr_version_detailed,
     libdplyr_c_version_simple,
 };
-pub use system::dplyr_check_system;
-
-// Re-export cache FFI functions for C header generation
-pub use cache::{
-    dplyr_cache_clear, dplyr_cache_get_capacity, dplyr_cache_get_evictions,
-    dplyr_cache_get_hit_rate, dplyr_cache_get_hits, dplyr_cache_get_misses, dplyr_cache_get_size,
-    dplyr_cache_get_stats, dplyr_cache_is_effective, dplyr_cache_log_performance_warning,
-    dplyr_cache_log_stats, dplyr_cache_log_stats_detailed, dplyr_cache_should_clear,
-};
 
 // Re-export error handling functions for C header generation
 pub use error::DPLYR_QUERY_NOT_HANDLED;
-pub use error::{dplyr_error_code_name, dplyr_is_recoverable_error, dplyr_is_success};
+pub use error::{
+    dplyr_error_code_name, dplyr_is_recoverable_error, dplyr_is_success, dplyr_result_has_output,
+};
 pub use error::{DPLYR_ERROR_SYNTAX, DPLYR_ERROR_UNSUPPORTED};
 
 pub use options::{

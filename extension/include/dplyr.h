@@ -155,6 +155,13 @@ int dplyr_compile(
  * pipeline. On success, `out_sql` receives either the rewritten SQL query or
  * the compiled pure pipeline SQL.
  *
+ * Return contract:
+ * - `DPLYR_SUCCESS`: `out_sql` contains a libdplyr-owned SQL string
+ * - `DPLYR_QUERY_NOT_HANDLED`: no dplyr pipeline was found, `out_sql` and `out_error` remain `NULL`
+ * - negative error code: transpilation or validation failed, `out_error` may contain a message
+ * - use `dplyr_result_has_output(result)` when you need to distinguish
+ *   `DPLYR_SUCCESS` from `DPLYR_QUERY_NOT_HANDLED`
+ *
  * On entry, `*out_sql` and `*out_error` must be `NULL` or pointers previously
  * allocated by libdplyr. Any non-NULL incoming libdplyr-owned pointer is
  * reclaimed by this function before reuse. Callers must initialize output
@@ -199,7 +206,9 @@ int dplyr_init_output_string(char** out);
  *       - This function transfers ownership from caller back to the library
  *       - After calling this function, the pointer becomes invalid
  *       - It is safe to call this function with NULL pointers
- *       - Foreign or already released pointers are rejected and return `DPLYR_ERROR_PANIC`
+ *       - Foreign pointers are rejected and return `DPLYR_ERROR_PANIC`
+ *       - Callers must clear or overwrite released pointers; passing an already
+ *         released pointer back into the API is a caller bug
  */
 int dplyr_free_string(char* s);
 
@@ -208,8 +217,8 @@ int dplyr_free_string(char* s);
  * 
  * @param strings Array of string pointers to free
  * @param count Number of strings in the array
- * @return Number of strings successfully freed. Unknown or already released
- *         pointers are skipped and do not contribute to the count.
+ * @return Number of strings successfully freed. Unknown pointers are skipped
+ *         and do not contribute to the count.
  * 
  * @note Each string must have been allocated by dplyr functions
  */
@@ -338,6 +347,14 @@ const char* dplyr_error_code_name(int error_code);
  * @return true if the result is non-error (`DPLYR_SUCCESS` or `DPLYR_QUERY_NOT_HANDLED`)
  */
 bool dplyr_is_success(int error_code);
+
+/**
+ * @brief Check if a result code guarantees an owned output string was produced.
+ *
+ * @param error_code Result code to check
+ * @return true only for `DPLYR_SUCCESS`
+ */
+bool dplyr_result_has_output(int error_code);
 
 /**
  * @brief Check if error is recoverable

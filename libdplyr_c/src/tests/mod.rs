@@ -4,13 +4,15 @@ use super::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
+use crate::cache::dplyr_cache_get_size;
 use crate::cache::SimpleTranspileCache;
-use crate::compile::convert_libdplyr_error;
+use crate::compile::{convert_libdplyr_error, set_force_ffi_panic};
 use crate::error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
     DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
 };
-use crate::memory::alloc_owned_string;
+use crate::memory::{alloc_owned_string, live_owned_string_count};
+use crate::system::dplyr_check_system;
 use crate::validation::{
     calculate_nesting_depth, contains_suspicious_patterns, count_function_calls,
     has_excessive_repetition, validate_input_encoding, validate_input_security,
@@ -381,6 +383,80 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_reclaims_previous_libdplyr_output_before_reuse() {
+        let first_input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let second_input = CString::new("mtcars %>% select(cyl)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+        let baseline_count = live_owned_string_count();
+
+        let first_result = unsafe {
+            dplyr_compile(
+                first_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(first_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert_eq!(live_owned_string_count(), baseline_count + 1);
+
+        let second_result = unsafe {
+            dplyr_compile(
+                second_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(second_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert_eq!(live_owned_string_count(), baseline_count + 1);
+        assert_eq!(unsafe { dplyr_free_string(out_sql) }, DPLYR_SUCCESS);
+        assert_eq!(live_owned_string_count(), baseline_count);
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reclaims_previous_libdplyr_output_before_reuse() {
+        let first_input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let second_input = CString::new("mtcars %>% select(cyl)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+        let baseline_count = live_owned_string_count();
+
+        let first_result = unsafe {
+            dplyr_compile_query(
+                first_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(first_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert_eq!(live_owned_string_count(), baseline_count + 1);
+
+        let second_result = unsafe {
+            dplyr_compile_query(
+                second_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(second_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert_eq!(live_owned_string_count(), baseline_count + 1);
+        assert_eq!(unsafe { dplyr_free_string(out_sql) }, DPLYR_SUCCESS);
+        assert_eq!(live_owned_string_count(), baseline_count);
+    }
+
+    #[test]
     fn test_dplyr_compile_query_skips_size_validation_for_plain_sql() {
         let oversized_plain_sql = format!("SELECT 1 /* {} */", "x".repeat(2048));
         let input = CString::new(oversized_plain_sql).unwrap();
@@ -433,8 +509,8 @@ mod ffi_tests {
 
     #[test]
     fn test_dplyr_compile_query_ignores_postgresql_dollar_quoted_literals() {
-        let input = CString::new("SELECT $$ %>% $$ AS marker, $tag$(| %>% |)$tag$ AS embedded")
-            .unwrap();
+        let input =
+            CString::new("SELECT $$ %>% $$ AS marker, $tag$(| %>% |)$tag$ AS embedded").unwrap();
         let options = dplyr_options_create(false, 1024, DplyrDialect::PostgreSql as u32);
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
@@ -1409,21 +1485,45 @@ mod ffi_tests {
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
-        // Test with null pointers - should not panic
+        set_force_ffi_panic(true);
+
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
         let result = unsafe {
             dplyr_compile(
-                std::ptr::null(),
+                input.as_ptr(),
                 std::ptr::null(),
                 &mut out_sql,
                 &mut out_error,
             )
         };
-        assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
+        set_force_ffi_panic(false);
 
-        // Clean up
-        if !out_error.is_null() {
-            unsafe { dplyr_free_string(out_error) };
-        }
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_panic_safety_in_query_ffi_function() {
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        set_force_ffi_panic(true);
+
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+        set_force_ffi_panic(false);
+
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
     }
 
     // R9-AC2: Input validation tests

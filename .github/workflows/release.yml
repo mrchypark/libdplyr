@@ -471,8 +471,19 @@ jobs:
           esac
 
           if [[ -z "${DUCKDB_VERSION:-}" ]]; then
+              if command -v duckdb >/dev/null 2>&1; then
+                  DETECTED_VERSION="$(duckdb --version | grep -Eo 'v?[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || true)"
+                  if [[ -n "$DETECTED_VERSION" ]]; then
+                      DUCKDB_VERSION="$DETECTED_VERSION"
+                      echo "Detected DuckDB version: $DUCKDB_VERSION"
+                  fi
+              fi
+          fi
+
+          if [[ -z "${DUCKDB_VERSION:-}" ]]; then
               echo "This release contains DuckDB-version-specific binaries."
-              echo "Set DUCKDB_VERSION to the exact DuckDB version you are using (for example, v1.4.0 or v1.5.2)."
+              echo "Set DUCKDB_VERSION to the exact DuckDB version you are using (for example, v1.4.0 or v1.5.2),"
+              echo "or run this script from an environment where the duckdb CLI is available in PATH."
               echo ""
               echo "Available binaries for platform $PLATFORM:"
               ls -1 "dplyr-"*"-${PLATFORM}.duckdb_extension" 2>/dev/null || ls -1 *.duckdb_extension
@@ -516,7 +527,7 @@ jobs:
 
           ### Quick Install
           1. Download the appropriate extension for your platform
-          2. Run the installation script: \`./install.sh\`
+          2. Run the installation script: \`DUCKDB_VERSION=v1.5.2 ./install.sh\`
           3. Load in DuckDB: \`LOAD '/path/to/extension';\`
 
           ### Platform- and DuckDB-version-specific Downloads
@@ -550,11 +561,9 @@ jobs:
           \`\`\`
 
           ## ✅ Verification
-          All releases are automatically tested on multiple platforms with:
-          - Smoke tests for basic functionality
-          - Integration tests for DuckDB compatibility
-          - Performance benchmarks
-          - Security scans
+          Release artifacts are load-tested before packaging. Additional platform,
+          security, and compatibility checks are provided by the CI and security
+          workflows attached to the release branch.
 
           ## 🔒 Security
           - All artifacts include SHA256 checksums
@@ -572,15 +581,15 @@ jobs:
 
           ## 📚 Documentation
           - [Installation Guide](INSTALL.md)
-          - [Usage Examples](https://github.com/your-repo/examples)
-          - [API Reference](https://github.com/your-repo/docs)
+          - [Usage Examples](https://github.com/mrchypark/libdplyr/tree/main/examples)
+          - [API Reference](https://github.com/mrchypark/libdplyr/tree/main/docs)
 
           ## 🤝 Contributing
-          We welcome contributions! Please see our [Contributing Guide](https://github.com/your-repo/CONTRIBUTING.md).
+          We welcome contributions! Please see our [repository](https://github.com/mrchypark/libdplyr).
 
           ---
 
-          **Full Changelog**: https://github.com/your-repo/compare/previous-tag...${{ github.event.release.tag_name || github.event.inputs.version }}
+          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/previous-tag...${{ github.event.release.tag_name || github.event.inputs.version }}
           EOF
 
       - name: Create or update release
@@ -593,6 +602,8 @@ jobs:
             final-release/release-info.json
             final-release/install.sh
             final-release/RELEASE_NOTES.md
+            final-release/*.metadata.json
+            final-release/*.INSTALL.md
           body_path: final-release/RELEASE_NOTES.md
           prerelease: ${{ github.event.release.prerelease }}
           draft: false
@@ -609,6 +620,8 @@ jobs:
             final-release/release-info.json
             final-release/install.sh
             final-release/RELEASE_NOTES.md
+            final-release/*.metadata.json
+            final-release/*.INSTALL.md
           body_path: final-release/RELEASE_NOTES.md
           prerelease: ${{ github.event.inputs.prerelease }}
           draft: ${{ github.event.inputs.draft }}

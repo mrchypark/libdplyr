@@ -468,11 +468,13 @@ private:
 
 enum class QueryCompileStatus {
     Success,
-    NotHandled
+    NotHandled,
+    Error
 };
 
 static DplyrOptions DefaultDplyrOptions() {
     DplyrOptions options = dplyr_options_default();
+    options.dialect = DPLYR_DIALECT_DUCKDB;
     if (DplyrDebugLogger::is_debug_enabled()) {
         options.debug_mode = true;
     }
@@ -501,7 +503,7 @@ static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out
         if (error_output != nullptr) {
             dplyr_free_string(error_output);
         }
-        return QueryCompileStatus::Success;
+        return QueryCompileStatus::Error;
     }
 
     sql_out = (sql_output != nullptr) ? string(sql_output) : "";
@@ -509,9 +511,9 @@ static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out
         dplyr_free_string(sql_output);
     }
 
-    if (sql_out.empty()) {
+    if (!dplyr_result_has_output(result) || sql_out.empty()) {
         error_out = "DPLYR generated empty SQL";
-        return QueryCompileStatus::Success;
+        return QueryCompileStatus::Error;
     }
 
     if (DplyrDebugLogger::is_debug_enabled()) {
@@ -542,7 +544,7 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
         if (status == QueryCompileStatus::NotHandled) {
             return ParserExtensionParseResult();
         }
-        if (!error.empty()) {
+        if (status == QueryCompileStatus::Error || !error.empty()) {
             return ParserExtensionParseResult(error);
         }
         return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(std::move(sql)));
@@ -643,7 +645,7 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
     if (status == QueryCompileStatus::NotHandled) {
         throw InvalidInputException("dplyr() requires a %>% pipeline expression");
     }
-    if (!error.empty()) {
+    if (status == QueryCompileStatus::Error || !error.empty()) {
         throw InvalidInputException("dplyr() transpilation failed: %s", error.c_str());
     }
 

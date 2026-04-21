@@ -19,7 +19,7 @@ extension:
 
 repo:
   github: mrchypark/libdplyr
-  ref: 01961b7ebf2888e0f29e18c0eb7154dde027e422
+  ref: pr-8-review-ready
 
 docs:
   hello_world: |
