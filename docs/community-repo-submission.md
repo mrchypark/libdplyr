@@ -52,8 +52,8 @@
 
 제출 전에는 최소한 아래가 실제 저장소 URL을 가리켜야 합니다.
 
-- [Cargo.toml](/Users/cypark/Documents/project/libdplyr/Cargo.toml)
-- [extension_config.cmake](/Users/cypark/Documents/project/libdplyr/extension_config.cmake)
+- [Cargo.toml](../Cargo.toml)
+- [extension_config.cmake](../extension_config.cmake)
 
 ### 3. 호환성 설명
 

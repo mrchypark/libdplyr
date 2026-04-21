@@ -330,6 +330,39 @@ message(STATUS "Found Cargo: ${CARGO_VERSION_OUTPUT}")
 # R4-AC1: Configure Cargo flags using config.toml
 # This is more robust than ENV{RUSTFLAGS} which might not propagate to the cargo process
 set(CARGO_CONFIG_CONTENT "")
+set(LIBDPLYR_WINDOWS_STATIC_CRT ON)
+set(LIBDPLYR_WINDOWS_CRT_PROFILE "static")
+
+if(WIN32 AND NOT MINGW)
+    set(LIBDPLYR_DUCKDB_TAG "")
+    execute_process(
+        COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR}/duckdb describe --tags --abbrev=0
+        OUTPUT_VARIABLE LIBDPLYR_DUCKDB_TAG
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    # DuckDB 1.4.x Windows static libraries are built with the dynamic CRT (/MD),
+    # while the 1.5.x line uses the static CRT (/MT). Match the checked-out DuckDB
+    # line so the compatibility lane and primary lane can both link successfully.
+    if(LIBDPLYR_DUCKDB_TAG MATCHES "^v1\\.4\\.")
+        set(LIBDPLYR_WINDOWS_STATIC_CRT OFF)
+        set(LIBDPLYR_WINDOWS_CRT_PROFILE "dynamic")
+    endif()
+
+    if(LIBDPLYR_WINDOWS_STATIC_CRT)
+        set(LIBDPLYR_WINDOWS_RUST_CRT_FLAG "+crt-static")
+        set(LIBDPLYR_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    else()
+        set(LIBDPLYR_WINDOWS_RUST_CRT_FLAG "-crt-static")
+        set(LIBDPLYR_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL$<$<CONFIG:Debug>:Debug>")
+    endif()
+
+    message(STATUS "Windows CRT profile for DuckDB ${LIBDPLYR_DUCKDB_TAG}: ${LIBDPLYR_WINDOWS_CRT_PROFILE}")
+
+    string(APPEND CARGO_CONFIG_CONTENT "[target.x86_64-pc-windows-msvc]\n")
+    string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"target-feature=${LIBDPLYR_WINDOWS_RUST_CRT_FLAG}\"]\n\n")
+endif()
 
 if(EMSCRIPTEN)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
@@ -426,12 +459,6 @@ else()
     # Release build optimizations are handled by Cargo.toml profile
 endif()
 
-# R4-AC1: Platform-specific Rust compilation settings
-if(WIN32)
-    # Windows-specific Rust settings
-    set(ENV{RUSTFLAGS} "$ENV{RUSTFLAGS} -C target-feature=+crt-static")
-endif()
-
 # Extension source files
 set(EXTENSION_SOURCES
     extension/src/dplyr.cpp
@@ -461,7 +488,7 @@ foreach(EXT_TARGET ${EXTENSION_TARGETS})
 
     if(WIN32)
         set_target_properties(${EXT_TARGET} PROPERTIES
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            MSVC_RUNTIME_LIBRARY "${LIBDPLYR_MSVC_RUNTIME_LIBRARY}"
         )
 
         target_link_libraries(${EXT_TARGET}
