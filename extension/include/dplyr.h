@@ -1,5 +1,5 @@
 /**
- * @file dplyr_extension.h
+ * @file dplyr.h
  * @brief C-compatible API for libdplyr DuckDB extension
  * 
  * This header defines the C interface for the libdplyr transpiler
@@ -157,8 +157,8 @@ int dplyr_compile(
  * allocated by libdplyr. Any non-NULL incoming libdplyr-owned pointer is
  * reclaimed by this function before reuse. Callers must initialize output
  * slots to `NULL` before the first call; use dplyr_init_output_string() if you
- * want an explicit helper for that setup. libdplyr cannot validate foreign
- * pointer provenance at runtime before reclaiming a reused output pointer.
+ * want an explicit helper for that setup. Foreign pointers are not reclaimed;
+ * libdplyr only frees reused pointers it can prove it allocated.
  * If the function returns `DPLYR_ERROR_PANIC`, callers must not assume
  * `out_error` contains a valid message because the panic fallback avoids heap work.
  */
@@ -197,7 +197,7 @@ int dplyr_init_output_string(char** out);
  *       - This function transfers ownership from caller back to the library
  *       - After calling this function, the pointer becomes invalid
  *       - It is safe to call this function with NULL pointers
- *       - Double-free is prevented internally
+ *       - Foreign or already released pointers are rejected and return `DPLYR_ERROR_PANIC`
  */
 int dplyr_free_string(char* s);
 
@@ -206,7 +206,8 @@ int dplyr_free_string(char* s);
  * 
  * @param strings Array of string pointers to free
  * @param count Number of strings in the array
- * @return Number of strings successfully freed, or negative error code
+ * @return Number of strings successfully freed. Unknown or already released
+ *         pointers are skipped and do not contribute to the count.
  * 
  * @note Each string must have been allocated by dplyr functions
  */
@@ -351,7 +352,7 @@ bool dplyr_is_recoverable_error(int error_code);
 /**
  * @example Basic Usage
  * @code
- * #include "dplyr_extension.h"
+ * #include "dplyr.h"
  * #include <stdio.h>
  * 
  * int main() {
@@ -394,7 +395,7 @@ bool dplyr_is_recoverable_error(int error_code);
 /**
  * @example Error Handling
  * @code
- * #include "dplyr_extension.h"
+ * #include "dplyr.h"
  * #include <stdio.h>
  * 
  * int safe_transpile(const char* code) {
@@ -429,9 +430,17 @@ bool dplyr_is_recoverable_error(int error_code);
  *             return -3;
  *             
  *         case DPLYR_ERROR_INTERNAL:
+ *             fprintf(stderr, "Internal error: %s\n", error ? error : "(no detail)");
+ *             if (error) dplyr_free_string(error);
+ *             return -4;
+ *
  *         case DPLYR_ERROR_PANIC:
- *             fprintf(stderr, "Internal error: %s\n", error);
- *             dplyr_free_string(error);
+ *             fprintf(stderr, "Internal panic while transpiling");
+ *             if (error) {
+ *                 fprintf(stderr, ": %s", error);
+ *                 dplyr_free_string(error);
+ *             }
+ *             fprintf(stderr, "\n");
  *             return -4;
  *             
  *         default:
@@ -485,7 +494,7 @@ bool dplyr_is_recoverable_error(int error_code);
  * @example Thread Safety Example
  * @code
  * #include <pthread.h>
- * #include "dplyr_extension.h"
+ * #include "dplyr.h"
  * 
  * void* worker_thread(void* arg) {
  *     int thread_id = *(int*)arg;

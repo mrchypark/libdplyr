@@ -26,7 +26,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! libdplyr = "0.2.0"
+//! libdplyr = "0.3.3"
 //! ```
 //!
 //! Basic usage:

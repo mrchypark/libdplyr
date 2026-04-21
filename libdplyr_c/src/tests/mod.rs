@@ -166,6 +166,7 @@ mod ffi_tests {
 
         unsafe {
             dplyr_free_string(out_sql);
+            let _ = CString::from_raw(stale_error);
         }
     }
 
@@ -194,6 +195,7 @@ mod ffi_tests {
 
         unsafe {
             dplyr_free_string(out_error);
+            let _ = CString::from_raw(stale_sql);
         }
     }
 
@@ -221,11 +223,11 @@ mod ffi_tests {
         );
 
         // Clean up
-        if !out_sql.is_null() {
-            unsafe { dplyr_free_string(out_sql) };
-        }
         if !out_error.is_null() {
             unsafe { dplyr_free_string(out_error) };
+        }
+        unsafe {
+            let _ = CString::from_raw(stale_sql);
         }
     }
 
@@ -371,6 +373,11 @@ mod ffi_tests {
         assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
         assert!(out_sql.is_null());
         assert!(out_error.is_null());
+
+        unsafe {
+            let _ = CString::from_raw(stale_sql);
+            let _ = CString::from_raw(stale_error);
+        }
     }
 
     #[test]
@@ -413,6 +420,22 @@ mod ffi_tests {
     fn test_dplyr_compile_query_ignores_mysql_hash_comments() {
         let input = CString::new("# %>%\nSELECT 42").unwrap();
         let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_postgresql_dollar_quoted_literals() {
+        let input = CString::new("SELECT $$ %>% $$ AS marker, $tag$(| %>% |)$tag$ AS embedded")
+            .unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::PostgreSql as u32);
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
