@@ -425,6 +425,61 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_query_rewrites_mysql_query_after_hash_comment_prefix() {
+        let input =
+            CString::new("# mysql comment\nSELECT * FROM (| users %>% select(name) |) AS q")
+                .unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("# mysql comment\nSELECT * FROM (SELECT"));
+        assert!(sql.contains("`name`"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rewrites_mysql_pipeline_after_hash_comment_prefix() {
+        let input = CString::new("# mysql comment\nusers %>% select(name)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("SELECT"));
+        assert!(sql.contains("`name`"));
+        assert!(!sql.contains("%>%"));
+        assert!(!sql.contains("# mysql comment"));
+    }
+
+    #[test]
     fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
         let oversized_pipeline =
             CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
@@ -752,8 +807,21 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_free_string_rejects_foreign_pointer_without_reclaiming_it() {
+        let foreign = CString::new("foreign string").unwrap().into_raw();
+
+        let result = unsafe { dplyr_free_string(foreign) };
+
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+
+        unsafe {
+            let _ = CString::from_raw(foreign);
+        }
+    }
+
+    #[test]
     fn test_dplyr_init_output_string_initializes_slot() {
-        let mut out = 1usize as *mut c_char;
+        let mut out = std::ptr::dangling_mut::<c_char>();
 
         let result = unsafe { dplyr_init_output_string(&mut out) };
 
@@ -781,6 +849,21 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_free_strings_skips_foreign_pointers() {
+        let owned = alloc_owned_string("owned").unwrap();
+        let foreign = CString::new("foreign").unwrap().into_raw();
+        let mut strings = vec![owned, foreign];
+
+        let freed_count = unsafe { dplyr_free_strings(strings.as_mut_ptr(), strings.len()) };
+
+        assert_eq!(freed_count, 1);
+
+        unsafe {
+            let _ = CString::from_raw(foreign);
+        }
+    }
+
+    #[test]
     fn test_dplyr_is_valid_string_pointer() {
         // Test null pointer
         assert!(unsafe { !dplyr_is_valid_string_pointer(std::ptr::null()) });
@@ -796,12 +879,16 @@ mod ffi_tests {
 
     #[test]
     fn test_utility_functions() {
+        let expected_version = env!("CARGO_PKG_VERSION");
+
         // Test version functions
         let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-        assert_eq!(version.to_string_lossy(), "0.2.0");
+        assert_eq!(version.to_string_lossy(), expected_version);
 
         let detailed_version = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
-        assert!(detailed_version.to_string_lossy().contains("0.2.0"));
+        assert!(detailed_version
+            .to_string_lossy()
+            .contains(expected_version));
         assert!(detailed_version.to_string_lossy().contains("libdplyr_c"));
 
         // Test supported dialects
@@ -1460,13 +1547,15 @@ fn test_memory_management() {
 // R8-AC1: Version and capability tests
 #[test]
 fn test_version_and_capabilities() {
+    let expected_version = env!("CARGO_PKG_VERSION");
+
     // Test version functions
     let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-    assert_eq!(version.to_str().unwrap(), "0.2.0");
+    assert_eq!(version.to_str().unwrap(), expected_version);
 
     let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
     let detailed_str = detailed.to_str().unwrap();
-    assert!(detailed_str.contains("libdplyr_c v0.2.0"));
+    assert!(detailed_str.contains(&format!("libdplyr_c v{}", expected_version)));
 
     let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
     let dialects = dialects.to_str().unwrap();

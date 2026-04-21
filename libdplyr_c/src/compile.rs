@@ -188,22 +188,16 @@ fn strip_trailing_semicolon(input: &str) -> String {
         .to_string()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct SqlScanConfig {
     hash_line_comments: bool,
-}
-
-impl Default for SqlScanConfig {
-    fn default() -> Self {
-        Self {
-            hash_line_comments: false,
-        }
-    }
+    dollar_quoted_strings: bool,
 }
 
 fn scan_config_for_options(opts: &DplyrOptions) -> SqlScanConfig {
     SqlScanConfig {
         hash_line_comments: opts.dialect == DplyrDialect::MySql as u32,
+        dollar_quoted_strings: opts.dialect == DplyrDialect::PostgreSql as u32,
     }
 }
 
@@ -214,6 +208,7 @@ enum SqlScanState {
     DoubleQuoted,
     BacktickQuoted,
     BracketQuoted(usize),
+    DollarQuoted { delimiter_start: usize, delimiter_len: usize },
     LineComment,
     BlockComment(usize),
 }
@@ -249,6 +244,17 @@ fn advance_sql_scan(
             b'[' => {
                 *state = SqlScanState::BracketQuoted(1);
                 i + 1
+            }
+            b'$' if config.dollar_quoted_strings => {
+                if let Some(delimiter_len) = parse_dollar_quote_delimiter(bytes, i) {
+                    *state = SqlScanState::DollarQuoted {
+                        delimiter_start: i,
+                        delimiter_len,
+                    };
+                    i + delimiter_len
+                } else {
+                    i + 1
+                }
             }
             b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
                 *state = SqlScanState::LineComment;
@@ -324,6 +330,20 @@ fn advance_sql_scan(
                 i + 1
             }
         }
+        SqlScanState::DollarQuoted {
+            delimiter_start,
+            delimiter_len,
+        } => {
+            let delimiter_end = delimiter_start + delimiter_len;
+            if i + delimiter_len <= bytes.len()
+                && bytes[i..].starts_with(&bytes[delimiter_start..delimiter_end])
+            {
+                *state = SqlScanState::Normal;
+                i + delimiter_len
+            } else {
+                i + 1
+            }
+        }
         SqlScanState::LineComment => {
             if bytes[i] == b'\n' {
                 *state = SqlScanState::Normal;
@@ -346,6 +366,23 @@ fn advance_sql_scan(
             }
         }
     }
+}
+
+fn parse_dollar_quote_delimiter(bytes: &[u8], start: usize) -> Option<usize> {
+    if bytes.get(start)? != &b'$' {
+        return None;
+    }
+
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'$' => return Some(i + 1 - start),
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' => i += 1,
+            _ => return None,
+        }
+    }
+
+    None
 }
 
 fn find_unquoted_match<T, F>(
@@ -623,7 +660,11 @@ fn replace_embedded_pipelines_with_deadline(
             ));
         };
 
-        let embedded = strip_trailing_semicolon(&query[content_start..content_end]);
+        let embedded =
+            strip_trailing_semicolon(strip_leading_sql_comments_and_whitespace_with_config(
+                &query[content_start..content_end],
+                scan_config,
+            ));
         if embedded.is_empty() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
@@ -659,13 +700,28 @@ fn replace_embedded_pipelines_with_deadline(
     Ok(output)
 }
 
-fn strip_leading_sql_comments_and_whitespace(mut sql: &str) -> &str {
+#[cfg(test)]
+fn strip_leading_sql_comments_and_whitespace(sql: &str) -> &str {
+    strip_leading_sql_comments_and_whitespace_with_config(sql, SqlScanConfig::default())
+}
+
+fn strip_leading_sql_comments_and_whitespace_with_config(
+    mut sql: &str,
+    config: SqlScanConfig,
+) -> &str {
     loop {
         sql = sql.trim_start();
 
         if let Some(rest) = sql.strip_prefix("--") {
             sql = rest.find('\n').map_or("", |pos| &rest[pos + 1..]);
             continue;
+        }
+
+        if config.hash_line_comments {
+            if let Some(rest) = sql.strip_prefix('#') {
+                sql = rest.find('\n').map_or("", |pos| &rest[pos + 1..]);
+                continue;
+            }
         }
 
         if let Some(rest) = sql.strip_prefix("/*") {
@@ -708,8 +764,13 @@ fn has_sql_keyword_prefix(sql: &str, keyword: &str) -> bool {
         .unwrap_or(true)
 }
 
+#[cfg(test)]
 fn starts_with_supported_query_prefix(sql: &str) -> bool {
-    let sql = strip_leading_sql_comments_and_whitespace(sql);
+    starts_with_supported_query_prefix_with_config(sql, SqlScanConfig::default())
+}
+
+fn starts_with_supported_query_prefix_with_config(sql: &str, config: SqlScanConfig) -> bool {
+    let sql = strip_leading_sql_comments_and_whitespace_with_config(sql, config);
     sql.starts_with('(')
         || ["SELECT", "WITH"]
             .iter()
@@ -746,7 +807,9 @@ fn compile_query_string_with_deadline(
         }
         rewritten
     } else {
-        let dplyr_code = strip_trailing_semicolon(trimmed);
+        let dplyr_code = strip_trailing_semicolon(
+            strip_leading_sql_comments_and_whitespace_with_config(trimmed, scan_config),
+        );
         validate_compile_input(&dplyr_code, opts)?;
         require_pipeline_table_name(&dplyr_code).map_err(CompileInputError::Transpile)?;
         compile_to_sql_with_deadline(&dplyr_code, opts, deadline)
@@ -755,7 +818,7 @@ fn compile_query_string_with_deadline(
 
     validate_output_length(&sql).map_err(CompileInputError::Transpile)?;
 
-    if !starts_with_supported_query_prefix(&sql) {
+    if !starts_with_supported_query_prefix_with_config(&sql, scan_config) {
         return Err(CompileInputError::Transpile(
             TranspileError::unsupported_operation_with_alternative(
                 "generated a non-SELECT statement",
@@ -1069,6 +1132,7 @@ mod query_rewrite_tests {
     fn pipe_operator_detection_ignores_mysql_hash_comments_when_enabled() {
         let config = SqlScanConfig {
             hash_line_comments: true,
+            dollar_quoted_strings: false,
         };
 
         assert_eq!(
@@ -1102,6 +1166,54 @@ mod query_rewrite_tests {
         ));
         assert!(!starts_with_supported_query_prefix("SELECTED * FROM tbl"));
         assert!(!starts_with_supported_query_prefix("WITHIN grp AS value"));
+    }
+
+    #[test]
+    fn supported_query_prefix_ignores_mysql_hash_comments_when_enabled() {
+        let config = SqlScanConfig {
+            hash_line_comments: true,
+            dollar_quoted_strings: false,
+        };
+
+        assert!(starts_with_supported_query_prefix_with_config(
+            "# rewritten mysql comment\nSELECT * FROM tbl",
+            config
+        ));
+    }
+
+    #[test]
+    fn pipe_operator_detection_ignores_postgresql_dollar_quoted_literals() {
+        let config = SqlScanConfig {
+            hash_line_comments: false,
+            dollar_quoted_strings: true,
+        };
+
+        assert_eq!(
+            find_pipe_operator_with_config("SELECT $$ %>% $$ AS marker", 0, config),
+            None
+        );
+        assert_eq!(
+            find_pipe_operator_with_config("SELECT $tag$(| %>% |)$tag$ AS marker", 0, config),
+            None
+        );
+        assert!(find_pipe_operator_with_config("tbl %>% select(col)", 0, config).is_some());
+    }
+
+    #[test]
+    fn embedded_marker_detection_ignores_postgresql_dollar_quoted_literals() {
+        let config = SqlScanConfig {
+            hash_line_comments: false,
+            dollar_quoted_strings: true,
+        };
+
+        assert_eq!(
+            find_embedded_start_marker_with_config("SELECT $tag$(| %>% |)$tag$ AS marker", 0, config),
+            None
+        );
+        assert_eq!(
+            find_embedded_end_marker_with_config("SELECT $$ |) $$ AS marker", 0, config),
+            None
+        );
     }
 
     #[test]

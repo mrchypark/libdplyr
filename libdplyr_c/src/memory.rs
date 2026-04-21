@@ -56,11 +56,13 @@ pub(crate) unsafe fn free_owned_string(s: *mut c_char) -> bool {
 /// # Safety
 /// Caller must ensure that:
 /// - `s` is a valid `*mut c_char` that was previously allocated by a `libdplyr_c` function.
-/// - `s` must not be freed twice.
+/// - `s` must not be freed concurrently with any other operation on the same pointer.
 /// - `s` can be `std::ptr::null_mut()`, in which case it's a no-op.
 ///
 /// # Returns
-/// 0 on success, negative error code on failure
+/// - `DPLYR_SUCCESS` when the pointer was null or reclaimed successfully
+/// - `DPLYR_ERROR_PANIC` when the pointer is not a currently owned libdplyr allocation
+///   or a panic occurred while handling the request
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
     // R3-AC3: Safe memory management with null pointer check
@@ -77,11 +79,7 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
         }
     });
 
-    result.unwrap_or_else(|_| {
-        // Panic occurred during deallocation - this is serious
-        eprintln!("CRITICAL: Panic occurred during string deallocation");
-        DPLYR_ERROR_PANIC
-    })
+    result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
 /// Free multiple strings at once.
@@ -98,7 +96,8 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 /// * `count` - Number of strings in the array
 ///
 /// # Returns
-/// Number of strings successfully freed, or negative error code
+/// Number of strings successfully reclaimed. Unknown or already released
+/// pointers are skipped and do not contribute to the count.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) -> i32 {
     if strings.is_null() {
@@ -111,14 +110,8 @@ pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: us
         unsafe {
             for i in 0..count {
                 let string_ptr = *strings.add(i);
-                if !string_ptr.is_null() {
-                    match dplyr_free_string(string_ptr) {
-                        DPLYR_SUCCESS => freed_count += 1,
-                        _ => {
-                            // Continue freeing other strings even if one fails
-                            eprintln!("Warning: Failed to free string at index {}", i);
-                        }
-                    }
+                if !string_ptr.is_null() && dplyr_free_string(string_ptr) == DPLYR_SUCCESS {
+                    freed_count += 1;
                 }
             }
         }

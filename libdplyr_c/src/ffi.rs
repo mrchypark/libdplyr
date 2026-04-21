@@ -51,6 +51,11 @@ pub fn clear_output_string(out: *mut *mut c_char) {
 }
 
 /// Initialize an output slot to null before first use from C callers.
+///
+/// # Safety
+/// The caller must provide a valid mutable pointer to a `*mut c_char` slot.
+/// The pointee does not need to be initialized because this function always
+/// overwrites it with null before returning success.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_init_output_string(out: *mut *mut c_char) -> i32 {
     if out.is_null() {
@@ -111,7 +116,7 @@ mod tests {
 
     #[test]
     fn init_output_string_sets_slot_to_null() {
-        let mut out: *mut c_char = 1usize as *mut c_char;
+        let mut out = std::ptr::dangling_mut::<c_char>();
 
         let result = unsafe { dplyr_init_output_string(&mut out) };
 
@@ -121,7 +126,7 @@ mod tests {
 
     #[test]
     fn clear_output_string_ignores_unowned_pointer() {
-        let mut out: *mut c_char = 1usize as *mut c_char;
+        let mut out = std::ptr::dangling_mut::<c_char>();
 
         clear_output_string(&mut out);
 
