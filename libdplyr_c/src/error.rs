@@ -9,6 +9,7 @@ use thiserror::Error;
 
 // R2-AC3: C-compatible error codes from Appendix C
 pub const DPLYR_SUCCESS: i32 = 0;
+pub const DPLYR_QUERY_NOT_HANDLED: i32 = 1;
 pub const DPLYR_ERROR_NULL_POINTER: i32 = -1;
 pub const DPLYR_ERROR_INVALID_UTF8: i32 = -2;
 pub const DPLYR_ERROR_INPUT_TOO_LARGE: i32 = -3;
@@ -247,6 +248,7 @@ impl TranspileError {
 pub const extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char {
     match error_code {
         DPLYR_SUCCESS => c"SUCCESS".as_ptr(),
+        DPLYR_QUERY_NOT_HANDLED => c"QUERY-NOT-HANDLED".as_ptr(),
         DPLYR_ERROR_NULL_POINTER => c"E-NULL-POINTER".as_ptr(),
         DPLYR_ERROR_INVALID_UTF8 => c"E-INVALID-UTF8".as_ptr(),
         DPLYR_ERROR_INPUT_TOO_LARGE => c"E-INPUT-TOO-LARGE".as_ptr(),
@@ -265,9 +267,21 @@ pub const extern "C" fn dplyr_error_code_name(error_code: i32) -> *const c_char 
 /// * `error_code` - C error code
 ///
 /// # Returns
-/// true if success, false if error
+/// true if the result is non-error (`SUCCESS` or `QUERY_NOT_HANDLED`), false if error
 #[no_mangle]
 pub const extern "C" fn dplyr_is_success(error_code: i32) -> bool {
+    error_code >= 0
+}
+
+/// Check if the result code guarantees a populated output string.
+///
+/// # Arguments
+/// * `error_code` - C result code
+///
+/// # Returns
+/// true only when the API contract guarantees an owned output string was produced
+#[no_mangle]
+pub const extern "C" fn dplyr_result_has_output(error_code: i32) -> bool {
     error_code == DPLYR_SUCCESS
 }
 
@@ -406,7 +420,11 @@ mod tests {
 
         // Test success check
         assert!(dplyr_is_success(DPLYR_SUCCESS));
+        assert!(dplyr_is_success(DPLYR_QUERY_NOT_HANDLED));
         assert!(!dplyr_is_success(DPLYR_ERROR_SYNTAX));
+        assert!(dplyr_result_has_output(DPLYR_SUCCESS));
+        assert!(!dplyr_result_has_output(DPLYR_QUERY_NOT_HANDLED));
+        assert!(!dplyr_result_has_output(DPLYR_ERROR_SYNTAX));
 
         // Test recoverability
         assert!(dplyr_is_recoverable_error(DPLYR_ERROR_SYNTAX));

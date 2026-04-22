@@ -1,5 +1,7 @@
 #
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
+# Primary binary distribution pipeline.
+# The current DuckDB line is built here against v1.5.2.
+# Minimum-version compatibility for v1.4.0 is validated in CI and packaged in release.yml.
 #
 name: Main Extension Distribution Pipeline
 on:
@@ -16,11 +18,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  duckdb-v1-5-variegata-build:
-    name: Build extension binaries (DuckDB v1.5-variegata)
+  duckdb-primary-build:
+    name: Build extension binaries (DuckDB v1.5.2 primary line)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4-andium
     with:
-      duckdb_version: v1.5-variegata
+      duckdb_version: v1.5.2
       ci_tools_version: v1.4-andium
       extension_name: dplyr
       extra_toolchains: rust

@@ -13,3 +13,12 @@
 
 - `duckdb`: `6ddac802ffa9bcfbcc3f5f0d71de5dff9b0bc250` (`v1.4.4`)
 - `extension-ci-tools`: `00a4d1a464a0ebd30c7427396c0271105592d63b`
+
+## Compatibility Matrix
+
+- 최소 지원 DuckDB 버전: `v1.4.0`
+- 주 지원 DuckDB 버전: `v1.5.2`
+- 최소 호환성 검사 버전: `v1.4.0`
+- CI는 현재 `v1.5.2`를 멀티플랫폼 주 검증선으로, `v1.4.0`을 Linux 호환성 검증선으로 사용합니다.
+- 릴리스 바이너리는 현재 `v1.4.0`과 `v1.5.2`를 대상으로 생성합니다.
+- 위 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개입니다. submodule 핀 상향은 별도 PR에서 갱신합니다.

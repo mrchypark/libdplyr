@@ -1,207 +1,104 @@
-# DuckDB Community Repository 등록 가이드
+# DuckDB Community Extensions 제출 가이드
 
-## 개요
+## 현재 기준
 
-이 문서는 dplyr 확장을 DuckDB Community Repository에 등록하기 위한 준비 과정과 요구사항을 설명합니다.
+- 제출 대상 저장소: `duckdb/community-extensions`
+- 제출 파일: `extensions/dplyr/description.yml` 하나
+- 현재 준비 파일: [community-pr/description.yml](../community-pr/description.yml)
+- 현재 최신 stable DuckDB: `1.5.2`
 
-## Community Repository 등록 요구사항
+## libdplyr에 중요한 해석
 
-### 1. 기본 요구사항 (R4-AC3, R8-AC3 충족)
+`libdplyr`는 DuckDB C++ extension API를 직접 쓰는 확장입니다. 이 경로는 DuckDB 공식 문서 기준으로 **unstable API extension** 범주에 가깝습니다. 따라서:
 
-#### 확장 메타데이터
-- **이름**: dplyr
-- **설명**: R dplyr syntax support for DuckDB
-- **버전**: Semantic versioning (예: 1.0.0)
-- **라이선스**: MIT 또는 Apache-2.0
-- **저장소**: GitHub 공개 저장소
+- 저장소 차원에서 `1.4.0`과 `1.5.2`를 둘 다 CI로 검증하는 것은 가능
+- 하지만 community-extensions 배포 모델에서 "하나의 바이너리로 1.4.x와 1.5.x 동시 지원"을 주장하는 것은 부정확
+- community-extensions 제출은 **현재 최신 stable 기준 배포**로 이해하는 것이 맞음
+- `1.4.0` 지원은 배포 보장이라기보다 **repo-level source compatibility check**로 표현하는 편이 정확
 
-#### 지원 플랫폼
-- Linux x86_64
-- macOS x86_64 (Intel)
-- macOS ARM64 (Apple Silicon)
-- Windows x86_64
+## 제출 전에 맞춰야 하는 것
 
-#### DuckDB 호환성
-- 최소 버전: 0.9.0
-- 최대 버전: 1.0.0 (테스트됨)
-- ABI 호환성: 보장됨
+### 1. descriptor
 
-### 2. 기술적 요구사항
+`description.yml`은 다음을 포함해야 합니다.
 
-#### 빌드 시스템
-- CMake 기반 빌드
-- 자동화된 CI/CD 파이프라인
-- 다중 플랫폼 빌드 지원
+- `extension.name`
+- `extension.description`
+- `extension.version`
+- `extension.language`
+- `extension.build`
+- `extension.license`
+- `extension.maintainers`
+- `extension.excluded_platforms` 필요 시
+- `extension.requires_toolchains` 필요 시
+- `repo.github`
+- `repo.ref`
+- `docs.hello_world`
+- `docs.extended_description`
 
-#### 테스트 커버리지
-- 단위 테스트: 85% 이상
-- 통합 테스트: 포함
-- 스모크 테스트: 자동화됨
-- 성능 테스트: 벤치마크 포함
+현재 `libdplyr` 기준 권장 값:
 
-#### 문서화
-- README.md: 설치 및 사용법
-- API 문서: 완전한 함수 참조
-- 예제: 실용적인 사용 사례
-- 변경 로그: 버전별 변경사항
+- `language: Rust & C++`
+- `build: cmake`
+- `requires_toolchains: rust`
+- `excluded_platforms: windows_amd64_rtools`
 
-### 3. 품질 보증
+`repo.ref`는 **community-extensions CI가 실제로 빌드할 커밋 해시**여야 합니다. 보통은:
 
-#### 코드 품질
-- Rust clippy: 모든 경고 해결
-- 코드 포맷팅: rustfmt 적용
-- 보안 스캔: 취약점 없음
-- 의존성 감사: 최신 상태
+1. 저장소 PR CI가 green인 커밋
+2. 가능하면 `main`에 머지된 커밋 또는 릴리스 태그가 가리키는 커밋
 
-#### 성능 기준
-- 단순 쿼리 변환: <2ms (P95)
-- 복잡 쿼리 변환: <15ms (P95)
-- 확장 로딩: <50ms (P95)
-- 메모리 안정성: 누수 없음
+### 2. 저장소 메타데이터
 
-## 등록 준비 체크리스트
+제출 전에는 최소한 아래가 실제 저장소 URL을 가리켜야 합니다.
 
-### Phase 1: 기본 준비
-- [ ] 공개 GitHub 저장소 설정
-- [ ] MIT/Apache-2.0 라이선스 적용
-- [ ] README.md 작성 완료
-- [ ] CHANGELOG.md 유지
-- [ ] 기본 문서화 완료
+- [Cargo.toml](../Cargo.toml)
+- [extension_config.cmake](../extension_config.cmake)
 
-### Phase 2: 기술적 준비
-- [ ] 다중 플랫폼 빌드 검증
-- [ ] CI/CD 파이프라인 안정화
-- [ ] 자동화된 테스트 통과
-- [ ] 성능 벤치마크 달성
-- [ ] 보안 스캔 통과
+### 3. 호환성 설명
 
-### Phase 3: 품질 검증
-- [ ] 코드 리뷰 완료
-- [ ] 외부 테스터 피드백 수집
-- [ ] 문서 검토 완료
-- [ ] 예제 코드 검증
-- [ ] 호환성 테스트 완료
+제출 설명과 PR 본문에서는 이렇게 쓰는 편이 맞습니다.
 
-### Phase 4: 제출 준비
-- [ ] extension.json 메타데이터 파일 생성
-- [ ] 릴리스 노트 작성
-- [ ] 커뮤니티 가이드라인 준수 확인
-- [ ] 제출 PR 준비
+- `DuckDB 1.5.2`를 현재 community submission target으로 사용
+- 저장소 CI에서 `DuckDB 1.4.0`을 별도 compatibility lane으로 계속 검증
+- `libdplyr`는 C++/unstable API extension이므로 배포 모델상 최신 stable 대상 제출이 기준
 
-## extension.json 메타데이터 예시
+## 실제 제출 순서
 
-```json
-{
-  "name": "dplyr",
-  "description": "R dplyr syntax support for DuckDB - transpile dplyr pipelines to SQL",
-  "version": "1.0.0",
-  "language": "C++/Rust",
-  "build": "cmake",
-  "license": "MIT",
-  "maintainers": [
-    {
-      "name": "Your Name",
-      "email": "your.email@example.com",
-      "github": "yourusername"
-    }
-  ],
-  "repository": {
-    "github": "yourusername/libdplyr",
-    "ref": "main"
-  },
-  "docs": {
-    "readme": "README.md",
-    "changelog": "CHANGELOG.md",
-    "examples": "examples/"
-  },
-  "platforms": [
-    {
-      "name": "linux_amd64",
-      "file": "dplyr-linux-x86_64.duckdb_extension"
-    },
-    {
-      "name": "osx_amd64", 
-      "file": "dplyr-macos-x86_64.duckdb_extension"
-    },
-    {
-      "name": "osx_arm64",
-      "file": "dplyr-macos-arm64.duckdb_extension"
-    },
-    {
-      "name": "windows_amd64",
-      "file": "dplyr-windows-x86_64.duckdb_extension"
-    }
-  ],
-  "duckdb_version": {
-    "min": "0.9.0",
-    "max": "1.0.0"
-  },
-  "dependencies": [],
-  "tags": ["dplyr", "r", "data-manipulation", "transpiler", "sql"],
-  "install": {
-    "load": "LOAD 'dplyr';",
-    "usage": "SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');"
-  }
-}
-```
+1. `libdplyr` 저장소에서 제출 대상 커밋을 확정합니다.
+2. `community-pr/description.yml`의 `repo.ref`를 그 커밋으로 고정합니다.
+3. `duckdb/community-extensions`를 포크합니다.
+4. `extensions/dplyr/description.yml`로 파일 하나만 추가합니다.
+5. PR 본문에 다음을 명시합니다.
 
-## 제출 프로세스
+- `libdplyr`는 Rust core + C API + DuckDB C++ extension 구조
+- 현재 최신 stable DuckDB를 대상으로 community build를 요청
+- 저장소 CI에서 `1.4.0` compatibility lane을 별도 유지 중
+- parser extension 기능은 auto-detection 대상이 아니므로 `extended_description`에 설명을 넣었음
 
-### 1. 사전 검토
-1. 모든 체크리스트 항목 완료 확인
-2. 내부 품질 검토 수행
-3. 베타 테스터 피드백 수집
-4. 문서 최종 검토
+## `ref_next`는 언제 쓰나
 
-### 2. 제출 준비
-1. extension.json 파일 생성
-2. 최신 릴리스 태그 생성
-3. 모든 플랫폼 바이너리 검증
-4. 체크섬 파일 생성
+DuckDB 다음 minor 릴리스 전환기에는 `ref_next`가 필요할 수 있습니다. 공식 문서 기준으로 release-near 시점엔 latest stable과 DuckDB `main`을 함께 시험하는 흐름이 생깁니다.
 
-### 3. Community Repository 제출
-1. DuckDB community-extensions 저장소 포크
-2. 새 브랜치 생성: `add-dplyr-extension`
-3. extension.json 파일 추가
-4. PR 생성 및 제출
-5. 리뷰 프로세스 참여
+지금처럼 `1.5.2` latest stable 기준 제출을 준비하는 단계에선 필수는 아닙니다. 다만 새 DuckDB minor 릴리스가 임박하면:
 
-### 4. 승인 후 작업
-1. 커뮤니티 피드백 모니터링
-2. 버그 리포트 대응
-3. 정기적인 업데이트 제공
-4. DuckDB 버전 호환성 유지
+- `ref`: latest stable 대응 커밋
+- `ref_next`: DuckDB `main` 대응 커밋
 
-## 유지보수 가이드라인
+구조로 가져가는 것이 맞습니다.
 
-### 정기 업데이트
-- **보안 패치**: 즉시 적용
-- **버그 수정**: 2주 이내
-- **기능 추가**: 분기별 검토
-- **DuckDB 호환성**: 새 버전 출시 시 검증
+## 제출 전 체크
 
-### 커뮤니티 지원
-- GitHub Issues 모니터링
-- 사용자 질문 응답
-- 문서 개선 지속
-- 예제 코드 업데이트
+- [ ] PR CI에서 `ubuntu/macos/windows` `DuckDB 1.5.2`가 통과
+- [ ] `DuckDB 1.4.0` compatibility lane 통과
+- [ ] `community-pr/description.yml` 필드 최신화
+- [ ] `repo.ref`를 실제 제출 커밋으로 고정
+- [ ] 저장소 URL placeholder 제거
+- [ ] parser extension 성격을 `extended_description`에 충분히 설명
 
-### 품질 유지
-- CI/CD 파이프라인 유지
-- 테스트 커버리지 모니터링
-- 성능 회귀 방지
-- 보안 스캔 정기 실행
+## 참고
 
-## 참고 자료
-
-- [DuckDB Extension Development Guide](https://duckdb.org/docs/extensions/overview)
-- [Community Extensions Repository](https://github.com/duckdb/community-extensions)
-- [Extension Submission Guidelines](https://duckdb.org/docs/extensions/community_extensions)
-- [DuckDB Extension Template](https://github.com/duckdb/extension-template)
-
-## 연락처
-
-Community Repository 등록 관련 문의:
-- DuckDB Discord: #extensions 채널
-- GitHub Issues: community-extensions 저장소
-- 이메일: extensions@duckdb.org
+- [DuckDB Community Extensions 문서](https://duckdb.org/community_extensions/documentation)
+- [Community Extension Development](https://duckdb.org/community_extensions/development)
+- [DuckDB Release Cycle](https://duckdb.org/docs/lts/dev/release_cycle)
+- [Versioning of Extensions](https://duckdb.org/docs/current/extensions/versioning_of_extensions.html)

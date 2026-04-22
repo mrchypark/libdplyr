@@ -3,7 +3,8 @@
 //! This benchmark measures the DuckDB extension loading time to validate
 //! the R6-AC1 requirement of <50ms extension loading time.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use std::process::Command;
 use std::time::{Duration, Instant};
 

@@ -75,11 +75,11 @@ protected:
     }
     
     // Helper to execute query and verify no crash
-    // Returns nullptr on std::exception - tests should handle this appropriately
+    // Returns nullptr on any C++ exception - tests should handle this appropriately
     std::unique_ptr<duckdb::MaterializedQueryResult> safe_query(const std::string& query) {
         try {
             return conn->Query(query);
-        } catch (const std::exception&) {
+        } catch (...) {
             // Exception occurred - return nullptr, let individual tests decide if this is acceptable
             return nullptr;
         }
@@ -184,21 +184,14 @@ TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
     
     auto result = safe_query(query);
     
-    if (result && !result->HasError()) {
-        EXPECT_EQ(result->RowCount(), 1) << "CTE + DPLYR mixing should work";
-        auto chunk = result->Fetch();
-        if (chunk && chunk->size() > 0) {
-            // Should have filtered results (Alice=25, Bob=30, both > 22)
-            EXPECT_GE(chunk->GetValue(0, 0).GetValue<int64_t>(), 1) 
-                << "Should have at least 1 filtered result";
-        }
-    } else if (result) {
-        // Mixed query had error but didn't crash
-        EXPECT_FALSE(result->GetError().empty()) 
-            << "Should provide meaningful error for mixed query";
-    } else {
-        FAIL() << "Mixed CTE + DPLYR query caused crash";
-    }
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "CTE + DPLYR mixing should work: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 1);
+
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 2);
 }
 
 TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
@@ -213,14 +206,15 @@ TEST_F(DuckDBExtensionTest, SubqueryIntegration) {
     
     auto result = safe_query(query);
     
-    if (result && !result->HasError()) {
-        EXPECT_GE(result->RowCount(), 0) << "Subquery integration should work";
-    } else if (result) {
-        std::string error = result->GetError();
-        EXPECT_FALSE(error.empty()) << "Should have error message for subquery issue";
-    } else {
-        FAIL() << "Subquery with DPLYR caused crash";
-    }
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Subquery integration should work: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 2);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 2);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int64_t>(), 3);
 }
 
 TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
@@ -246,14 +240,17 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
     
     auto result = safe_query(query);
     
-    if (result && !result->HasError()) {
-        EXPECT_GE(result->RowCount(), 0) << "JOIN with DPLYR should work";
-    } else if (result) {
-        // Join failed but didn't crash
-        EXPECT_FALSE(result->GetError().empty()) << "Should have join error message";
-    } else {
-        FAIL() << "JOIN with DPLYR caused crash";
-    }
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "JOIN with DPLYR should work: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 2);
+    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "Product A");
+    EXPECT_EQ(chunk->GetValue(1, 0).GetValue<int32_t>(), 100);
+    EXPECT_EQ(chunk->GetValue(0, 1).ToString(), "Product B");
+    EXPECT_EQ(chunk->GetValue(1, 1).GetValue<int32_t>(), 200);
 }
 
 // ============================================================================
@@ -290,7 +287,7 @@ TEST_F(DuckDBExtensionTest, InvalidDplyrSyntaxNoCrash) {
 
 TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     // Test FFI boundary null pointer handling
-    // Requirement: NULL input should not crash duckdb::DuckDB - may throw std::exception or return error
+    // Requirement: NULL input should not crash duckdb::DuckDB - may throw or return error
     std::vector<std::string> null_tests = {
         "SELECT * FROM dplyr(NULL)",
     };
@@ -298,10 +295,10 @@ TEST_F(DuckDBExtensionTest, NullPointerHandling) {
     for (const auto& query : null_tests) {
         auto result = safe_query(query);
         
-        // Either returns error result OR throws std::exception (both are acceptable crash-prevention)
+        // Either returns error result OR throws an exception (both are acceptable crash-prevention)
         if (result == nullptr) {
-            // Exception was thrown - this is acceptable crash prevention behavior
-            SUCCEED() << "NULL input caused std::exception (acceptable): " << query;
+            // An exception was thrown - this is acceptable crash prevention behavior
+            SUCCEED() << "NULL input caused exception (acceptable): " << query;
             continue;
         }
         
@@ -328,7 +325,9 @@ TEST_F(DuckDBExtensionTest, LargeInputHandling) {
     
     if (result->HasError()) {
         std::string error = result->GetError();
-        EXPECT_TRUE(error.find("E-INTERNAL") != std::string::npos || 
+        EXPECT_TRUE(error.find("E-INPUT-TOO-LARGE") != std::string::npos ||
+                   error.find("Resource limit exceeded") != std::string::npos ||
+                   error.find("exceeds maximum") != std::string::npos ||
                    error.find("too large") != std::string::npos ||
                    error.find("limit") != std::string::npos)
             << "Should indicate input size limit: " << error;

@@ -5,11 +5,16 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 use crate::cache::SimpleTranspileCache;
-use crate::compile::convert_libdplyr_error;
+use crate::cache::{
+    dplyr_cache_clear, dplyr_cache_get_hits, dplyr_cache_get_misses, dplyr_cache_get_size,
+};
+use crate::compile::{convert_libdplyr_error, force_ffi_panic_for_test};
 use crate::error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
     DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
 };
+use crate::memory::alloc_owned_string;
+use crate::system::dplyr_check_system;
 use crate::validation::{
     calculate_nesting_depth, contains_suspicious_patterns, count_function_calls,
     has_excessive_repetition, validate_input_encoding, validate_input_security,
@@ -23,11 +28,10 @@ mod ffi_tests {
     #[test]
     fn test_dplyr_options_default() {
         let options = DplyrOptions::default();
-        assert!(!options.strict_mode);
-        assert!(!options.preserve_comments);
         assert!(!options.debug_mode);
         assert_eq!(options.max_input_length, 1024 * 1024);
         assert_eq!(options.max_processing_time_ms, MAX_PROCESSING_TIME_MS);
+        assert_eq!(options.dialect, DplyrDialect::DuckDb as u32);
     }
 
     #[test]
@@ -41,22 +45,20 @@ mod ffi_tests {
         let options = DplyrOptions::new();
         assert_eq!(options, DplyrOptions::default());
 
-        let custom_options = DplyrOptions::with_settings(true, true, true, 512);
-        assert!(custom_options.strict_mode);
-        assert!(custom_options.preserve_comments);
+        let custom_options = DplyrOptions::with_settings(true, 512, DplyrDialect::MySql);
         assert!(custom_options.debug_mode);
         assert_eq!(custom_options.max_input_length, 512);
         assert_eq!(
             custom_options.max_processing_time_ms,
             MAX_PROCESSING_TIME_MS
         );
+        assert_eq!(custom_options.dialect, DplyrDialect::MySql as u32);
 
-        let full_options = DplyrOptions::with_all_settings(true, false, true, 1024, 5000);
-        assert!(full_options.strict_mode);
-        assert!(!full_options.preserve_comments);
+        let full_options = DplyrOptions::with_all_settings(true, 1024, 5000, DplyrDialect::DuckDb);
         assert!(full_options.debug_mode);
         assert_eq!(full_options.max_input_length, 1024);
         assert_eq!(full_options.max_processing_time_ms, 5000);
+        assert_eq!(full_options.dialect, DplyrDialect::DuckDb as u32);
     }
 
     #[test]
@@ -64,43 +66,51 @@ mod ffi_tests {
         let valid_options = DplyrOptions::default();
         assert!(valid_options.validate().is_ok());
 
-        let invalid_options = DplyrOptions::with_settings(false, false, false, 0);
+        let invalid_options = DplyrOptions::with_settings(false, 0, DplyrDialect::DuckDb);
         assert!(invalid_options.validate().is_err());
 
         // Test with manually created oversized options (bypassing with_settings clamping)
         let oversized_options = DplyrOptions {
-            strict_mode: false,
-            preserve_comments: false,
             debug_mode: false,
             max_input_length: (MAX_INPUT_LENGTH + 1) as u32,
             max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(oversized_options.validate().is_err());
 
         // Test timeout validation - zero timeout is now allowed (means use default)
         let zero_timeout_options = DplyrOptions {
-            strict_mode: false,
-            preserve_comments: false,
             debug_mode: false,
             max_input_length: 1024,
             max_processing_time_ms: 0, // Zero means use default
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(zero_timeout_options.validate().is_ok());
 
         let oversized_timeout_options = DplyrOptions {
-            strict_mode: false,
-            preserve_comments: false,
             debug_mode: false,
             max_input_length: 1024,
             max_processing_time_ms: MAX_PROCESSING_TIME_MS + 1000, // Too large
+            dialect: DplyrDialect::DuckDb as u32,
         };
         assert!(oversized_timeout_options.validate().is_err());
+
+        let invalid_dialect_options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        assert!(invalid_dialect_options.validate().is_err());
     }
 
     #[test]
     fn test_dplyr_options_size_limit() {
-        let options =
-            DplyrOptions::with_settings(false, false, false, (MAX_INPUT_LENGTH + 1000) as u32);
+        let options = DplyrOptions::with_settings(
+            false,
+            (MAX_INPUT_LENGTH + 1000) as u32,
+            DplyrDialect::DuckDb,
+        );
         // Should be clamped to MAX_INPUT_LENGTH
         assert_eq!(options.max_input_length, MAX_INPUT_LENGTH as u32);
     }
@@ -112,11 +122,10 @@ mod ffi_tests {
         assert_eq!(default_opts, DplyrOptions::default());
 
         // Test custom options creation
-        let custom_opts = dplyr_options_create(true, false, true, 2048);
-        assert!(custom_opts.strict_mode);
-        assert!(!custom_opts.preserve_comments);
+        let custom_opts = dplyr_options_create(true, 2048, DplyrDialect::DuckDb as u32);
         assert!(custom_opts.debug_mode);
         assert_eq!(custom_opts.max_input_length, 2048);
+        assert_eq!(custom_opts.dialect, DplyrDialect::DuckDb as u32);
 
         // Test validation
         let valid_result = unsafe { dplyr_options_validate(&default_opts as *const DplyrOptions) };
@@ -128,8 +137,76 @@ mod ffi_tests {
     }
 
     #[test]
-    fn test_dplyr_compile_null_pointers() {
+    fn test_ffi_options_creation_preserves_invalid_raw_dialect_for_validation() {
+        let options = dplyr_options_create(false, 1024, 99);
+        assert_eq!(options.dialect, 99);
+
+        let validation_result = unsafe { dplyr_options_validate(&options as *const DplyrOptions) };
+        assert_eq!(validation_result, -2);
+    }
+
+    #[test]
+    fn test_dplyr_compile_clears_unused_output_pointer_on_success() {
+        let input = CString::new("mtcars %>% select(mpg, cyl)").unwrap();
+        let stale_error = CString::new("stale error").unwrap().into_raw();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = stale_error;
+
+        let result = unsafe {
+            dplyr_compile(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(
+            out_error.is_null(),
+            "success path should clear stale error output pointers"
+        );
+
+        unsafe {
+            dplyr_free_string(out_sql);
+            let _ = CString::from_raw(stale_error);
+        }
+    }
+
+    #[test]
+    fn test_dplyr_compile_clears_unused_output_pointer_on_error() {
+        let input = CString::new("system('rm -rf /')").unwrap();
+        let stale_sql = CString::new("stale sql").unwrap().into_raw();
+        let mut out_sql: *mut c_char = stale_sql;
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(
+            out_sql.is_null(),
+            "error path should clear stale sql output pointers"
+        );
+        assert!(!out_error.is_null());
+
+        unsafe {
+            dplyr_free_string(out_error);
+            let _ = CString::from_raw(stale_sql);
+        }
+    }
+
+    #[test]
+    fn test_dplyr_compile_null_pointers() {
+        let stale_sql = CString::new("stale sql").unwrap().into_raw();
+        let mut out_sql: *mut c_char = stale_sql;
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Test null code pointer
@@ -144,10 +221,17 @@ mod ffi_tests {
 
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
         assert!(!out_error.is_null());
+        assert!(
+            out_sql.is_null(),
+            "null-code path should clear stale SQL outputs"
+        );
 
         // Clean up
         if !out_error.is_null() {
             unsafe { dplyr_free_string(out_error) };
+        }
+        unsafe {
+            let _ = CString::from_raw(stale_sql);
         }
     }
 
@@ -183,7 +267,7 @@ mod ffi_tests {
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
         // Create options with small limit
-        let options = DplyrOptions::with_settings(false, false, false, 10);
+        let options = DplyrOptions::with_settings(false, 10, DplyrDialect::DuckDb);
 
         // Create input larger than limit
         let large_input = CString::new("select(very_long_column_name_that_exceeds_limit)").unwrap();
@@ -243,14 +327,571 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_respects_selected_dialect_when_mysql_is_requested() {
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let sql = safe_dplyr_compile_test("users %>% select(name, age)", &options)
+            .expect("mysql-targeted transpilation should succeed");
+
+        assert!(sql.contains("`name`"));
+        assert!(sql.contains("`age`"));
+        assert!(!sql.contains("\"name\""));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_returns_not_handled_for_plain_sql() {
+        let input = CString::new("SELECT 42").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_frees_stale_output_pointers_before_reuse() {
+        let input = CString::new("SELECT 42").unwrap();
+        let stale_sql = CString::new("stale sql").unwrap().into_raw();
+        let stale_error = CString::new("stale error").unwrap().into_raw();
+        let mut out_sql: *mut c_char = stale_sql;
+        let mut out_error: *mut c_char = stale_error;
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+
+        unsafe {
+            let _ = CString::from_raw(stale_sql);
+            let _ = CString::from_raw(stale_error);
+        }
+    }
+
+    #[test]
+    fn test_dplyr_compile_reclaims_previous_libdplyr_output_before_reuse() {
+        let first_input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let second_input = CString::new("mtcars %>% select(cyl)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let first_result = unsafe {
+            dplyr_compile(
+                first_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(first_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let second_result = unsafe {
+            dplyr_compile(
+                second_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(second_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+        assert_eq!(unsafe { dplyr_free_string(out_sql) }, DPLYR_SUCCESS);
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reclaims_previous_libdplyr_output_before_reuse() {
+        let first_input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let second_input = CString::new("mtcars %>% select(cyl)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let first_result = unsafe {
+            dplyr_compile_query(
+                first_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(first_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let second_result = unsafe {
+            dplyr_compile_query(
+                second_input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(second_result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+        assert_eq!(unsafe { dplyr_free_string(out_sql) }, DPLYR_SUCCESS);
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_skips_size_validation_for_plain_sql() {
+        let oversized_plain_sql = format!("SELECT 1 /* {} */", "x".repeat(2048));
+        let input = CString::new(oversized_plain_sql).unwrap();
+        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_pipe_operator_inside_sql_literals_and_comments() {
+        let input = CString::new("SELECT '%>%' AS marker /* %>% */ -- %>%\nFROM tbl").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_mysql_hash_comments() {
+        let input = CString::new("# %>%\nSELECT 42").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_postgresql_dollar_quoted_literals() {
+        let input =
+            CString::new("SELECT $$ %>% $$ AS marker, $tag$(| %>% |)$tag$ AS embedded").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::PostgreSql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rewrites_mysql_query_after_hash_comment_prefix() {
+        let input =
+            CString::new("# mysql comment\nSELECT * FROM (| users %>% select(name) |) AS q")
+                .unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("# mysql comment\nSELECT * FROM (SELECT"));
+        assert!(sql.contains("`name`"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rewrites_mysql_pipeline_after_hash_comment_prefix() {
+        let input = CString::new("# mysql comment\nusers %>% select(name)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::MySql as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("SELECT"));
+        assert!(sql.contains("`name`"));
+        assert!(!sql.contains("%>%"));
+        assert!(!sql.contains("# mysql comment"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rejects_oversized_pipeline_query() {
+        let oversized_pipeline =
+            CString::new("very_long_source_table_name_for_pipeline %>% select(mpg, cyl)").unwrap();
+        let options = dplyr_options_create(false, 24, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                oversized_pipeline.as_ptr(),
+                &options,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("E-INPUT-TOO-LARGE"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rejects_pipeline_with_oversized_whitespace_padding() {
+        let padded = format!("{}mtcars %>% select(mpg)", " ".repeat(256));
+        let input = CString::new(padded).unwrap();
+        let options = dplyr_options_create(false, 64, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result =
+            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
+
+        assert_eq!(result, DPLYR_ERROR_INPUT_TOO_LARGE);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        unsafe { dplyr_free_string(out_error) };
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rejects_null_output_pointers() {
+        let input = CString::new("SELECT 42").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let missing_sql_result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                &mut out_error,
+            )
+        };
+        assert_eq!(missing_sql_result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_error.is_null());
+
+        let missing_error_result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(missing_error_result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_sql.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_reports_invalid_dialect_without_ub() {
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile(
+                input.as_ptr(),
+                &options as *const DplyrOptions,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("Invalid dialect value"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reports_invalid_dialect_without_ub() {
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let options = DplyrOptions {
+            debug_mode: false,
+            max_input_length: 1024,
+            max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: 99,
+        };
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                &options as *const DplyrOptions,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("Invalid dialect value"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reports_null_query() {
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+        assert!(error.contains("query parameter is null"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rewrites_embedded_pipelines() {
+        let input = CString::new("SELECT * FROM (| mtcars %>% select(mpg, cyl) |) AS q").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("SELECT * FROM (SELECT"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_ignores_embedded_markers_inside_literals() {
+        let input =
+            CString::new("SELECT '(|' AS literal FROM (| mtcars %>% select(mpg, cyl) |) AS q")
+                .unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.contains("SELECT '(|' AS literal FROM (SELECT"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_accepts_parenthesized_select_output() {
+        let input = CString::new("(| mtcars %>% select(mpg, cyl) |)").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.starts_with("(SELECT"));
+        assert!(!sql.contains("%>%"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rejects_invalid_control_characters() {
+        let input = b"SELECT * FROM (| mtcars %>% select\x01(mpg) |)\0";
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr() as *const c_char,
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        unsafe { dplyr_free_string(out_error) };
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_rejects_invalid_structure() {
+        let input = CString::new("SELECT * FROM (| mtcars %>% select(mpg |) AS q").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        unsafe { dplyr_free_string(out_error) };
+    }
+
+    #[test]
     fn test_dplyr_free_string_safety() {
         // Test freeing null pointer (should be safe)
         let result = unsafe { dplyr_free_string(std::ptr::null_mut()) };
         assert_eq!(result, DPLYR_SUCCESS);
 
         // Test freeing valid string
-        let test_string = CString::new("test string").unwrap();
-        let raw_ptr = test_string.into_raw();
+        let raw_ptr = alloc_owned_string("test string").unwrap();
 
         // Verify pointer looks valid
         assert!(unsafe { dplyr_is_valid_string_pointer(raw_ptr) });
@@ -263,11 +904,34 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_free_string_rejects_foreign_pointer_without_reclaiming_it() {
+        let foreign = CString::new("foreign string").unwrap().into_raw();
+
+        let result = unsafe { dplyr_free_string(foreign) };
+
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+
+        unsafe {
+            let _ = CString::from_raw(foreign);
+        }
+    }
+
+    #[test]
+    fn test_dplyr_init_output_string_initializes_slot() {
+        let mut out = std::ptr::dangling_mut::<c_char>();
+
+        let result = unsafe { dplyr_init_output_string(&mut out) };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(out.is_null());
+    }
+
+    #[test]
     fn test_dplyr_free_strings_batch() {
         // Create multiple test strings
-        let string1 = CString::new("string1").unwrap().into_raw();
-        let string2 = CString::new("string2").unwrap().into_raw();
-        let string3 = CString::new("string3").unwrap().into_raw();
+        let string1 = alloc_owned_string("string1").unwrap();
+        let string2 = alloc_owned_string("string2").unwrap();
+        let string3 = alloc_owned_string("string3").unwrap();
 
         // Create array of pointers
         let mut strings = vec![string1, string2, string3, std::ptr::null_mut()];
@@ -279,6 +943,21 @@ mod ffi_tests {
         // Test with null array
         let result = unsafe { dplyr_free_strings(std::ptr::null_mut(), 0) };
         assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
+    }
+
+    #[test]
+    fn test_dplyr_free_strings_skips_foreign_pointers() {
+        let owned = alloc_owned_string("owned").unwrap();
+        let foreign = CString::new("foreign").unwrap().into_raw();
+        let mut strings = vec![owned, foreign];
+
+        let freed_count = unsafe { dplyr_free_strings(strings.as_mut_ptr(), strings.len()) };
+
+        assert_eq!(freed_count, 1);
+
+        unsafe {
+            let _ = CString::from_raw(foreign);
+        }
     }
 
     #[test]
@@ -297,17 +976,24 @@ mod ffi_tests {
 
     #[test]
     fn test_utility_functions() {
+        let expected_version = env!("CARGO_PKG_VERSION");
+
         // Test version functions
         let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-        assert_eq!(version.to_string_lossy(), "0.2.0");
+        assert_eq!(version.to_string_lossy(), expected_version);
 
         let detailed_version = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
-        assert!(detailed_version.to_string_lossy().contains("0.2.0"));
+        assert!(detailed_version
+            .to_string_lossy()
+            .contains(expected_version));
         assert!(detailed_version.to_string_lossy().contains("libdplyr_c"));
 
         // Test supported dialects
         let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
         assert!(dialects.to_string_lossy().contains("DuckDB"));
+        assert!(dialects.to_string_lossy().contains("PostgreSQL"));
+        assert!(dialects.to_string_lossy().contains("MySQL"));
+        assert!(dialects.to_string_lossy().contains("SQLite"));
 
         // Test build timestamp (should not be empty)
         let timestamp = unsafe { CStr::from_ptr(dplyr_build_timestamp()) };
@@ -412,15 +1098,16 @@ mod ffi_tests {
     #[test]
     fn test_ffi_options_with_timeout() {
         // Test timeout creation
-        let timeout_opts = dplyr_options_create_with_timeout(true, false, true, 1024, 5000);
-        assert!(timeout_opts.strict_mode);
-        assert!(!timeout_opts.preserve_comments);
+        let timeout_opts =
+            dplyr_options_create_with_timeout(true, 1024, 5000, DplyrDialect::PostgreSql as u32);
         assert!(timeout_opts.debug_mode);
         assert_eq!(timeout_opts.max_input_length, 1024);
         assert_eq!(timeout_opts.max_processing_time_ms, 5000);
+        assert_eq!(timeout_opts.dialect, DplyrDialect::PostgreSql as u32);
 
         // Test default timeout (0 = use default)
-        let default_timeout_opts = dplyr_options_create_with_timeout(false, false, false, 1024, 0);
+        let default_timeout_opts =
+            dplyr_options_create_with_timeout(false, 1024, 0, DplyrDialect::DuckDb as u32);
         assert_eq!(
             default_timeout_opts.max_processing_time_ms,
             MAX_PROCESSING_TIME_MS
@@ -533,7 +1220,6 @@ mod ffi_tests {
 
     #[test]
     fn test_ffi_thread_safety() {
-        use std::ffi::CString;
         use std::thread;
 
         let handles = [0, 1, 2, 3].map(|thread_id| {
@@ -623,7 +1309,6 @@ mod ffi_tests {
 
     #[test]
     fn test_memory_management_thread_safety() {
-        use std::ffi::CString;
         use std::thread;
 
         // Test that memory management functions are thread-safe
@@ -631,8 +1316,9 @@ mod ffi_tests {
             thread::spawn(move || {
                 // Create and free strings in each thread
                 let raw_pointers: Vec<*mut c_char> = (0..10)
-                    .map(|i| CString::new(format!("thread_{}_string_{}", thread_id, i)).unwrap())
-                    .map(|s| s.into_raw())
+                    .map(|i| {
+                        alloc_owned_string(&format!("thread_{}_string_{}", thread_id, i)).unwrap()
+                    })
                     .collect();
 
                 // Free all strings
@@ -644,9 +1330,9 @@ mod ffi_tests {
                 // Test batch free
                 let mut batch_pointers: Vec<*mut c_char> = (0..5)
                     .map(|i| {
-                        CString::new(format!("batch_thread_{}_string_{}", thread_id, i)).unwrap()
+                        alloc_owned_string(&format!("batch_thread_{}_string_{}", thread_id, i))
+                            .unwrap()
                     })
-                    .map(|s| s.into_raw())
                     .collect();
 
                 let freed_count = unsafe {
@@ -675,11 +1361,14 @@ mod ffi_tests {
             thread::spawn(move || {
                 // Create options with different settings in each thread
                 let options = dplyr_options_create_with_timeout(
-                    thread_id % 2 == 0,               // strict_mode
-                    thread_id % 2 == 1,               // preserve_comments
                     true,                             // debug_mode
                     1024 * (thread_id as u32 + 1),    // max_input_length
                     5000 + (thread_id as u64 * 1000), // max_processing_time_ms
+                    if thread_id % 2 == 0 {
+                        DplyrDialect::DuckDb as u32
+                    } else {
+                        DplyrDialect::MySql as u32
+                    },
                 );
 
                 // Validate options
@@ -769,7 +1458,7 @@ mod ffi_tests {
                     assert!(!error_name.is_empty());
 
                     let is_success = dplyr_is_success(error_code);
-                    assert_eq!(is_success, error_code == DPLYR_SUCCESS);
+                    assert_eq!(is_success, error_code >= 0);
 
                     let _is_recoverable = dplyr_is_recoverable_error(error_code);
                     // Just test it doesn't crash
@@ -793,22 +1482,42 @@ mod ffi_tests {
         // Test that panics in FFI functions are caught and handled properly
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
+        let _panic_guard = force_ffi_panic_for_test();
 
-        // Test with null pointers - should not panic
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
         let result = unsafe {
             dplyr_compile(
-                std::ptr::null(),
+                input.as_ptr(),
                 std::ptr::null(),
                 &mut out_sql,
                 &mut out_error,
             )
         };
-        assert_eq!(result, DPLYR_ERROR_NULL_POINTER);
 
-        // Clean up
-        if !out_error.is_null() {
-            unsafe { dplyr_free_string(out_error) };
-        }
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_panic_safety_in_query_ffi_function() {
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+        let _panic_guard = force_ffi_panic_for_test();
+
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_PANIC);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
     }
 
     // R9-AC2: Input validation tests
@@ -922,8 +1631,7 @@ mod ffi_tests {
 fn test_memory_management() {
     // Test string allocation and deallocation
     let test_str = "test string for memory management";
-    let c_string = CString::new(test_str).unwrap();
-    let raw_ptr = c_string.into_raw();
+    let raw_ptr = alloc_owned_string(test_str).unwrap();
 
     // Verify the string is valid
     let recovered = unsafe { CStr::from_ptr(raw_ptr) };
@@ -939,8 +1647,8 @@ fn test_memory_management() {
     );
 
     // Test multiple string freeing
-    let str1 = CString::new("test1").unwrap().into_raw();
-    let str2 = CString::new("test2").unwrap().into_raw();
+    let str1 = alloc_owned_string("test1").unwrap();
+    let str2 = alloc_owned_string("test2").unwrap();
     let mut string_array = [str1, str2];
 
     let freed_count = unsafe { dplyr_free_strings(string_array.as_mut_ptr(), 2) };
@@ -956,16 +1664,22 @@ fn test_memory_management() {
 // R8-AC1: Version and capability tests
 #[test]
 fn test_version_and_capabilities() {
+    let expected_version = env!("CARGO_PKG_VERSION");
+
     // Test version functions
     let version = unsafe { CStr::from_ptr(libdplyr_c_version_simple()) };
-    assert_eq!(version.to_str().unwrap(), "0.2.0");
+    assert_eq!(version.to_str().unwrap(), expected_version);
 
     let detailed = unsafe { CStr::from_ptr(dplyr_version_detailed()) };
     let detailed_str = detailed.to_str().unwrap();
-    assert!(detailed_str.contains("libdplyr_c v0.2.0"));
+    assert!(detailed_str.contains(&format!("libdplyr_c v{}", expected_version)));
 
     let dialects = unsafe { CStr::from_ptr(dplyr_supported_dialects()) };
-    assert_eq!(dialects.to_str().unwrap(), "DuckDB");
+    let dialects = dialects.to_str().unwrap();
+    assert!(dialects.contains("DuckDB"));
+    assert!(dialects.contains("PostgreSQL"));
+    assert!(dialects.contains("MySQL"));
+    assert!(dialects.contains("SQLite"));
 
     let timestamp = unsafe { CStr::from_ptr(dplyr_build_timestamp()) };
     let timestamp_str = timestamp.to_str().unwrap();
@@ -1186,43 +1900,28 @@ fn test_complex_query_performance_target() {
 
 #[test]
 fn test_cache_effectiveness() {
-    use std::time::Instant;
-
     let options = DplyrOptions::default();
     let query = "select(mpg, cyl) %>% filter(mpg > 20)";
+    assert_eq!(dplyr_cache_clear(), 0);
+    assert_eq!(dplyr_cache_get_hits(), 0);
+    assert_eq!(dplyr_cache_get_misses(), 0);
 
     // First call (cache miss)
-    let start = Instant::now();
     let result1 = safe_dplyr_compile_test(query, &options);
-    let cache_miss_duration = start.elapsed();
-
     assert!(result1.is_ok(), "First query should succeed");
+    assert_eq!(dplyr_cache_get_hits(), 0);
+    assert_eq!(dplyr_cache_get_misses(), 1);
 
     // Second call (cache hit)
-    let start = Instant::now();
     let result2 = safe_dplyr_compile_test(query, &options);
-    let cache_hit_duration = start.elapsed();
-
     assert!(result2.is_ok(), "Second query should succeed");
     assert_eq!(
         result1.unwrap(),
         result2.unwrap(),
         "Results should be identical"
     );
-
-    println!(
-        "Cache miss: {:?}, Cache hit: {:?}",
-        cache_miss_duration, cache_hit_duration
-    );
-
-    // R6-AC2: Cache should provide significant speedup
-    // Cache hit should be measurably faster than cache miss (>=20% faster)
-    assert!(
-        cache_hit_duration.as_nanos() * 5 < cache_miss_duration.as_nanos() * 4,
-        "Cache not effective enough: miss={:?}, hit={:?}",
-        cache_miss_duration,
-        cache_hit_duration
-    );
+    assert_eq!(dplyr_cache_get_hits(), 1);
+    assert_eq!(dplyr_cache_get_misses(), 1);
 }
 
 // Helper function for performance tests

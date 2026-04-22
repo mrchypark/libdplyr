@@ -16,7 +16,7 @@ pub const extern "C" fn main() {}
 #[no_mangle]
 pub const extern "C" fn libdplyr_c_version_simple() -> *const c_char {
     // R8-AC1: Version information - static string management
-    c"0.2.0".as_ptr()
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
 /// Get basic version string.
@@ -26,7 +26,7 @@ pub const extern "C" fn libdplyr_c_version_simple() -> *const c_char {
 #[no_mangle]
 pub const extern "C" fn dplyr_version() -> *const c_char {
     // R8-AC1: Version information - static string management
-    c"0.2.0".as_ptr()
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
 /// Get detailed version information including build info.
@@ -37,7 +37,9 @@ pub const extern "C" fn dplyr_version() -> *const c_char {
 pub const extern "C" fn dplyr_version_detailed() -> *const c_char {
     // R8-AC1: Extended version information
     concat!(
-        "libdplyr_c v0.2.0 (built with rustc ",
+        "libdplyr_c v",
+        env!("CARGO_PKG_VERSION"),
+        " (built with rustc ",
         env!("RUSTC_VERSION"),
         ")\0"
     )
@@ -51,7 +53,7 @@ pub const extern "C" fn dplyr_version_detailed() -> *const c_char {
 #[no_mangle]
 pub const extern "C" fn dplyr_supported_dialects() -> *const c_char {
     // R8-AC1: Capability information
-    c"DuckDB".as_ptr()
+    c"DuckDB,PostgreSQL,MySQL,SQLite".as_ptr()
 }
 
 /// Get build timestamp.

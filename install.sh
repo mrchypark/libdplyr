@@ -4,7 +4,7 @@
 
 set -e
 
-VERSION="0.2.0"
+VERSION="0.3.3"
 REPO="mrchypark/libdplyr"
 BINARY_NAME="libdplyr"
 

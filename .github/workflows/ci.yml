@@ -1,23 +1,20 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
-  release:
-    types: [published]
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  DUCKDB_PRIMARY_VERSION: v1.5.2
+  DUCKDB_COMPAT_VERSION: v1.4.0
 
 jobs:
-  # =============================================================================
-  # R4-AC1: Multi-platform Build Matrix
-  # =============================================================================
-  build-and-test:
-    name: Build and Test (${{ matrix.os }} / ${{ matrix.duckdb_version }})
+  build-and-test-primary:
+    name: Primary Support (${{ matrix.os }} / DuckDB ${{ matrix.duckdb_version }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -28,67 +25,36 @@ jobs:
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.0
-            artifact-name: dplyr-v1.4.0-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
+            duckdb_version: v1.5.2
+            artifact-name: dplyr-v1.5.2-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.0
-            artifact-name: dplyr-v1.4.0-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.2
+            artifact-name: dplyr-v1.5.2-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.0
-            artifact-name: dplyr-v1.4.0-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.2
+            artifact-name: dplyr-v1.5.2-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
             cmake-generator: "Ninja"
-            duckdb_version: v1.4.0
-            artifact-name: dplyr-v1.4.0-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            rust-toolchain: stable
-            cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.4
-            artifact-name: dplyr-v1.4.4-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip"
-          - os: macos-14
-            target: x86_64-apple-darwin
-            rust-toolchain: stable
-            cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.4
-            artifact-name: dplyr-v1.4.4-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-osx-universal.zip"
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            rust-toolchain: stable
-            cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.4.4
-            artifact-name: dplyr-v1.4.4-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-osx-universal.zip"
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            rust-toolchain: stable
-            cmake-generator: "Ninja"
-            duckdb_version: v1.4.4
-            artifact-name: dplyr-v1.4.4-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-windows-amd64.zip"
+            duckdb_version: v1.5.2
+            artifact-name: dplyr-v1.5.2-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-windows-amd64.zip"
 
     steps:
-      # -------------------------------------------------------------------------
-      # Environment Setup
-      # -------------------------------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for version detection
+          fetch-depth: 0
           submodules: recursive
 
       - name: Pin DuckDB submodule to ${{ matrix.duckdb_version }}
@@ -103,7 +69,6 @@ jobs:
         with:
           toolchain: ${{ matrix.rust-toolchain }}
           targets: ${{ matrix.target }}
-          components: rustfmt, clippy
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
@@ -116,9 +81,6 @@ jobs:
         with:
           cmake-version: "3.20"
 
-      # -------------------------------------------------------------------------
-      # Platform-specific Dependencies
-      # -------------------------------------------------------------------------
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -146,7 +108,6 @@ jobs:
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          # Windows dependencies are handled by vcpkg or pre-built libraries
           echo "Windows dependencies configured"
 
       - name: Setup MSVC toolchain (Windows)
@@ -155,9 +116,6 @@ jobs:
         with:
           arch: x64
 
-      # -------------------------------------------------------------------------
-      # DuckDB Installation
-      # -------------------------------------------------------------------------
       - name: Download and install DuckDB CLI
         shell: bash
         run: |
@@ -188,15 +146,6 @@ jobs:
             duckdb --version
           fi
 
-      # -------------------------------------------------------------------------
-      # R4-AC1: Rust Component Build and Test
-      # -------------------------------------------------------------------------
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run Rust clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
       - name: Build Rust components
         run: |
           cargo build --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
@@ -205,10 +154,6 @@ jobs:
         run: |
           cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
 
-      # -------------------------------------------------------------------------
-      # R4-AC1: CMake Build Configuration
-      # -------------------------------------------------------------------------
-      # -------------------------------------------------------------------------
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -224,13 +169,11 @@ jobs:
               aarch64-apple-darwin) OSX_ARCH="arm64" ;;
             esac
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            # Bypass legacy ABI check in platform.hpp by setting explicit platform (CMake variable)
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-                LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
+              LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_arm64"
             else
-                LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+              LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
             fi
-            # Build loadable extensions in static mode for distribution
             LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
           fi
 
@@ -278,9 +221,6 @@ jobs:
           cd build
           cmake --build . --config Release --parallel 1
 
-      # -------------------------------------------------------------------------
-      # R4-AC2: Smoke Tests Execution
-      # -------------------------------------------------------------------------
       - name: Run smoke tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -301,9 +241,6 @@ jobs:
           set BUILD_DIR=build
           tests\run_smoke_tests.bat
 
-      # -------------------------------------------------------------------------
-      # R7-AC1, R7-AC3: C++ Integration Tests
-      # -------------------------------------------------------------------------
       - name: Run C++ integration tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -338,9 +275,6 @@ jobs:
           echo Found test executable: %TEST_EXE%
           "%TEST_EXE%" --gtest_color=yes
 
-      # -------------------------------------------------------------------------
-      # Additional Quality Checks
-      # -------------------------------------------------------------------------
       - name: Run CMake tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -368,9 +302,6 @@ jobs:
           valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
             duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
 
-      # -------------------------------------------------------------------------
-      # Artifact Collection
-      # -------------------------------------------------------------------------
       - name: Collect build artifacts (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -378,12 +309,12 @@ jobs:
           cp build/dplyr.duckdb_extension artifacts/
           cp libdplyr_c/target/${{ matrix.target }}/release/libdplyr_c.a artifacts/ || true
 
-          # Create metadata file
           cat > artifacts/build-info.json << EOF
           {
             "platform": "${{ matrix.os }}",
             "target": "${{ matrix.target }}",
             "duckdb_version": "${{ matrix.duckdb_version }}",
+            "support_tier": "primary",
             "rust_version": "$(rustc --version)",
             "cmake_version": "$(cmake --version | head -n1)",
             "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -397,25 +328,23 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          mkdir -p artifacts
-          # Dynamically find the extension binary
           EXT_BIN=$(find build -name "dplyr.duckdb_extension" -type f | head -n 1)
           if [[ -n "$EXT_BIN" ]]; then
             echo "Found extension binary: $EXT_BIN"
             cp "$EXT_BIN" artifacts/
           else
             echo "Error: dplyr.duckdb_extension not found"
-            find build -name "*.duckdb_extension" # Debug output
+            find build -name "*.duckdb_extension"
             exit 1
           fi
           cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
 
-          # Create metadata file
           cat > artifacts/build-info.json << EOF
           {
             "platform": "${{ matrix.os }}",
             "target": "${{ matrix.target }}",
             "duckdb_version": "${{ matrix.duckdb_version }}",
+            "support_tier": "primary",
             "rust_version": "$(rustc --version)",
             "cmake_version": "$(cmake --version | head -n1)",
             "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -431,9 +360,6 @@ jobs:
           path: artifacts/
           retention-days: 30
 
-      # -------------------------------------------------------------------------
-      # Test Results Upload
-      # -------------------------------------------------------------------------
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -445,9 +371,700 @@ jobs:
             test-*.xml
           retention-days: 7
 
-  # =============================================================================
-  # Code Quality and Security Checks
-  # =============================================================================
+  compatibility-check-pr:
+    if: github.event_name == 'pull_request'
+    name: Compatibility Check (PR / ${{ matrix.os }} / DuckDB v1.4.0)
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
+          - os: macos-14
+            target: x86_64-apple-darwin
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cmake-generator: "Ninja"
+            artifact-name: dplyr-v1.4.0-compat-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Pin DuckDB submodule to compatibility version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C duckdb fetch --tags --force
+          git -C duckdb checkout "${{ env.DUCKDB_COMPAT_VERSION }}"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: compat-${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Install CMake
+        uses: jwlawson/actions-setup-cmake@v1.14
+        with:
+          cmake-version: "3.20"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            unzip \
+            valgrind
+          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config openssl
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install Rosetta (macOS x86_64 on ARM runners)
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          echo "Windows dependencies configured"
+
+      - name: Setup MSVC toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download and install DuckDB CLI
+        shell: bash
+        run: |
+          mkdir -p duckdb-cli
+          cd duckdb-cli
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            unzip -o duckdb.zip
+            chmod +x duckdb.exe
+            echo "$(pwd)" >> $GITHUB_PATH
+          else
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            rm -rf duckdb-bin
+            mkdir -p duckdb-bin
+            unzip -o duckdb.zip -d duckdb-bin
+            chmod +x duckdb-bin/duckdb
+            mv duckdb-bin/duckdb ./duckdb
+            echo "$(pwd)" >> $GITHUB_PATH
+          fi
+
+      - name: Verify DuckDB installation
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            duckdb.exe --version
+          else
+            duckdb --version
+          fi
+
+      - name: Build Rust components
+        run: |
+          cargo build --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Run Rust unit tests
+        run: |
+          cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Configure CMake (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p build
+          cd build
+
+          OSX_ARCH=""
+          LINUX_PLATFORM_FLAG=""
+          LINUX_STATIC_FLAG=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            case "${{ matrix.target }}" in
+              x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
+              aarch64-apple-darwin) OSX_ARCH="arm64" ;;
+            esac
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+            LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
+          fi
+
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CPP_TESTS=ON \
+            -DBUILD_DUCKDB=ON \
+            ${LINUX_PLATFORM_FLAG} \
+            ${LINUX_STATIC_FLAG} \
+            -G "${{ matrix.cmake-generator }}" \
+            -DRust_CARGO_TARGET="${{ matrix.target }}" \
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (-not (Test-Path -Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_CPP_TESTS=ON `
+            -DBUILD_DUCKDB=ON `
+            -DEXTENSION_STATIC_BUILD=ON `
+            -G "${{ matrix.cmake-generator }}" `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER="" `
+            -DCMAKE_CXX_COMPILER_LAUNCHER="" `
+            -DCCACHE_PROGRAM=OFF `
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Create Swap Space
+        if: runner.os == 'Linux'
+        run: |
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo swapon --show
+
+      - name: Build extension
+        run: |
+          cd build
+          cmake --build . --config Release --parallel 1
+
+      - name: Run smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export BUILD_DIR=build
+          chmod +x tests/run_smoke_tests.sh
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./tests/run_smoke_tests.sh
+          else
+            ./tests/run_smoke_tests.sh
+          fi
+
+      - name: Run smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
+          set BUILD_DIR=build
+          tests\run_smoke_tests.bat
+
+      - name: Run C++ integration tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./duckdb_extension_integration_test --gtest_color=yes
+          else
+            ./duckdb_extension_integration_test --gtest_color=yes
+          fi
+
+      - name: Run C++ integration tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd build
+          set DUCKDB_EXTENSION_PATH=%CD%
+          set TEST_EXE=
+          for /r %%f in (duckdb_extension_integration_test.exe) do (
+            set TEST_EXE=%%f
+            goto :found_test_exe
+          )
+
+          :found_test_exe
+          if not defined TEST_EXE (
+            echo Error: duckdb_extension_integration_test.exe not found
+            echo Available test executables:
+            dir /s /b *.exe
+            exit /b 1
+          )
+          echo Found test executable: %TEST_EXE%
+          "%TEST_EXE%" --gtest_color=yes
+
+      - name: Run CMake tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ctest --output-on-failure --timeout 300
+          else
+            ctest --output-on-failure --timeout 300
+          fi
+
+      - name: Run CMake tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
+          cd build
+          ctest -C Release --output-on-failure --timeout 300
+
+      - name: Memory leak check
+        if: runner.os == 'Linux' && env.VALGRIND_AVAILABLE == '1'
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+          valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
+            duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
+
+      - name: Collect build artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          cp build/dplyr.duckdb_extension artifacts/
+          cp libdplyr_c/target/${{ matrix.target }}/release/libdplyr_c.a artifacts/ || true
+
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ env.DUCKDB_COMPAT_VERSION }}",
+            "support_tier": "compatibility",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Collect build artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          EXT_BIN=$(find build -name "dplyr.duckdb_extension" -type f | head -n 1)
+          if [[ -n "$EXT_BIN" ]]; then
+            echo "Found extension binary: $EXT_BIN"
+            cp "$EXT_BIN" artifacts/
+          else
+            echo "Error: dplyr.duckdb_extension not found"
+            find build -name "*.duckdb_extension"
+            exit 1
+          fi
+          cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
+
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ env.DUCKDB_COMPAT_VERSION }}",
+            "support_tier": "compatibility",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.artifact-name }}
+          path: |
+            build/Testing/
+            *.log
+            test-*.xml
+          retention-days: 7
+
+  compatibility-check-extended:
+    if: github.event_name == 'push'
+    name: Compatibility Check (Push / ${{ matrix.os }} / DuckDB v1.4.0)
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
+          - os: macos-14
+            target: x86_64-apple-darwin
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cmake-generator: "Unix Makefiles"
+            artifact-name: dplyr-v1.4.0-compat-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cmake-generator: "Ninja"
+            artifact-name: dplyr-v1.4.0-compat-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Pin DuckDB submodule to compatibility version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C duckdb fetch --tags --force
+          git -C duckdb checkout "${{ env.DUCKDB_COMPAT_VERSION }}"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: compat-${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Install CMake
+        uses: jwlawson/actions-setup-cmake@v1.14
+        with:
+          cmake-version: "3.20"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            unzip \
+            valgrind
+          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config openssl
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install Rosetta (macOS x86_64 on ARM runners)
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          echo "Windows dependencies configured"
+
+      - name: Setup MSVC toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download and install DuckDB CLI
+        shell: bash
+        run: |
+          mkdir -p duckdb-cli
+          cd duckdb-cli
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            unzip -o duckdb.zip
+            chmod +x duckdb.exe
+            echo "$(pwd)" >> $GITHUB_PATH
+          else
+            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            rm -rf duckdb-bin
+            mkdir -p duckdb-bin
+            unzip -o duckdb.zip -d duckdb-bin
+            chmod +x duckdb-bin/duckdb
+            mv duckdb-bin/duckdb ./duckdb
+            echo "$(pwd)" >> $GITHUB_PATH
+          fi
+
+      - name: Verify DuckDB installation
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            duckdb.exe --version
+          else
+            duckdb --version
+          fi
+
+      - name: Build Rust components
+        run: |
+          cargo build --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Run Rust unit tests
+        run: |
+          cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Configure CMake (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p build
+          cd build
+
+          OSX_ARCH=""
+          LINUX_PLATFORM_FLAG=""
+          LINUX_STATIC_FLAG=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            case "${{ matrix.target }}" in
+              x86_64-apple-darwin) OSX_ARCH="x86_64" ;;
+              aarch64-apple-darwin) OSX_ARCH="arm64" ;;
+            esac
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            LINUX_PLATFORM_FLAG="-DDUCKDB_EXPLICIT_PLATFORM=linux_amd64"
+            LINUX_STATIC_FLAG="-DEXTENSION_STATIC_BUILD=ON"
+          fi
+
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CPP_TESTS=ON \
+            -DBUILD_DUCKDB=ON \
+            ${LINUX_PLATFORM_FLAG} \
+            ${LINUX_STATIC_FLAG} \
+            -G "${{ matrix.cmake-generator }}" \
+            -DRust_CARGO_TARGET="${{ matrix.target }}" \
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (-not (Test-Path -Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_CPP_TESTS=ON `
+            -DBUILD_DUCKDB=ON `
+            -DEXTENSION_STATIC_BUILD=ON `
+            -G "${{ matrix.cmake-generator }}" `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER="" `
+            -DCMAKE_CXX_COMPILER_LAUNCHER="" `
+            -DCCACHE_PROGRAM=OFF `
+            -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Create Swap Space
+        if: runner.os == 'Linux'
+        run: |
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo swapon --show
+
+      - name: Build extension
+        run: |
+          cd build
+          cmake --build . --config Release --parallel 1
+
+      - name: Run smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export BUILD_DIR=build
+          chmod +x tests/run_smoke_tests.sh
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./tests/run_smoke_tests.sh
+          else
+            ./tests/run_smoke_tests.sh
+          fi
+
+      - name: Run smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
+          set BUILD_DIR=build
+          tests\run_smoke_tests.bat
+
+      - name: Run C++ integration tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ./duckdb_extension_integration_test --gtest_color=yes
+          else
+            ./duckdb_extension_integration_test --gtest_color=yes
+          fi
+
+      - name: Run C++ integration tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd build
+          set DUCKDB_EXTENSION_PATH=%CD%
+          set TEST_EXE=
+          for /r %%f in (duckdb_extension_integration_test.exe) do (
+            set TEST_EXE=%%f
+            goto :found_test_exe
+          )
+
+          :found_test_exe
+          if not defined TEST_EXE (
+            echo Error: duckdb_extension_integration_test.exe not found
+            echo Available test executables:
+            dir /s /b *.exe
+            exit /b 1
+          )
+          echo Found test executable: %TEST_EXE%
+          "%TEST_EXE%" --gtest_color=yes
+
+      - name: Run CMake tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            arch -x86_64 ctest --output-on-failure --timeout 300
+          else
+            ctest --output-on-failure --timeout 300
+          fi
+
+      - name: Run CMake tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PATH=%CD%\duckdb-cli;%PATH%
+          cd build
+          ctest -C Release --output-on-failure --timeout 300
+
+      - name: Memory leak check
+        if: runner.os == 'Linux' && env.VALGRIND_AVAILABLE == '1'
+        run: |
+          cd build
+          export DUCKDB_EXTENSION_PATH=$(pwd)
+          valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
+            duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'Memory check passed' as result;"
+
+      - name: Collect build artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          cp build/dplyr.duckdb_extension artifacts/
+          cp libdplyr_c/target/${{ matrix.target }}/release/libdplyr_c.a artifacts/ || true
+
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ env.DUCKDB_COMPAT_VERSION }}",
+            "support_tier": "compatibility",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Collect build artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          EXT_BIN=$(find build -name "dplyr.duckdb_extension" -type f | head -n 1)
+          if [[ -n "$EXT_BIN" ]]; then
+            echo "Found extension binary: $EXT_BIN"
+            cp "$EXT_BIN" artifacts/
+          else
+            echo "Error: dplyr.duckdb_extension not found"
+            find build -name "*.duckdb_extension"
+            exit 1
+          fi
+          cp libdplyr_c/target/${{ matrix.target }}/release/dplyr_c.lib artifacts/ || true
+
+          cat > artifacts/build-info.json << EOF
+          {
+            "platform": "${{ matrix.os }}",
+            "target": "${{ matrix.target }}",
+            "duckdb_version": "${{ env.DUCKDB_COMPAT_VERSION }}",
+            "support_tier": "compatibility",
+            "rust_version": "$(rustc --version)",
+            "cmake_version": "$(cmake --version | head -n1)",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.artifact-name }}
+          path: |
+            build/Testing/
+            *.log
+            test-*.xml
+          retention-days: 7
+
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
@@ -470,118 +1087,17 @@ jobs:
         run: |
           cargo install cargo-audit cargo-deny
 
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
       - name: Security audit
-        run: |
-          cargo audit
+        run: cargo audit
 
       - name: License and dependency check
-        run: |
-          cargo deny check
+        run: cargo deny check
 
       - name: Documentation check
-        run: |
-          cargo doc --manifest-path libdplyr_c/Cargo.toml --no-deps --document-private-items
-
-  # =============================================================================
-  # Release Preparation (on tags)
-  # =============================================================================
-  prepare-release:
-    name: Prepare Release
-    runs-on: ubuntu-latest
-    needs: [build-and-test, code-quality]
-    if: github.event_name == 'release' && github.event.action == 'published'
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Create release package
-        run: |
-          mkdir -p release-package
-
-          # Collect extension binaries, keeping DuckDB version in the filename
-          while IFS= read -r -d '' ext_path; do
-            artifact_dir="$(basename "$(dirname "$ext_path")")"
-            cp "$ext_path" "release-package/${artifact_dir}.duckdb_extension"
-          done < <(find release-artifacts -name "dplyr.duckdb_extension" -print0)
-
-          # Collect build metadata alongside binaries (optional)
-          while IFS= read -r -d '' info_path; do
-            artifact_dir="$(basename "$(dirname "$info_path")")"
-            cp "$info_path" "release-package/${artifact_dir}.build-info.json"
-          done < <(find release-artifacts -name "build-info.json" -print0)
-
-          # Create checksums
-          cd release-package
-          sha256sum *.duckdb_extension > checksums.sha256
-
-          # Create release info
-          cat > release-info.json << EOF
-          {
-            "version": "${{ github.event.release.tag_name }}",
-            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "git_commit": "${{ github.sha }}",
-            "duckdb_min_version": "1.4.0",
-            "duckdb_tested_versions": ["1.4.4"],
-            "duckdb_versions_built": ["v1.4.0", "v1.4.4"],
-            "libdplyr_version": "$(grep version libdplyr_c/Cargo.toml | head -n1 | cut -d'\"' -f2)"
-          }
-          EOF
-
-      - name: Upload release assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-package
-          path: release-package/
-
-  # =============================================================================
-  # Deployment Status Summary
-  # =============================================================================
-  deployment-summary:
-    name: Deployment Summary
-    runs-on: ubuntu-latest
-    needs: [build-and-test, code-quality]
-    if: always()
-
-    steps:
-      - name: Generate summary
-        run: |
-          echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Build Results" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
-            echo "✅ **Multi-platform builds**: SUCCESS" >> $GITHUB_STEP_SUMMARY
-            echo "- Linux x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- macOS x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- macOS ARM64: ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- Windows x86_64: ✅" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Multi-platform builds**: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Quality Checks" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ needs.code-quality.result }}" == "success" ]]; then
-            echo "✅ **Code quality**: PASSED" >> $GITHUB_STEP_SUMMARY
-            echo "- Security audit: ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- License check: ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- Documentation: ✅" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Code quality**: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Requirements Verification" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ R4-AC1: Multi-platform build support" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ R4-AC2: Automated smoke testing" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ R7-AC1: Integration testing" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ R7-AC3: Crash prevention testing" >> $GITHUB_STEP_SUMMARY
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "Build artifacts are available for download for 30 days." >> $GITHUB_STEP_SUMMARY
-          echo "Test results are available for 7 days." >> $GITHUB_STEP_SUMMARY
+        run: cargo doc --manifest-path libdplyr_c/Cargo.toml --no-deps --document-private-items

@@ -1,21 +1,71 @@
 //! Memory management for FFI-owned strings.
 
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::os::raw::c_char;
 use std::panic;
+use std::sync::{Mutex, OnceLock};
 
 use crate::error::{DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS};
+
+fn owned_strings() -> &'static Mutex<HashSet<usize>> {
+    static OWNED_STRINGS: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    OWNED_STRINGS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn alloc_owned_string(value: &str) -> Option<*mut c_char> {
+    let c_string = CString::new(value).ok()?;
+    let ptr = c_string.into_raw();
+    let registry = owned_strings();
+    let Ok(mut owned) = registry.lock() else {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+        return None;
+    };
+
+    owned.insert(ptr as usize);
+    Some(ptr)
+}
+
+/// Reclaim a single string owned by libdplyr.
+///
+/// The caller must only pass a pointer previously returned by libdplyr, or null.
+pub(crate) unsafe fn free_owned_string(s: *mut c_char) -> bool {
+    if s.is_null() {
+        return true;
+    }
+
+    let registry = owned_strings();
+    let Ok(mut owned) = registry.lock() else {
+        return false;
+    };
+
+    if !owned.remove(&(s as usize)) {
+        return false;
+    }
+
+    unsafe {
+        let _ = CString::from_raw(s);
+    }
+    true
+}
 
 /// Free string allocated by `libdplyr_c` functions.
 ///
 /// # Safety
 /// Caller must ensure that:
 /// - `s` is a valid `*mut c_char` that was previously allocated by a `libdplyr_c` function.
-/// - `s` must not be freed twice.
+/// - `s` must not be freed concurrently with any other operation on the same pointer.
 /// - `s` can be `std::ptr::null_mut()`, in which case it's a no-op.
 ///
 /// # Returns
-/// 0 on success, negative error code on failure
+/// - `DPLYR_SUCCESS` when the pointer was null or reclaimed successfully
+/// - `DPLYR_ERROR_PANIC` when the pointer is not a currently owned libdplyr allocation
+///   or a panic occurred while handling the request
+///
+/// Passing a pointer after it has already been released is a caller bug. The
+/// implementation only rejects that pattern on a best-effort basis.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
     // R3-AC3: Safe memory management with null pointer check
@@ -25,19 +75,14 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 
     // R9-AC1: Panic safety for memory operations
     let result = panic::catch_unwind(|| {
-        unsafe {
-            // R3-AC3: Proper memory management with CString::from_raw
-            // This will properly deallocate the memory allocated by CString::into_raw
-            let _ = CString::from_raw(s);
+        if unsafe { free_owned_string(s) } {
+            DPLYR_SUCCESS
+        } else {
+            DPLYR_ERROR_PANIC
         }
-        DPLYR_SUCCESS
     });
 
-    result.unwrap_or_else(|_| {
-        // Panic occurred during deallocation - this is serious
-        eprintln!("CRITICAL: Panic occurred during string deallocation");
-        DPLYR_ERROR_PANIC
-    })
+    result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
 /// Free multiple strings at once.
@@ -54,7 +99,8 @@ pub unsafe extern "C" fn dplyr_free_string(s: *mut c_char) -> i32 {
 /// * `count` - Number of strings in the array
 ///
 /// # Returns
-/// Number of strings successfully freed, or negative error code
+/// Number of strings successfully reclaimed. Unknown pointers are skipped and
+/// do not contribute to the count.
 #[no_mangle]
 pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: usize) -> i32 {
     if strings.is_null() {
@@ -67,14 +113,8 @@ pub unsafe extern "C" fn dplyr_free_strings(strings: *mut *mut c_char, count: us
         unsafe {
             for i in 0..count {
                 let string_ptr = *strings.add(i);
-                if !string_ptr.is_null() {
-                    match dplyr_free_string(string_ptr) {
-                        DPLYR_SUCCESS => freed_count += 1,
-                        _ => {
-                            // Continue freeing other strings even if one fails
-                            eprintln!("Warning: Failed to free string at index {}", i);
-                        }
-                    }
+                if !string_ptr.is_null() && dplyr_free_string(string_ptr) == DPLYR_SUCCESS {
+                    freed_count += 1;
                 }
             }
         }

@@ -7,25 +7,50 @@ use std::panic;
 
 use crate::error::TranspileError;
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DplyrDialect {
+    #[default]
+    DuckDb = 0,
+    PostgreSql = 1,
+    MySql = 2,
+    Sqlite = 3,
+}
+
+impl TryFrom<u32> for DplyrDialect {
+    type Error = TranspileError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::DuckDb),
+            1 => Ok(Self::PostgreSql),
+            2 => Ok(Self::MySql),
+            3 => Ok(Self::Sqlite),
+            _ => Err(TranspileError::internal_error(&format!(
+                "Invalid dialect value '{}'",
+                value
+            ))),
+        }
+    }
+}
+
 // R3-AC1: C-compatible options structure
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DplyrOptions {
-    pub strict_mode: bool,
-    pub preserve_comments: bool,
     pub debug_mode: bool,            // R10-AC1: Debug mode support
     pub max_input_length: u32,       // R9-AC2: DoS prevention
     pub max_processing_time_ms: u64, // R9-AC2: Processing time limit (0 = use default)
+    pub dialect: u32,                // SQL dialect selection for generic C API
 }
 
 impl Default for DplyrOptions {
     fn default() -> Self {
         Self {
-            strict_mode: false,
-            preserve_comments: false,
             debug_mode: false,
             max_input_length: 1024 * 1024, // 1MB default limit
             max_processing_time_ms: MAX_PROCESSING_TIME_MS, // R9-AC2: Default timeout
+            dialect: DplyrDialect::DuckDb as u32,
         }
     }
 }
@@ -42,45 +67,36 @@ impl DplyrOptions {
     /// Create DplyrOptions with custom settings
     ///
     /// # Arguments
-    /// * `strict_mode` - Enable strict parsing mode
-    /// * `preserve_comments` - Keep comments in output
     /// * `debug_mode` - Enable debug information (R10-AC1)
     /// * `max_input_length` - Maximum input size in bytes (R9-AC2)
+    /// * `dialect` - SQL dialect to target
     ///
     /// # Returns
     /// Validated DplyrOptions instance
-    pub fn with_settings(
-        strict_mode: bool,
-        preserve_comments: bool,
-        debug_mode: bool,
-        max_input_length: u32,
-    ) -> Self {
+    pub fn with_settings(debug_mode: bool, max_input_length: u32, dialect: DplyrDialect) -> Self {
         Self {
-            strict_mode,
-            preserve_comments,
             debug_mode,
             max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
             max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+            dialect: dialect as u32,
         }
     }
 
     /// Create DplyrOptions with custom settings including timeout
     ///
     /// # Arguments
-    /// * `strict_mode` - Enable strict parsing mode
-    /// * `preserve_comments` - Keep comments in output
     /// * `debug_mode` - Enable debug information (R10-AC1)
     /// * `max_input_length` - Maximum input size in bytes (R9-AC2)
     /// * `max_processing_time_ms` - Maximum processing time in milliseconds (0 = use default) (R9-AC2)
+    /// * `dialect` - SQL dialect to target
     ///
     /// # Returns
     /// Validated DplyrOptions instance
     pub fn with_all_settings(
-        strict_mode: bool,
-        preserve_comments: bool,
         debug_mode: bool,
         max_input_length: u32,
         max_processing_time_ms: u64,
+        dialect: DplyrDialect,
     ) -> Self {
         let timeout = if max_processing_time_ms == 0 {
             MAX_PROCESSING_TIME_MS
@@ -88,11 +104,10 @@ impl DplyrOptions {
             max_processing_time_ms.min(MAX_PROCESSING_TIME_MS)
         };
         Self {
-            strict_mode,
-            preserve_comments,
             debug_mode,
             max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
             max_processing_time_ms: timeout,
+            dialect: dialect as u32,
         }
     }
 
@@ -123,6 +138,8 @@ impl DplyrOptions {
             )));
         }
 
+        DplyrDialect::try_from(self.dialect)?;
+
         Ok(())
     }
 }
@@ -146,49 +163,54 @@ pub extern "C" fn dplyr_options_default() -> DplyrOptions {
 /// Create DplyrOptions with custom settings
 ///
 /// # Arguments
-/// * `strict_mode` - Enable strict parsing mode
-/// * `preserve_comments` - Keep comments in output
 /// * `debug_mode` - Enable debug information
 /// * `max_input_length` - Maximum input size in bytes
+/// * `dialect` - SQL dialect to target
 ///
 /// # Returns
 /// DplyrOptions with specified settings
 #[no_mangle]
 pub extern "C" fn dplyr_options_create(
-    strict_mode: bool,
-    preserve_comments: bool,
     debug_mode: bool,
     max_input_length: u32,
+    dialect: u32,
 ) -> DplyrOptions {
-    DplyrOptions::with_settings(strict_mode, preserve_comments, debug_mode, max_input_length)
+    DplyrOptions {
+        debug_mode,
+        max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
+        max_processing_time_ms: MAX_PROCESSING_TIME_MS,
+        dialect,
+    }
 }
 
 /// Create DplyrOptions with all settings including timeout
 ///
 /// # Arguments
-/// * `strict_mode` - Enable strict parsing mode
-/// * `preserve_comments` - Keep comments in output
 /// * `debug_mode` - Enable debug information
 /// * `max_input_length` - Maximum input size in bytes
 /// * `max_processing_time_ms` - Maximum processing time in milliseconds (0 = use default)
+/// * `dialect` - SQL dialect to target
 ///
 /// # Returns
 /// DplyrOptions with specified settings
 #[no_mangle]
 pub extern "C" fn dplyr_options_create_with_timeout(
-    strict_mode: bool,
-    preserve_comments: bool,
     debug_mode: bool,
     max_input_length: u32,
     max_processing_time_ms: u64,
+    dialect: u32,
 ) -> DplyrOptions {
-    DplyrOptions::with_all_settings(
-        strict_mode,
-        preserve_comments,
+    let timeout = if max_processing_time_ms == 0 {
+        MAX_PROCESSING_TIME_MS
+    } else {
+        max_processing_time_ms.min(MAX_PROCESSING_TIME_MS)
+    };
+    DplyrOptions {
         debug_mode,
-        max_input_length,
-        max_processing_time_ms,
-    )
+        max_input_length: max_input_length.min(MAX_INPUT_LENGTH as u32),
+        max_processing_time_ms: timeout,
+        dialect,
+    }
 }
 
 /// Validate DplyrOptions
