@@ -162,6 +162,79 @@ TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
     EXPECT_EQ(result->RowCount(), 3);
 }
 
+TEST_F(DuckDBExtensionTest, TableFunctionNativePipeSyntaxConfig) {
+    auto result = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)', 'native')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Native pipe table function should succeed: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, DuckDbFunctionSetsDefaultPipeSyntax) {
+    auto set_result = safe_query("SELECT dplyr_set_pipe_syntax('native')");
+
+    ASSERT_NE(set_result, nullptr);
+    ASSERT_FALSE(set_result->HasError()) << "Pipe syntax setter should succeed: " << set_result->GetError();
+    auto set_chunk = set_result->Fetch();
+    ASSERT_TRUE(set_chunk);
+    ASSERT_EQ(set_chunk->size(), 1);
+    EXPECT_EQ(set_chunk->GetValue(0, 0).ToString(), "native");
+
+    auto result = safe_query("mtcars |> select(mpg)");
+
+    auto reset_result = safe_query("SELECT dplyr_set_pipe_syntax('magrittr')");
+    ASSERT_NE(reset_result, nullptr);
+    ASSERT_FALSE(reset_result->HasError()) << "Pipe syntax reset should succeed: " << reset_result->GetError();
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Bare native pipe should use DuckDB function-set default: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, NativePipeLambdaRhs) {
+    auto set_result = safe_query("SELECT dplyr_set_pipe_syntax('native')");
+    ASSERT_NE(set_result, nullptr);
+    ASSERT_FALSE(set_result->HasError()) << "Pipe syntax setter should succeed: " << set_result->GetError();
+
+    auto result = safe_query(R"(mtcars |> (\(x) x |> select(mpg) |> filter(mpg > 20))())");
+    auto explicit_arg_result = safe_query(R"(mtcars |> (\(x) filter(x, mpg > 20) |> select(x, mpg))())");
+
+    auto reset_result = safe_query("SELECT dplyr_set_pipe_syntax('magrittr')");
+    ASSERT_NE(reset_result, nullptr);
+    ASSERT_FALSE(reset_result->HasError()) << "Pipe syntax reset should succeed: " << reset_result->GetError();
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Native pipe lambda RHS should execute: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 2);
+
+    ASSERT_NE(explicit_arg_result, nullptr);
+    ASSERT_FALSE(explicit_arg_result->HasError()) << "Native pipe lambda data parameter should execute: " << explicit_arg_result->GetError();
+    EXPECT_EQ(explicit_arg_result->RowCount(), 2);
+}
+
+TEST_F(DuckDBExtensionTest, MagrittrPipeLambdaRhs) {
+    auto braced_result = safe_query(R"(mtcars %>% { . %>% select(mpg) %>% filter(mpg > 20) })");
+    auto sequence_result = safe_query(R"(mtcars %>% (. %>% select(mpg) %>% filter(mpg > 20)))");
+    auto dot_arg_result = safe_query(R"(mtcars %>% { filter(., mpg > 20) %>% select(., mpg) })");
+    auto rhs_dot_arg_result = safe_query(R"(mtcars %>% filter(., mpg > 20) %>% select(., mpg))");
+
+    ASSERT_NE(braced_result, nullptr);
+    ASSERT_FALSE(braced_result->HasError()) << "Magrittr braced lambda RHS should execute: " << braced_result->GetError();
+    EXPECT_EQ(braced_result->RowCount(), 2);
+
+    ASSERT_NE(sequence_result, nullptr);
+    ASSERT_FALSE(sequence_result->HasError()) << "Magrittr functional sequence RHS should execute: " << sequence_result->GetError();
+    EXPECT_EQ(sequence_result->RowCount(), 2);
+
+    ASSERT_NE(dot_arg_result, nullptr);
+    ASSERT_FALSE(dot_arg_result->HasError()) << "Magrittr dot data placeholder should execute: " << dot_arg_result->GetError();
+    EXPECT_EQ(dot_arg_result->RowCount(), 2);
+
+    ASSERT_NE(rhs_dot_arg_result, nullptr);
+    ASSERT_FALSE(rhs_dot_arg_result->HasError()) << "Magrittr RHS dot data placeholder should execute: " << rhs_dot_arg_result->GetError();
+    EXPECT_EQ(rhs_dot_arg_result->RowCount(), 2);
+}
+
 // ============================================================================
 // R2-AC2: Standard SQL Integration and Mixing Tests
 // ============================================================================

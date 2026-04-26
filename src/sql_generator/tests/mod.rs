@@ -261,6 +261,33 @@ mod clause_generation_tests {
     }
 
     #[test]
+    fn test_bare_function_name_is_treated_as_column() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let identifier_expr = Expr::Identifier("upper".to_string());
+
+        let result = generator.generate_expression(&identifier_expr).unwrap();
+        assert_eq!(result, "\"upper\"");
+    }
+
+    #[test]
+    fn test_unknown_function_call_is_rejected() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let function_expr = Expr::Function {
+            name: "unknown_func".to_string(),
+            args: vec![Expr::Identifier("name".to_string())],
+        };
+
+        let error = generator.generate_expression(&function_expr).unwrap_err();
+        assert!(matches!(
+            error,
+            GenerationError::UnsupportedFunction { function, dialect }
+                if function == "unknown_func" && dialect == "postgresql"
+        ));
+    }
+
+    #[test]
     fn test_literal_generation() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
@@ -340,6 +367,176 @@ mod dialect_specific_tests {
 
         assert_eq!(pg_result, "CONCAT(\"first_name\", ' ', \"last_name\")");
         assert_eq!(mysql_result, "CONCAT(`first_name`, ' ', `last_name`)");
+    }
+
+    #[test]
+    fn test_tidyverse_string_detection_is_dialect_specific() {
+        let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
+        let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        let str_detect_expr = Expr::Function {
+            name: "str_detect".to_string(),
+            args: vec![
+                Expr::Identifier("name".to_string()),
+                Expr::Literal(LiteralValue::String("^A".to_string())),
+            ],
+        };
+
+        assert_eq!(
+            pg_generator.generate_expression(&str_detect_expr).unwrap(),
+            "(\"name\" ~ '^A')"
+        );
+        assert_eq!(
+            mysql_generator
+                .generate_expression(&str_detect_expr)
+                .unwrap(),
+            "REGEXP_LIKE(`name`, '^A')"
+        );
+        assert_eq!(
+            duckdb_generator
+                .generate_expression(&str_detect_expr)
+                .unwrap(),
+            "regexp_matches(\"name\", '^A')"
+        );
+        assert!(matches!(
+            sqlite_generator
+                .generate_expression(&str_detect_expr)
+                .unwrap_err(),
+            GenerationError::UnsupportedFunction { function, dialect }
+                if function == "str_detect" && dialect == "sqlite"
+        ));
+    }
+
+    #[test]
+    fn test_tidyverse_casts_are_dialect_specific() {
+        let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
+        let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        let as_numeric_expr = Expr::Function {
+            name: "as.numeric".to_string(),
+            args: vec![Expr::Identifier("score".to_string())],
+        };
+
+        assert_eq!(
+            pg_generator.generate_expression(&as_numeric_expr).unwrap(),
+            "CAST(\"score\" AS DOUBLE PRECISION)"
+        );
+        assert_eq!(
+            mysql_generator
+                .generate_expression(&as_numeric_expr)
+                .unwrap(),
+            "CAST(`score` AS DOUBLE)"
+        );
+        assert_eq!(
+            duckdb_generator
+                .generate_expression(&as_numeric_expr)
+                .unwrap(),
+            "CAST(\"score\" AS DOUBLE)"
+        );
+        assert_eq!(
+            sqlite_generator
+                .generate_expression(&as_numeric_expr)
+                .unwrap(),
+            "CAST(\"score\" AS REAL)"
+        );
+    }
+
+    #[test]
+    fn test_tidyverse_paste_variants_are_dialect_specific() {
+        let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
+        let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        let paste0_expr = Expr::Function {
+            name: "paste0".to_string(),
+            args: vec![
+                Expr::Identifier("first_name".to_string()),
+                Expr::Identifier("last_name".to_string()),
+            ],
+        };
+        let paste_expr = Expr::Function {
+            name: "paste".to_string(),
+            args: vec![
+                Expr::Identifier("first_name".to_string()),
+                Expr::Identifier("last_name".to_string()),
+            ],
+        };
+
+        assert_eq!(
+            pg_generator.generate_expression(&paste0_expr).unwrap(),
+            "CONCAT(\"first_name\", \"last_name\")"
+        );
+        assert_eq!(
+            mysql_generator.generate_expression(&paste0_expr).unwrap(),
+            "CONCAT(`first_name`, `last_name`)"
+        );
+        assert_eq!(
+            duckdb_generator.generate_expression(&paste0_expr).unwrap(),
+            "CONCAT(\"first_name\", \"last_name\")"
+        );
+        assert_eq!(
+            sqlite_generator.generate_expression(&paste0_expr).unwrap(),
+            "(\"first_name\" || \"last_name\")"
+        );
+
+        assert_eq!(
+            pg_generator.generate_expression(&paste_expr).unwrap(),
+            "CONCAT_WS(' ', \"first_name\", \"last_name\")"
+        );
+        assert_eq!(
+            mysql_generator.generate_expression(&paste_expr).unwrap(),
+            "CONCAT_WS(' ', `first_name`, `last_name`)"
+        );
+        assert_eq!(
+            duckdb_generator.generate_expression(&paste_expr).unwrap(),
+            "CONCAT_WS(' ', \"first_name\", \"last_name\")"
+        );
+        assert_eq!(
+            sqlite_generator.generate_expression(&paste_expr).unwrap(),
+            "(\"first_name\" || ' ' || \"last_name\")"
+        );
+    }
+
+    #[test]
+    fn test_duckdb_unknown_function_is_late_bound() {
+        let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+
+        let extension_expr = Expr::Function {
+            name: "extension_func".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::Literal(LiteralValue::Number(2.0)),
+            ],
+        };
+
+        assert_eq!(
+            duckdb_generator
+                .generate_expression(&extension_expr)
+                .unwrap(),
+            "extension_func(\"value\", 2)"
+        );
+    }
+
+    #[test]
+    fn test_postgresql_unknown_aggregate_is_rejected() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let aggregations = vec![Aggregation {
+            function: "extension_agg".to_string(),
+            column: "value".to_string(),
+            alias: Some("result".to_string()),
+        }];
+
+        let error = generator.generate_aggregations(&aggregations).unwrap_err();
+        assert!(matches!(
+            error,
+            GenerationError::UnsupportedAggregateFunction { function, dialect }
+                if function == "extension_agg" && dialect == "postgresql"
+        ));
     }
 
     #[test]

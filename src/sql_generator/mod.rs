@@ -327,7 +327,13 @@ impl SqlGenerator {
         aggregations
             .iter()
             .map(|agg| {
-                let func_name = self.dialect.aggregate_function(&agg.function);
+                let func_name = self
+                    .dialect
+                    .translate_aggregate_function(&agg.function)
+                    .ok_or_else(|| GenerationError::UnsupportedAggregateFunction {
+                        function: agg.function.clone(),
+                        dialect: self.dialect.dialect_name().to_string(),
+                    })?;
                 let column_ref = if agg.function.to_lowercase() == "n" {
                     String::new() // COUNT(*) is already included in function name
                 } else {
@@ -380,9 +386,10 @@ impl SqlGenerator {
                     return Ok(translated);
                 }
 
-                // Fall back to uppercase function name
-                let func_name = name.to_uppercase();
-                Ok(format!("{func_name}({})", args_str.join(", ")))
+                Err(GenerationError::UnsupportedFunction {
+                    function: name.clone(),
+                    dialect: self.dialect.dialect_name().to_string(),
+                })
             }
         }
     }

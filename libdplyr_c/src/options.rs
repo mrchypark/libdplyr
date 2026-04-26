@@ -6,6 +6,7 @@
 use std::panic;
 
 use crate::error::TranspileError;
+use libdplyr::PipeSyntax;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -30,6 +31,38 @@ impl TryFrom<u32> for DplyrDialect {
                 "Invalid dialect value '{}'",
                 value
             ))),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DplyrPipeSyntax {
+    #[default]
+    Magrittr = 0,
+    Native = 1,
+}
+
+impl TryFrom<u32> for DplyrPipeSyntax {
+    type Error = TranspileError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Magrittr),
+            1 => Ok(Self::Native),
+            _ => Err(TranspileError::internal_error(&format!(
+                "Invalid pipe syntax value '{}'",
+                value
+            ))),
+        }
+    }
+}
+
+impl From<DplyrPipeSyntax> for PipeSyntax {
+    fn from(value: DplyrPipeSyntax) -> Self {
+        match value {
+            DplyrPipeSyntax::Magrittr => Self::Magrittr,
+            DplyrPipeSyntax::Native => Self::Native,
         }
     }
 }

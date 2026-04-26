@@ -1,7 +1,11 @@
 //! SQL dialects.
 
-/// Translates a common R function to SQL
-fn translate_common_function(function: &str, args: &[String]) -> Option<String> {
+/// Translates a common R/tidyverse function to dialect-specific SQL.
+fn translate_common_function<D: SqlDialect + ?Sized>(
+    dialect: &D,
+    function: &str,
+    args: &[String],
+) -> Option<String> {
     let fn_lower = function.to_lowercase();
     match fn_lower.as_str() {
         // Math functions
@@ -23,7 +27,13 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
         }
         "log10" => Some(format!("LOG({})", args.join(", "))),
         // Modulo
-        "mod" | "%%" => Some(format!("{} % {}", args[0], args[1])),
+        "mod" | "%%" => {
+            if args.len() == 2 {
+                Some(format!("{} % {}", args[0], args[1]))
+            } else {
+                None
+            }
+        }
         // Trigonometric functions
         "sin" => Some(format!("SIN({})", args.join(", "))),
         "cos" => Some(format!("COS({})", args.join(", "))),
@@ -31,13 +41,32 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
         "asin" => Some(format!("ASIN({})", args.join(", "))),
         "acos" => Some(format!("ACOS({})", args.join(", "))),
         "atan" => Some(format!("ATAN({})", args.join(", "))),
-        "atan2" => Some(format!("ATAN2({}, {})", args[0], args[1])),
+        "atan2" => {
+            if args.len() == 2 {
+                Some(format!("ATAN2({}, {})", args[0], args[1]))
+            } else {
+                None
+            }
+        }
         "sinh" => Some(format!("SINH({})", args.join(", "))),
         "cosh" => Some(format!("COSH({})", args.join(", "))),
         "tanh" => Some(format!("TANH({})", args.join(", "))),
         // String functions
-        "tolower" => Some(format!("LOWER({})", args.join(", "))),
-        "toupper" | "touppercase" => Some(format!("UPPER({})", args.join(", "))),
+        "concat" | "paste0" => dialect.concat_no_separator(args),
+        "paste" => dialect.concat_with_separator("' '", args),
+        "tolower" | "lower" => Some(format!("LOWER({})", args.join(", "))),
+        "toupper" | "touppercase" | "upper" => Some(format!("UPPER({})", args.join(", "))),
+        "str_detect" => {
+            if args.len() == 2 {
+                dialect.regex_detect(&args[0], &args[1])
+            } else {
+                None
+            }
+        }
+        "str_length" => Some(format!("LENGTH({})", args.join(", "))),
+        "str_to_lower" => Some(format!("LOWER({})", args.join(", "))),
+        "str_to_upper" => Some(format!("UPPER({})", args.join(", "))),
+        "str_trim" => Some(format!("TRIM({})", args.join(", "))),
         "substr" => {
             if args.len() >= 3 {
                 Some(format!("SUBSTR({}, {}, {})", args[0], args[1], args[2]))
@@ -50,7 +79,16 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
         "nchar" | "nzchar" => Some(format!("LENGTH({})", args.join(", "))),
         "trimws" => Some(format!("TRIM({})", args.join(", "))),
         // Conditional
-        "ifelse" => {
+        "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" => {
+            if args.len() == 1 {
+                dialect
+                    .r_cast_type(&fn_lower)
+                    .map(|sql_type| format!("CAST({} AS {sql_type})", args[0]))
+            } else {
+                None
+            }
+        }
+        "ifelse" | "if_else" => {
             if args.len() == 3 {
                 Some(format!(
                     "CASE WHEN {} THEN {} ELSE {} END",
@@ -60,18 +98,34 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
                 None
             }
         }
+        "case" => Some(format!("CASE({})", args.join(", "))),
         // NULL checks
-        "is.na" => Some(format!("{} IS NULL", args[0])),
+        "is.na" => {
+            if args.len() == 1 {
+                Some(format!("{} IS NULL", args[0]))
+            } else {
+                None
+            }
+        }
         // Window functions
         "lead" => {
-            let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
-            Some(format!("LEAD({}, {}) OVER ()", args[0], n))
+            if args.is_empty() {
+                None
+            } else {
+                let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                Some(format!("LEAD({}, {}) OVER ()", args[0], n))
+            }
         }
         "lag" => {
-            let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
-            Some(format!("LAG({}, {}) OVER ()", args[0], n))
+            if args.is_empty() {
+                None
+            } else {
+                let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                Some(format!("LAG({}, {}) OVER ()", args[0], n))
+            }
         }
         "rank" => Some("RANK() OVER ()".to_string()),
+        "dense_rank" => Some("DENSE_RANK() OVER ()".to_string()),
         "ntile" => {
             if !args.is_empty() {
                 Some(format!("NTILE({}) OVER ()", args[0]))
@@ -100,6 +154,130 @@ fn translate_common_function(function: &str, args: &[String]) -> Option<String> 
         }
         _ => None,
     }
+}
+
+/// Returns whether a common R function has an explicit SQL translation.
+fn is_supported_common_function(function: &str) -> bool {
+    matches!(
+        function.to_lowercase().as_str(),
+        "abs"
+            | "round"
+            | "floor"
+            | "ceiling"
+            | "ceil"
+            | "sqrt"
+            | "sign"
+            | "exp"
+            | "log"
+            | "log10"
+            | "mod"
+            | "%%"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "asin"
+            | "acos"
+            | "atan"
+            | "atan2"
+            | "sinh"
+            | "cosh"
+            | "tanh"
+            | "concat"
+            | "paste"
+            | "paste0"
+            | "tolower"
+            | "lower"
+            | "toupper"
+            | "touppercase"
+            | "upper"
+            | "str_detect"
+            | "str_length"
+            | "str_to_lower"
+            | "str_to_upper"
+            | "str_trim"
+            | "substr"
+            | "nchar"
+            | "nzchar"
+            | "trimws"
+            | "as.numeric"
+            | "as.double"
+            | "as.integer"
+            | "as.character"
+            | "as.logical"
+            | "ifelse"
+            | "if_else"
+            | "case"
+            | "is.na"
+            | "lead"
+            | "lag"
+            | "rank"
+            | "dense_rank"
+            | "ntile"
+            | "first"
+            | "first_value"
+            | "last"
+            | "last_value"
+            | "nth_value"
+            | "row_number"
+            | "coalesce"
+            | "na.replace"
+            | "replace_na"
+    )
+}
+
+/// Translates common dplyr aggregate functions to SQL aggregate names.
+fn translate_common_aggregate_function(function: &str) -> Option<String> {
+    match function.to_lowercase().as_str() {
+        "mean" | "avg" => Some("AVG".to_string()),
+        "sum" => Some("SUM".to_string()),
+        "count" => Some("COUNT".to_string()),
+        "min" => Some("MIN".to_string()),
+        "max" => Some("MAX".to_string()),
+        "n" => Some("COUNT(*)".to_string()),
+        _ => None,
+    }
+}
+
+fn is_safe_sql_function_name(function: &str) -> bool {
+    function.split('.').all(|part| {
+        let mut chars = part.chars();
+        matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    })
+}
+
+fn pass_through_function_call(function: &str, args: &[String]) -> Option<String> {
+    if is_safe_sql_function_name(function) {
+        Some(format!("{function}({})", args.join(", ")))
+    } else {
+        None
+    }
+}
+
+fn concat_with_operator(args: &[String]) -> Option<String> {
+    if args.is_empty() {
+        None
+    } else if args.len() == 1 {
+        Some(args[0].clone())
+    } else {
+        Some(format!("({})", args.join(" || ")))
+    }
+}
+
+fn concat_with_separator_operator(separator: &str, args: &[String]) -> Option<String> {
+    if args.is_empty() {
+        return None;
+    }
+
+    let mut parts = Vec::with_capacity(args.len() * 2 - 1);
+    for (index, arg) in args.iter().enumerate() {
+        if index > 0 {
+            parts.push(separator.to_string());
+        }
+        parts.push(arg.clone());
+    }
+
+    concat_with_operator(&parts)
 }
 
 /// SQL dialect trait for database-specific SQL generation
@@ -244,7 +422,57 @@ pub trait SqlDialect {
     /// Maps common R functions to their SQL counterparts. Override this
     /// method in dialect implementations for database-specific translations.
     fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
-        translate_common_function(function, args)
+        translate_common_function(self, function, args)
+            .or_else(|| self.translate_unknown_function(function, args))
+    }
+
+    /// Returns whether this dialect allows the function to be called.
+    fn is_supported_function(&self, function: &str) -> bool {
+        is_supported_common_function(function)
+    }
+
+    /// Translates aggregate function names to SQL equivalents.
+    fn translate_aggregate_function(&self, function: &str) -> Option<String> {
+        translate_common_aggregate_function(function)
+    }
+
+    /// Late-bound translation hook for dialects that can resolve functions later.
+    fn translate_unknown_function(&self, _function: &str, _args: &[String]) -> Option<String> {
+        None
+    }
+
+    /// Dialect-specific regular expression predicate for stringr::str_detect().
+    fn regex_detect(&self, _value: &str, _pattern: &str) -> Option<String> {
+        None
+    }
+
+    /// Dialect-specific SQL type for R cast helpers.
+    fn r_cast_type(&self, function: &str) -> Option<&'static str> {
+        match function {
+            "as.numeric" | "as.double" => Some("DOUBLE"),
+            "as.integer" => Some("INTEGER"),
+            "as.character" => Some("VARCHAR"),
+            "as.logical" => Some("BOOLEAN"),
+            _ => None,
+        }
+    }
+
+    /// Concatenates string expressions without a separator.
+    fn concat_no_separator(&self, args: &[String]) -> Option<String> {
+        if args.is_empty() {
+            None
+        } else {
+            Some(format!("CONCAT({})", args.join(", ")))
+        }
+    }
+
+    /// Concatenates string expressions with a separator.
+    fn concat_with_separator(&self, separator: &str, args: &[String]) -> Option<String> {
+        if args.is_empty() {
+            None
+        } else {
+            Some(format!("CONCAT_WS({separator}, {})", args.join(", ")))
+        }
     }
 
     /// Creates a boxed clone of this dialect.
@@ -345,6 +573,20 @@ impl SqlDialect for PostgreSqlDialect {
         }
     }
 
+    fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
+        Some(format!("({value} ~ {pattern})"))
+    }
+
+    fn r_cast_type(&self, function: &str) -> Option<&'static str> {
+        match function {
+            "as.numeric" | "as.double" => Some("DOUBLE PRECISION"),
+            "as.integer" => Some("INTEGER"),
+            "as.character" => Some("TEXT"),
+            "as.logical" => Some("BOOLEAN"),
+            _ => None,
+        }
+    }
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
@@ -438,6 +680,20 @@ impl SqlDialect for MySqlDialect {
             "max" => "MAX".to_string(),
             "n" => "COUNT(*)".to_string(),
             _ => function.to_uppercase(),
+        }
+    }
+
+    fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
+        Some(format!("REGEXP_LIKE({value}, {pattern})"))
+    }
+
+    fn r_cast_type(&self, function: &str) -> Option<&'static str> {
+        match function {
+            "as.numeric" | "as.double" => Some("DOUBLE"),
+            "as.integer" => Some("SIGNED"),
+            "as.character" => Some("CHAR"),
+            "as.logical" => Some("BOOLEAN"),
+            _ => None,
         }
     }
 
@@ -598,6 +854,25 @@ impl SqlDialect for DuckDbDialect {
         }
     }
 
+    fn translate_aggregate_function(&self, function: &str) -> Option<String> {
+        translate_common_aggregate_function(function).or_else(|| {
+            match function.to_lowercase().as_str() {
+                "median" => Some("MEDIAN".to_string()),
+                "mode" => Some("MODE".to_string()),
+                _ if is_safe_sql_function_name(function) => Some(function.to_string()),
+                _ => None,
+            }
+        })
+    }
+
+    fn translate_unknown_function(&self, function: &str, args: &[String]) -> Option<String> {
+        pass_through_function_call(function, args)
+    }
+
+    fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
+        Some(format!("regexp_matches({value}, {pattern})"))
+    }
+
     fn is_case_sensitive(&self) -> bool {
         false
     }
@@ -661,6 +936,24 @@ impl SqlDialect for SqliteDialect {
             "n" => "COUNT(*)".to_string(),
             _ => function.to_uppercase(),
         }
+    }
+
+    fn r_cast_type(&self, function: &str) -> Option<&'static str> {
+        match function {
+            "as.numeric" | "as.double" => Some("REAL"),
+            "as.integer" => Some("INTEGER"),
+            "as.character" => Some("TEXT"),
+            "as.logical" => Some("INTEGER"),
+            _ => None,
+        }
+    }
+
+    fn concat_no_separator(&self, args: &[String]) -> Option<String> {
+        concat_with_operator(args)
+    }
+
+    fn concat_with_separator(&self, separator: &str, args: &[String]) -> Option<String> {
+        concat_with_separator_operator(separator, args)
     }
 
     fn is_case_sensitive(&self) -> bool {

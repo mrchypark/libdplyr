@@ -22,7 +22,10 @@ pub mod options;
 mod system;
 mod validation;
 
-pub use compile::{dplyr_compile, dplyr_compile_query};
+pub use compile::{
+    dplyr_compile, dplyr_compile_query, dplyr_compile_query_with_pipe_syntax,
+    dplyr_compile_with_pipe_syntax, dplyr_set_pipe_syntax_env,
+};
 pub use ffi::dplyr_init_output_string;
 pub use ffi_safety::dplyr_is_valid_string_pointer;
 pub use memory::{dplyr_free_string, dplyr_free_strings};
@@ -43,8 +46,8 @@ pub use error::{DPLYR_ERROR_SYNTAX, DPLYR_ERROR_UNSUPPORTED};
 
 pub use options::{
     dplyr_options_create, dplyr_options_create_with_timeout, dplyr_options_default,
-    dplyr_options_validate, DplyrDialect, DplyrOptions, MAX_FUNCTION_CALLS, MAX_INPUT_LENGTH,
-    MAX_NESTING_DEPTH, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS,
+    dplyr_options_validate, DplyrDialect, DplyrOptions, DplyrPipeSyntax, MAX_FUNCTION_CALLS,
+    MAX_INPUT_LENGTH, MAX_NESTING_DEPTH, MAX_OUTPUT_LENGTH, MAX_PROCESSING_TIME_MS,
 };
 
 #[cfg(test)]

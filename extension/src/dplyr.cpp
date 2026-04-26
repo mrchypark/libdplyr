@@ -21,7 +21,9 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/common/vector_operations/unary_executor.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
@@ -208,6 +210,15 @@ private:
             case DPLYR_ERROR_SYNTAX:
                 suggestions += "\n  - Check dplyr function syntax (select, filter, mutate, etc.)";
                 suggestions += "\n  - Ensure proper use of pipe operator (%>%)";
+                if (error_message.find("Native pipe is not enabled") != string::npos) {
+                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=native or call dplyr_set_pipe_syntax_env(DPLYR_PIPE_SYNTAX_NATIVE)";
+                    suggestions += "\n  - In DuckDB SQL, call SELECT dplyr_set_pipe_syntax('native')";
+                    suggestions += "\n  - For the table function, pass 'native' as the second argument";
+                } else if (error_message.find("Magrittr pipe is not enabled") != string::npos) {
+                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=magrittr or call dplyr_set_pipe_syntax_env(DPLYR_PIPE_SYNTAX_MAGRITTR)";
+                    suggestions += "\n  - In DuckDB SQL, call SELECT dplyr_set_pipe_syntax('magrittr')";
+                    suggestions += "\n  - For the table function, pass 'magrittr' as the second argument";
+                }
                 suggestions += "\n  - Verify column names and function arguments";
                 suggestions += "\n  - Check for balanced parentheses and quotes";
                 break;
@@ -481,13 +492,52 @@ static DplyrOptions DefaultDplyrOptions() {
     return options;
 }
 
-static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out, string &error_out) {
+static bool ParsePipeSyntaxOption(const string& value, uint32_t &pipe_syntax, string &error_out) {
+    auto normalized = StringUtil::Lower(value);
+    StringUtil::Trim(normalized);
+
+    if (normalized == "magrittr" || normalized == "%>%") {
+        pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        return true;
+    }
+    if (normalized == "native" || normalized == "|>") {
+        pipe_syntax = DPLYR_PIPE_SYNTAX_NATIVE;
+        return true;
+    }
+
+    error_out = "Invalid dplyr pipe syntax '" + value + "'. Expected 'magrittr' or 'native'.";
+    return false;
+}
+
+static const char* PipeSyntaxConfigValue(uint32_t pipe_syntax) {
+    return pipe_syntax == DPLYR_PIPE_SYNTAX_NATIVE ? "native" : "magrittr";
+}
+
+static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
+    const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
+    if (env_value == nullptr || string(env_value).empty()) {
+        pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        return QueryCompileStatus::Success;
+    }
+
+    return ParsePipeSyntaxOption(env_value, pipe_syntax, error_out)
+        ? QueryCompileStatus::Success
+        : QueryCompileStatus::Error;
+}
+
+static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
+                                                          string &sql_out, string &error_out) {
     char* sql_output = nullptr;
     char* error_output = nullptr;
     DplyrOptions options = DefaultDplyrOptions();
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    int result = dplyr_compile_query(query.c_str(), &options, &sql_output, &error_output);
+    int result = dplyr_compile_query_with_pipe_syntax(
+        query.c_str(),
+        &options,
+        pipe_syntax,
+        &sql_output,
+        &error_output);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -525,6 +575,34 @@ static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out
         "Input: " + std::to_string(query.length()) + " chars");
 
     return QueryCompileStatus::Success;
+}
+
+static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out, string &error_out) {
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    auto status = DefaultPipeSyntax(pipe_syntax, error_out);
+    if (status != QueryCompileStatus::Success) {
+        return status;
+    }
+    return CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql_out, error_out);
+}
+
+static void DplyrSetPipeSyntaxFunction(DataChunk &args, ExpressionState &, Vector &result) {
+    UnaryExecutor::Execute<string_t, string_t>(args.data[0], result, args.size(), [&](string_t input) {
+        string error;
+        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        if (!ParsePipeSyntaxOption(input.GetString(), pipe_syntax, error)) {
+            throw InvalidInputException("%s", error.c_str());
+        }
+
+        auto set_result = dplyr_set_pipe_syntax_env(pipe_syntax);
+        if (set_result != DPLYR_SUCCESS) {
+            throw InvalidInputException(
+                "Failed to set dplyr pipe syntax: %s",
+                dplyr_error_code_name(set_result));
+        }
+
+        return StringVector::AddString(result, PipeSyntaxConfigValue(pipe_syntax));
+    });
 }
 
 static string StripTrailingSemicolon(string input) {
@@ -632,6 +710,25 @@ static string GetDplyrQuery(const TableFunctionBindInput &input) {
     return StringValue::Get(input.inputs[0]);
 }
 
+static uint32_t GetDplyrPipeSyntax(const TableFunctionBindInput &input) {
+    if (input.inputs.size() < 2 || input.inputs[1].IsNull()) {
+        string error;
+        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        auto status = DefaultPipeSyntax(pipe_syntax, error);
+        if (status != QueryCompileStatus::Success) {
+            throw InvalidInputException("%s", error.c_str());
+        }
+        return pipe_syntax;
+    }
+
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (!ParsePipeSyntaxOption(StringValue::Get(input.inputs[1]), pipe_syntax, error)) {
+        throw InvalidInputException("%s", error.c_str());
+    }
+    return pipe_syntax;
+}
+
 static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
     auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
@@ -641,9 +738,9 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
 
     string sql;
     string error;
-    auto status = CompileDplyrQuery(dplyr_code, sql, error);
+    auto status = CompileDplyrQueryWithPipeSyntax(dplyr_code, GetDplyrPipeSyntax(input), sql, error);
     if (status == QueryCompileStatus::NotHandled) {
-        throw InvalidInputException("dplyr() requires a %>% pipeline expression");
+        throw InvalidInputException("dplyr() requires a configured pipeline expression");
     }
     if (status == QueryCompileStatus::Error || !error.empty()) {
         throw InvalidInputException("dplyr() transpilation failed: %s", error.c_str());
@@ -752,6 +849,21 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         DplyrTableBind,
         DplyrTableInit);
     loader.RegisterFunction(dplyr_function);
+
+    TableFunction dplyr_function_with_config("dplyr",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR},
+        DplyrTableFunction,
+        DplyrTableBind,
+        DplyrTableInit);
+    loader.RegisterFunction(dplyr_function_with_config);
+
+    ScalarFunction dplyr_set_pipe_syntax_function(
+        "dplyr_set_pipe_syntax",
+        {LogicalType::VARCHAR},
+        LogicalType::VARCHAR,
+        DplyrSetPipeSyntaxFunction);
+    dplyr_set_pipe_syntax_function.stability = FunctionStability::VOLATILE;
+    loader.RegisterFunction(dplyr_set_pipe_syntax_function);
 }
 
 string DplyrExtension::Name() {

@@ -70,6 +70,76 @@ fn test_stdin_stdout_basic_functionality() {
 }
 
 #[test]
+fn test_pipe_syntax_environment_enables_native_pipe() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--text", "data |> select(name)"])
+        .env("DPLYR_PIPE_SYNTAX", "native")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "Native pipe syntax should succeed with DPLYR_PIPE_SYNTAX=native. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert!(stdout.contains("SELECT"), "Output should contain SELECT");
+    assert!(
+        stdout.contains("name"),
+        "Output should contain 'name' column"
+    );
+}
+
+#[test]
+fn test_dialect_environment_sets_cli_default() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--text", "data %>% select(name)", "--compact"])
+        .env("DPLYR_DIALECT", "mysql")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "DPLYR_DIALECT=mysql should configure CLI default dialect. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert_eq!(stdout.trim(), "SELECT `name` FROM `data`");
+}
+
+#[test]
+fn test_explicit_dialect_overrides_environment_default() {
+    let output = Command::new(get_libdplyr_path())
+        .args([
+            "--text",
+            "data %>% select(name)",
+            "--dialect",
+            "sqlite",
+            "--compact",
+        ])
+        .env("DPLYR_DIALECT", "mysql")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "Explicit --dialect should override DPLYR_DIALECT. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert_eq!(stdout.trim(), "SELECT \"name\" FROM \"data\"");
+}
+
+#[test]
 fn test_stdin_stdout_complex_query() {
     let mut child = Command::new(get_libdplyr_path())
         .stdin(Stdio::piped())

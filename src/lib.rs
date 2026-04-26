@@ -275,6 +275,7 @@ pub mod error;
 pub mod lexer;
 pub mod parser;
 pub mod performance;
+pub mod pipe_syntax;
 pub mod sql_generator;
 
 // CLI module (excluded on wasm targets - no signal handling or terminal support)
@@ -287,6 +288,9 @@ pub use crate::lexer::{Lexer, Token};
 pub use crate::parser::{DplyrNode, DplyrOperation, Parser};
 pub use crate::performance::{
     BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
+};
+pub use crate::pipe_syntax::{
+    set_pipe_syntax_env, PipeSyntax, PIPE_SYNTAX_ENV_SETTER, PIPE_SYNTAX_ENV_VAR,
 };
 pub use crate::sql_generator::{
     DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator,
@@ -348,6 +352,7 @@ pub use crate::sql_generator::{
 /// ```
 pub struct Transpiler {
     generator: SqlGenerator,
+    pipe_syntax: PipeSyntax,
 }
 
 impl Transpiler {
@@ -370,9 +375,22 @@ impl Transpiler {
     /// let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
     /// ```
     pub fn new(dialect: Box<dyn SqlDialect>) -> Self {
+        Self::with_pipe_syntax(dialect, PipeSyntax::default())
+    }
+
+    /// Creates a new transpiler with an explicit pipe syntax.
+    pub fn with_pipe_syntax(dialect: Box<dyn SqlDialect>, pipe_syntax: PipeSyntax) -> Self {
         Self {
             generator: SqlGenerator::new(dialect),
+            pipe_syntax,
         }
+    }
+
+    /// Creates a new transpiler using `DPLYR_PIPE_SYNTAX`, defaulting to `%>%`.
+    pub fn from_env(dialect: Box<dyn SqlDialect>) -> Result<Self, TranspileError> {
+        let pipe_syntax =
+            PipeSyntax::from_env_or_default().map_err(TranspileError::ConfigurationError)?;
+        Ok(Self::with_pipe_syntax(dialect, pipe_syntax))
     }
 
     /// Converts dplyr code to SQL in a single operation.
@@ -446,7 +464,7 @@ impl Transpiler {
     /// assert!(ast.is_pipeline());
     /// ```
     pub fn parse_dplyr(&self, code: &str) -> Result<DplyrNode, ParseError> {
-        let lexer = Lexer::new(code.to_string());
+        let lexer = Lexer::with_pipe_syntax(code.to_string(), self.pipe_syntax);
         let mut parser = Parser::new(lexer)?;
         parser.parse()
     }
@@ -536,6 +554,169 @@ mod tests {
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_native_pipe_syntax_transpiles_when_enabled() {
+        let transpiler =
+            Transpiler::with_pipe_syntax(Box::new(PostgreSqlDialect::new()), PipeSyntax::Native);
+
+        let sql = transpiler
+            .transpile("data |> select(name, age) |> filter(age > 18)")
+            .expect("native pipe syntax should transpile when enabled");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_native_pipe_lambda_rhs_transpiles() {
+        let transpiler =
+            Transpiler::with_pipe_syntax(Box::new(PostgreSqlDialect::new()), PipeSyntax::Native);
+
+        let sql = transpiler
+            .transpile(r"data |> (\(x) x |> select(name, age) |> filter(age > 18))()")
+            .expect("native pipe lambda RHS should transpile");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_native_pipe_lambda_rhs_accepts_explicit_data_parameter() {
+        let transpiler =
+            Transpiler::with_pipe_syntax(Box::new(PostgreSqlDialect::new()), PipeSyntax::Native);
+
+        let sql = transpiler
+            .transpile(r"data |> (\(x) filter(x, age > 18) |> select(x, name, age))()")
+            .expect("native pipe lambda RHS should accept explicit data parameter");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_magrittr_mode_rejects_native_pipe_lambda_rhs() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let error = transpiler
+            .transpile(r"data %>% (\(x) x %>% select(name))()")
+            .expect_err("native pipe lambda RHS should not be enabled in magrittr mode");
+
+        assert!(
+            error.to_string().contains("expected 'dplyr function'"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn test_magrittr_pipe_braced_lambda_rhs_transpiles() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let sql = transpiler
+            .transpile(r"data %>% { . %>% select(name, age) %>% filter(age > 18) }")
+            .expect("magrittr braced lambda RHS should transpile");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_magrittr_pipe_braced_lambda_rhs_accepts_dot_data_placeholder() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let sql = transpiler
+            .transpile(r"data %>% { filter(., age > 18) %>% select(., name, age) }")
+            .expect("magrittr braced lambda RHS should accept dot data placeholder");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_magrittr_pipe_rhs_accepts_dot_data_placeholder() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let sql = transpiler
+            .transpile(r"data %>% filter(., age > 18) %>% select(., name, age)")
+            .expect("magrittr RHS should accept dot data placeholder");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_magrittr_pipe_functional_sequence_rhs_transpiles() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let sql = transpiler
+            .transpile(r"data %>% (. %>% select(name, age) %>% filter(age > 18))")
+            .expect("magrittr functional sequence RHS should transpile");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("SELECT \"name\", \"age\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
+    fn test_magrittr_mode_rejects_native_pipe_syntax() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let error = transpiler
+            .transpile("data %>% select(name) |> filter(age > 18)")
+            .expect_err("native pipe syntax should fail in default magrittr mode");
+
+        assert!(
+            error.to_string().contains("Native pipe is not enabled"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.to_string().contains("DPLYR_PIPE_SYNTAX=native"),
+            "Expected environment variable guidance, got: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("set_pipe_syntax_env(PipeSyntax::Native)"),
+            "Expected setting function guidance, got: {error}"
+        );
+    }
+
+    #[test]
+    fn test_native_mode_rejects_magrittr_pipe_syntax() {
+        let transpiler =
+            Transpiler::with_pipe_syntax(Box::new(PostgreSqlDialect::new()), PipeSyntax::Native);
+
+        let error = transpiler
+            .transpile("data |> select(name) %>% filter(age > 18)")
+            .expect_err("mixed pipe syntax should fail");
+
+        assert!(
+            error.to_string().contains("Magrittr pipe is not enabled"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.to_string().contains("DPLYR_PIPE_SYNTAX=magrittr"),
+            "Expected environment variable guidance, got: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("set_pipe_syntax_env(PipeSyntax::Magrittr)"),
+            "Expected setting function guidance, got: {error}"
+        );
     }
 
     #[test]

@@ -443,10 +443,18 @@ impl ErrorInfo {
                 error_type: "lex".to_string(),
                 message: e.to_string(),
                 position: None,
-                suggestions: vec![
-                    "Check for invalid characters or malformed strings".to_string(),
-                    "Ensure proper quoting of string literals".to_string(),
-                ],
+                suggestions: {
+                    let mut suggestions = vec![
+                        "Check for invalid characters or malformed strings".to_string(),
+                        "Ensure proper quoting of string literals".to_string(),
+                    ];
+                    if let Some(pipe_suggestion) =
+                        crate::pipe_syntax::disabled_pipe_suggestion_for_error(&e.to_string())
+                    {
+                        suggestions.push(pipe_suggestion);
+                    }
+                    suggestions
+                },
             },
             crate::TranspileError::ParseError(e) => Self {
                 error_type: "parse".to_string(),

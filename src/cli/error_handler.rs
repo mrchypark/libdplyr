@@ -4,6 +4,7 @@
 //! detailed error messages with hints for resolution.
 
 use crate::cli::validator::ValidationErrorInfo;
+use crate::pipe_syntax::disabled_pipe_suggestion_for_error;
 use crate::TranspileError;
 use std::fmt;
 use std::io::{self, Write};
@@ -211,7 +212,16 @@ impl ErrorHandler {
     fn convert_transpile_error(&self, error: &TranspileError) -> ErrorInfo {
         match error {
             TranspileError::LexError(e) => {
+                let pipe_suggestion = disabled_pipe_suggestion_for_error(&e.to_string());
                 if self.use_korean {
+                    let mut suggestions = vec![
+                        "Check if string quotes are closed correctly".to_string(),
+                        "Check for special characters or escape sequences".to_string(),
+                        "Check if any unsupported characters are included".to_string(),
+                    ];
+                    if let Some(pipe_suggestion) = pipe_suggestion.clone() {
+                        suggestions.push(pipe_suggestion);
+                    }
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
@@ -220,23 +230,23 @@ impl ErrorHandler {
                     .with_description(
                         "There is an error in the syntax of the input code.".to_string(),
                     )
-                    .with_suggestions(vec![
-                        "Check if string quotes are closed correctly".to_string(),
-                        "Check for special characters or escape sequences".to_string(),
-                        "Check if any unsupported characters are included".to_string(),
-                    ])
+                    .with_suggestions(suggestions)
                 } else {
+                    let mut suggestions = vec![
+                        "Check if string quotes are properly closed".to_string(),
+                        "Verify special characters and escape sequences".to_string(),
+                        "Ensure no unsupported characters are included".to_string(),
+                    ];
+                    if let Some(pipe_suggestion) = pipe_suggestion {
+                        suggestions.push(pipe_suggestion);
+                    }
                     ErrorInfo::new(
                         ErrorCategory::UserInput,
                         ExitCode::VALIDATION_ERROR,
                         format!("Lexical error: {e}"),
                     )
                     .with_description("There is a syntax error in the input code.".to_string())
-                    .with_suggestions(vec![
-                        "Check if string quotes are properly closed".to_string(),
-                        "Verify special characters and escape sequences".to_string(),
-                        "Ensure no unsupported characters are included".to_string(),
-                    ])
+                    .with_suggestions(suggestions)
                 }
             }
             TranspileError::ParseError(e) => {

@@ -7,14 +7,16 @@ use crate::cli::{
     debug_logger::DebugLogger,
     signal_handler::{utils, ProcessingError, SignalAwareProcessor, SignalHandler},
     DplyrValidator, ErrorHandler, ExitCode, JsonOutputFormatter, OutputFormat, OutputFormatter,
-    StdinReader, TranspileMetadata, ValidateResult,
+    StdinReader, TranspileMetadata, ValidateResult, ValidationConfig,
 };
 use crate::{
-    DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect, TranspileError,
-    Transpiler,
+    DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SqlDialect, SqliteDialect,
+    TranspileError, Transpiler,
 };
 use clap::{value_parser, Arg, ArgMatches, Command};
 use std::io::{self, Write};
+
+const DIALECT_ENV_VAR: &str = "DPLYR_DIALECT";
 
 /// CLI arguments structure
 #[derive(Debug, Clone)]
@@ -105,9 +107,9 @@ pub fn parse_args() -> CliArgs {
                            postgresql, postgres, pg - PostgreSQL\n  \
                            mysql - MySQL\n  \
                            sqlite - SQLite\n  \
-                           duckdb, duck - DuckDB")
+                           duckdb, duck - DuckDB\n\n\
+                           If omitted, the CLI reads DPLYR_DIALECT and falls back to postgresql.")
                 .value_parser(value_parser!(SqlDialectType))
-                .default_value("postgresql"),
         )
         .arg(
             Arg::new("pretty")
@@ -178,7 +180,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         dialect: matches
             .get_one::<SqlDialectType>("dialect")
             .cloned()
-            .unwrap_or(SqlDialectType::PostgreSql),
+            .unwrap_or_else(dialect_from_env_or_default),
         pretty_print: matches.get_flag("pretty"),
         input_text: matches.get_one::<String>("text").cloned(),
         validate_only: matches.get_flag("validate-only"),
@@ -186,6 +188,20 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         debug: matches.get_flag("debug"),
         compact: matches.get_flag("compact"),
         json_output: matches.get_flag("json"),
+    }
+}
+
+fn dialect_from_env_or_default() -> SqlDialectType {
+    match std::env::var(DIALECT_ENV_VAR) {
+        Ok(value) => value.parse().unwrap_or_else(|message| {
+            eprintln!("Invalid {DIALECT_ENV_VAR}: {message}");
+            std::process::exit(2);
+        }),
+        Err(std::env::VarError::NotPresent) => SqlDialectType::PostgreSql,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!("{DIALECT_ENV_VAR} must be valid Unicode");
+            std::process::exit(2);
+        }
     }
 }
 
@@ -224,6 +240,7 @@ pub enum CliMode {
 pub struct CliConfig {
     pub mode: CliMode,
     pub dialect: SqlDialectType,
+    pub pipe_syntax: PipeSyntax,
     pub output_format: OutputFormat,
     pub validation_only: bool,
     pub verbose: bool,
@@ -239,6 +256,7 @@ impl CliConfig {
         Self {
             mode,
             dialect: args.dialect.clone(),
+            pipe_syntax: PipeSyntax::default(),
             output_format,
             validation_only: args.validate_only,
             verbose: args.verbose,
@@ -297,12 +315,18 @@ pub struct ProcessingPipeline {
 
 impl ProcessingPipeline {
     /// Create a new processing pipeline with the given configuration
-    pub fn new(config: CliConfig) -> Result<Self, TranspileError> {
+    pub fn new(mut config: CliConfig) -> Result<Self, TranspileError> {
+        config.pipe_syntax =
+            PipeSyntax::from_env_or_default().map_err(TranspileError::ConfigurationError)?;
         let dialect = create_dialect(&config.dialect);
-        let transpiler = Transpiler::new(dialect);
+        let transpiler = Transpiler::with_pipe_syntax(dialect, config.pipe_syntax);
 
         let validator = if config.validation_only {
-            Some(DplyrValidator::new())
+            let validation_config = ValidationConfig {
+                pipe_syntax: config.pipe_syntax,
+                ..Default::default()
+            };
+            Some(DplyrValidator::with_config(validation_config))
         } else {
             None
         };

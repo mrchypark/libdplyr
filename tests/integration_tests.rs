@@ -429,7 +429,7 @@ fn test_mutate_operations() {
         ("mutate(adult = age >= 18)", "(\"AGE\" >= 18) AS \"ADULT\""),
         (
             "mutate(full_name = paste(first_name, last_name))",
-            "PASTE(\"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
+            "CONCAT_WS(' ', \"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
         ),
     ];
 
