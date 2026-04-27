@@ -281,11 +281,7 @@ jobs:
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            arch -x86_64 ctest --output-on-failure --timeout 300
-          else
-            ctest --output-on-failure --timeout 300
-          fi
+          ctest --output-on-failure --timeout 300
 
       - name: Run CMake tests (Windows)
         if: runner.os == 'Windows'
@@ -629,11 +625,7 @@ jobs:
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            arch -x86_64 ctest --output-on-failure --timeout 300
-          else
-            ctest --output-on-failure --timeout 300
-          fi
+          ctest --output-on-failure --timeout 300
 
       - name: Run CMake tests (Windows)
         if: runner.os == 'Windows'
@@ -977,11 +969,7 @@ jobs:
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            arch -x86_64 ctest --output-on-failure --timeout 300
-          else
-            ctest --output-on-failure --timeout 300
-          fi
+          ctest --output-on-failure --timeout 300
 
       - name: Run CMake tests (Windows)
         if: runner.os == 'Windows'
