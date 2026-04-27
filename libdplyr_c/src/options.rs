@@ -27,10 +27,14 @@ impl TryFrom<u32> for DplyrDialect {
             1 => Ok(Self::PostgreSql),
             2 => Ok(Self::MySql),
             3 => Ok(Self::Sqlite),
-            _ => Err(TranspileError::internal_error(&format!(
-                "Invalid dialect value '{}'",
-                value
-            ))),
+            _ => Err(TranspileError::syntax_error_with_suggestion(
+                &format!("Invalid dialect value '{}'", value),
+                0,
+                Some(value.to_string()),
+                Some(
+                    "Use 0 for duckdb, 1 for postgresql, 2 for mysql, or 3 for sqlite".to_string(),
+                ),
+            )),
         }
     }
 }
@@ -50,10 +54,12 @@ impl TryFrom<u32> for DplyrPipeSyntax {
         match value {
             0 => Ok(Self::Magrittr),
             1 => Ok(Self::Native),
-            _ => Err(TranspileError::internal_error(&format!(
-                "Invalid pipe syntax value '{}'",
-                value
-            ))),
+            _ => Err(TranspileError::syntax_error_with_suggestion(
+                &format!("Invalid pipe syntax value '{}'", value),
+                0,
+                Some(value.to_string()),
+                Some("Use 0 for magrittr or 1 for native".to_string()),
+            )),
         }
     }
 }

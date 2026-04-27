@@ -546,6 +546,22 @@ mod dialect_specific_tests {
             name: "lag".to_string(),
             args: vec![Expr::Identifier("value".to_string()), offset_expr],
         };
+        let lead_default_expr = Expr::Function {
+            name: "lead".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::Literal(LiteralValue::Number(2.0)),
+                Expr::Literal(LiteralValue::Number(0.0)),
+            ],
+        };
+        let lag_default_expr = Expr::Function {
+            name: "lag".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::Literal(LiteralValue::Number(2.0)),
+                Expr::Literal(LiteralValue::Number(0.0)),
+            ],
+        };
         let first_expr = Expr::Function {
             name: "first".to_string(),
             args: vec![Expr::Identifier("value".to_string())],
@@ -562,6 +578,14 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&lag_expr).unwrap(),
             "LAG(\"value\", (1 + 1)) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&lead_default_expr).unwrap(),
+            "LEAD(\"value\", 2, 0) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&lag_default_expr).unwrap(),
+            "LAG(\"value\", 2, 0) OVER ()"
         );
         assert_eq!(
             generator.generate_expression(&first_expr).unwrap(),
@@ -589,7 +613,7 @@ mod dialect_specific_tests {
 
         assert_eq!(
             generator.generate_expression(&nzchar_expr).unwrap(),
-            "(LENGTH(\"name\") > 0)"
+            "COALESCE((LENGTH(\"name\") > 0), TRUE)"
         );
         assert_eq!(
             generator.generate_expression(&nchar_expr).unwrap(),
@@ -601,7 +625,7 @@ mod dialect_specific_tests {
         );
         assert_eq!(
             mysql_generator.generate_expression(&nzchar_expr).unwrap(),
-            "(CHAR_LENGTH(`name`) > 0)"
+            "COALESCE((CHAR_LENGTH(`name`) > 0), TRUE)"
         );
     }
 

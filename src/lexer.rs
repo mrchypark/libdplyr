@@ -173,7 +173,6 @@ impl std::fmt::Display for Token {
 /// Lexer struct
 ///
 /// Provides functionality to tokenize input strings.
-#[derive(Clone)]
 pub struct Lexer {
     input: Vec<char>,
     position: usize,
@@ -346,6 +345,19 @@ impl Lexer {
                 }
             }
         }
+    }
+
+    /// Returns the next token without consuming it.
+    pub fn peek_token(&mut self) -> LexResult<Token> {
+        let saved_position = self.position;
+        let saved_current_char = self.current_char;
+
+        let token = self.next_token();
+
+        self.position = saved_position;
+        self.current_char = saved_current_char;
+
+        token
     }
 
     /// Advances the current position to the next character.
@@ -547,6 +559,16 @@ mod tests {
                     Token::EOF,
                 ],
             );
+        }
+
+        #[test]
+        fn test_peek_token_does_not_consume_input() {
+            let mut lexer = Lexer::new("select(name)".to_string());
+
+            assert_eq!(lexer.peek_token().unwrap(), Token::Select);
+            assert_eq!(lexer.peek_token().unwrap(), Token::Select);
+            assert_eq!(lexer.next_token().unwrap(), Token::Select);
+            assert_eq!(lexer.next_token().unwrap(), Token::LeftParen);
         }
 
         #[test]

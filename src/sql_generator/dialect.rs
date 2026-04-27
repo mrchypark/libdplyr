@@ -100,7 +100,10 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
         }
         "nzchar" => {
             if args.len() == 1 {
-                Some(format!("({} > 0)", dialect.char_length(&args[0])))
+                Some(format!(
+                    "COALESCE(({} > 0), TRUE)",
+                    dialect.char_length(&args[0])
+                ))
             } else {
                 None
             }
@@ -140,7 +143,10 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                Some(format!("LEAD({}, {}) OVER ()", args[0], n))
+                match args.get(2) {
+                    Some(default) => Some(format!("LEAD({}, {}, {}) OVER ()", args[0], n, default)),
+                    None => Some(format!("LEAD({}, {}) OVER ()", args[0], n)),
+                }
             }
         }
         "lag" => {
@@ -148,7 +154,10 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                Some(format!("LAG({}, {}) OVER ()", args[0], n))
+                match args.get(2) {
+                    Some(default) => Some(format!("LAG({}, {}, {}) OVER ()", args[0], n, default)),
+                    None => Some(format!("LAG({}, {}) OVER ()", args[0], n)),
+                }
             }
         }
         "rank" => Some("RANK() OVER ()".to_string()),

@@ -11,7 +11,7 @@ use crate::cache::{
 use crate::compile::{convert_libdplyr_error, force_ffi_panic_for_test};
 use crate::error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
-    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
+    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_ERROR_SYNTAX, DPLYR_SUCCESS,
 };
 use crate::memory::alloc_owned_string;
 use crate::system::dplyr_check_system;
@@ -521,6 +521,38 @@ mod ffi_tests {
         assert!(sql.contains("FROM \"mtcars\""));
         assert!(sql.contains("WHERE"));
         assert!(!sql.contains("|>"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_reports_invalid_pipe_syntax_as_syntax_error() {
+        let input = CString::new("mtcars |> select(mpg)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query_with_pipe_syntax(
+                input.as_ptr(),
+                &options,
+                99,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_ERROR_SYNTAX);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let message = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            message
+        };
+
+        assert!(error.contains("Invalid pipe syntax value '99'"));
+        assert!(error.contains("Use 0 for magrittr or 1 for native"));
     }
 
     #[test]

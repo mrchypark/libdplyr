@@ -20,6 +20,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
+# DuckDB's Windows build can include Windows SDK COM headers in translation
+# units that also expose std::byte via C++17. Disable MSVC's std::byte typedef
+# globally before adding DuckDB subdirectories to avoid the SDK byte ambiguity.
+if(MSVC)
+    add_compile_definitions(_HAS_STD_BYTE=0)
+endif()
+
 
 # R4-AC1: Build configuration
 if(NOT CMAKE_BUILD_TYPE)
