@@ -170,38 +170,9 @@ TEST_F(DuckDBExtensionTest, TableFunctionNativePipeSyntaxConfig) {
     EXPECT_EQ(result->RowCount(), 3);
 }
 
-TEST_F(DuckDBExtensionTest, DuckDbFunctionSetsDefaultPipeSyntax) {
-    auto set_result = safe_query("SELECT dplyr_set_pipe_syntax('native')");
-
-    ASSERT_NE(set_result, nullptr);
-    ASSERT_FALSE(set_result->HasError()) << "Pipe syntax setter should succeed: " << set_result->GetError();
-    auto set_chunk = set_result->Fetch();
-    ASSERT_TRUE(set_chunk);
-    ASSERT_EQ(set_chunk->size(), 1);
-    EXPECT_EQ(set_chunk->GetValue(0, 0).ToString(), "native");
-
-    auto result = safe_query("mtcars |> select(mpg)");
-
-    auto reset_result = safe_query("SELECT dplyr_set_pipe_syntax('magrittr')");
-    ASSERT_NE(reset_result, nullptr);
-    ASSERT_FALSE(reset_result->HasError()) << "Pipe syntax reset should succeed: " << reset_result->GetError();
-
-    ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError()) << "Bare native pipe should use DuckDB function-set default: " << result->GetError();
-    EXPECT_EQ(result->RowCount(), 3);
-}
-
 TEST_F(DuckDBExtensionTest, NativePipeLambdaRhs) {
-    auto set_result = safe_query("SELECT dplyr_set_pipe_syntax('native')");
-    ASSERT_NE(set_result, nullptr);
-    ASSERT_FALSE(set_result->HasError()) << "Pipe syntax setter should succeed: " << set_result->GetError();
-
-    auto result = safe_query(R"(mtcars |> (\(x) x |> select(mpg) |> filter(mpg > 20))())");
-    auto explicit_arg_result = safe_query(R"(mtcars |> (\(x) filter(x, mpg > 20) |> select(x, mpg))())");
-
-    auto reset_result = safe_query("SELECT dplyr_set_pipe_syntax('magrittr')");
-    ASSERT_NE(reset_result, nullptr);
-    ASSERT_FALSE(reset_result->HasError()) << "Pipe syntax reset should succeed: " << reset_result->GetError();
+    auto result = safe_query(R"(SELECT * FROM dplyr('mtcars |> (\(x) x |> select(mpg) |> filter(mpg > 20))()', 'native'))");
+    auto explicit_arg_result = safe_query(R"(SELECT * FROM dplyr('mtcars |> (\(x) filter(x, mpg > 20) |> select(x, mpg))()', 'native'))");
 
     ASSERT_NE(result, nullptr);
     ASSERT_FALSE(result->HasError()) << "Native pipe lambda RHS should execute: " << result->GetError();

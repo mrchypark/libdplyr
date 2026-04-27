@@ -12,8 +12,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use libdplyr::{
-    set_pipe_syntax_env, DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SqlDialect,
-    SqliteDialect, Transpiler,
+    DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SqlDialect, SqliteDialect,
+    Transpiler,
 };
 
 use crate::cache;
@@ -134,22 +134,6 @@ fn validated_pipe_syntax(raw_pipe_syntax: u32) -> Result<PipeSyntax, TranspileEr
 
 fn pipe_syntax_from_env_or_default() -> Result<PipeSyntax, TranspileError> {
     PipeSyntax::from_env_or_default().map_err(|message| TranspileError::internal_error(&message))
-}
-
-#[no_mangle]
-pub extern "C" fn dplyr_set_pipe_syntax_env(pipe_syntax: u32) -> i32 {
-    #[cfg(test)]
-    let _test_gate = FfiTestGateGuard::acquire();
-
-    let result = panic::catch_unwind(|| match validated_pipe_syntax(pipe_syntax) {
-        Ok(pipe_syntax) => {
-            set_pipe_syntax_env(pipe_syntax);
-            DPLYR_SUCCESS
-        }
-        Err(error) => error.to_c_error_code(),
-    });
-
-    result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
 #[derive(Debug)]

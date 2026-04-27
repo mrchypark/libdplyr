@@ -503,6 +503,104 @@ mod dialect_specific_tests {
     }
 
     #[test]
+    fn test_tidyverse_nzchar_returns_boolean_expression() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let nzchar_expr = Expr::Function {
+            name: "nzchar".to_string(),
+            args: vec![Expr::Identifier("name".to_string())],
+        };
+        let nchar_expr = Expr::Function {
+            name: "nchar".to_string(),
+            args: vec![Expr::Identifier("name".to_string())],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&nzchar_expr).unwrap(),
+            "(LENGTH(\"name\") > 0)"
+        );
+        assert_eq!(
+            generator.generate_expression(&nchar_expr).unwrap(),
+            "LENGTH(\"name\")"
+        );
+    }
+
+    #[test]
+    fn test_tidyverse_log10_is_dialect_specific() {
+        let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
+        let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        let log10_expr = Expr::Function {
+            name: "log10".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
+
+        assert_eq!(
+            pg_generator.generate_expression(&log10_expr).unwrap(),
+            "LOG(\"value\")"
+        );
+        assert_eq!(
+            mysql_generator.generate_expression(&log10_expr).unwrap(),
+            "LOG10(`value`)"
+        );
+        assert_eq!(
+            duckdb_generator.generate_expression(&log10_expr).unwrap(),
+            "LOG10(\"value\")"
+        );
+        assert_eq!(
+            sqlite_generator.generate_expression(&log10_expr).unwrap(),
+            "LOG10(\"value\")"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_case_function_is_rejected() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let case_expr = Expr::Function {
+            name: "case".to_string(),
+            args: vec![Expr::Identifier("score".to_string())],
+        };
+
+        let error = generator.generate_expression(&case_expr).unwrap_err();
+        assert!(matches!(
+            error,
+            GenerationError::UnsupportedFunction { function, dialect }
+                if function == "case" && dialect == "postgresql"
+        ));
+    }
+
+    #[test]
+    fn test_string_case_functions_validate_argument_count() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let missing_arg_expr = Expr::Function {
+            name: "tolower".to_string(),
+            args: vec![],
+        };
+        let too_many_args_expr = Expr::Function {
+            name: "toupper".to_string(),
+            args: vec![
+                Expr::Identifier("first_name".to_string()),
+                Expr::Identifier("last_name".to_string()),
+            ],
+        };
+
+        assert!(matches!(
+            generator.generate_expression(&missing_arg_expr),
+            Err(GenerationError::UnsupportedFunction { function, dialect })
+                if function == "tolower" && dialect == "postgresql"
+        ));
+        assert!(matches!(
+            generator.generate_expression(&too_many_args_expr),
+            Err(GenerationError::UnsupportedFunction { function, dialect })
+                if function == "toupper" && dialect == "postgresql"
+        ));
+    }
+
+    #[test]
     fn test_duckdb_unknown_function_is_late_bound() {
         let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
 
@@ -979,10 +1077,15 @@ mod mutate_advanced_tests {
                 assignments: vec![Assignment {
                     column: "category".to_string(),
                     expr: Expr::Function {
-                        name: "case".to_string(),
+                        name: "ifelse".to_string(),
                         args: vec![
-                            Expr::Identifier("score".to_string()),
+                            Expr::Binary {
+                                left: Box::new(Expr::Identifier("score".to_string())),
+                                operator: BinaryOp::GreaterThan,
+                                right: Box::new(Expr::Literal(LiteralValue::Number(80.0))),
+                            },
                             Expr::Literal(LiteralValue::String("high".to_string())),
+                            Expr::Literal(LiteralValue::String("low".to_string())),
                         ],
                     },
                 }],
@@ -996,7 +1099,7 @@ mod mutate_advanced_tests {
         let sql = result.unwrap();
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("\"active\" = TRUE"));
-        assert!(sql.contains("CASE"));
+        assert!(sql.contains("CASE WHEN"));
         assert!(sql.contains("AS \"category\""));
     }
 

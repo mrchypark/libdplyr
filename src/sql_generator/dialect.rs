@@ -9,13 +9,13 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
     let fn_lower = function.to_lowercase();
     match fn_lower.as_str() {
         // Math functions
-        "abs" => Some(format!("ABS({})", args.join(", "))),
-        "round" => Some(format!("ROUND({})", args.join(", "))),
-        "floor" => Some(format!("FLOOR({})", args.join(", "))),
-        "ceiling" | "ceil" => Some(format!("CEILING({})", args.join(", "))),
-        "sqrt" => Some(format!("SQRT({})", args.join(", "))),
-        "sign" => Some(format!("SIGN({})", args.join(", "))),
-        "exp" => Some(format!("EXP({})", args.join(", "))),
+        "abs" => unary_sql_function("ABS", args),
+        "round" => one_or_two_arg_sql_function("ROUND", args),
+        "floor" => unary_sql_function("FLOOR", args),
+        "ceiling" | "ceil" => unary_sql_function("CEILING", args),
+        "sqrt" => unary_sql_function("SQRT", args),
+        "sign" => unary_sql_function("SIGN", args),
+        "exp" => unary_sql_function("EXP", args),
         "log" => {
             if args.len() == 1 {
                 Some(format!("LN({})", args[0]))
@@ -25,7 +25,13 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "log10" => Some(format!("LOG({})", args.join(", "))),
+        "log10" => {
+            if args.len() == 1 {
+                Some(dialect.log10(&args[0]))
+            } else {
+                None
+            }
+        }
         // Modulo
         "mod" | "%%" => {
             if args.len() == 2 {
@@ -35,12 +41,12 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
             }
         }
         // Trigonometric functions
-        "sin" => Some(format!("SIN({})", args.join(", "))),
-        "cos" => Some(format!("COS({})", args.join(", "))),
-        "tan" => Some(format!("TAN({})", args.join(", "))),
-        "asin" => Some(format!("ASIN({})", args.join(", "))),
-        "acos" => Some(format!("ACOS({})", args.join(", "))),
-        "atan" => Some(format!("ATAN({})", args.join(", "))),
+        "sin" => unary_sql_function("SIN", args),
+        "cos" => unary_sql_function("COS", args),
+        "tan" => unary_sql_function("TAN", args),
+        "asin" => unary_sql_function("ASIN", args),
+        "acos" => unary_sql_function("ACOS", args),
+        "atan" => unary_sql_function("ATAN", args),
         "atan2" => {
             if args.len() == 2 {
                 Some(format!("ATAN2({}, {})", args[0], args[1]))
@@ -48,14 +54,14 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "sinh" => Some(format!("SINH({})", args.join(", "))),
-        "cosh" => Some(format!("COSH({})", args.join(", "))),
-        "tanh" => Some(format!("TANH({})", args.join(", "))),
+        "sinh" => unary_sql_function("SINH", args),
+        "cosh" => unary_sql_function("COSH", args),
+        "tanh" => unary_sql_function("TANH", args),
         // String functions
         "concat" | "paste0" => dialect.concat_no_separator(args),
         "paste" => dialect.concat_with_separator("' '", args),
-        "tolower" | "lower" => Some(format!("LOWER({})", args.join(", "))),
-        "toupper" | "touppercase" | "upper" => Some(format!("UPPER({})", args.join(", "))),
+        "tolower" | "lower" => unary_sql_function("LOWER", args),
+        "toupper" | "touppercase" | "upper" => unary_sql_function("UPPER", args),
         "str_detect" => {
             if args.len() == 2 {
                 dialect.regex_detect(&args[0], &args[1])
@@ -63,10 +69,10 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "str_length" => Some(format!("LENGTH({})", args.join(", "))),
-        "str_to_lower" => Some(format!("LOWER({})", args.join(", "))),
-        "str_to_upper" => Some(format!("UPPER({})", args.join(", "))),
-        "str_trim" => Some(format!("TRIM({})", args.join(", "))),
+        "str_length" => unary_sql_function("LENGTH", args),
+        "str_to_lower" => unary_sql_function("LOWER", args),
+        "str_to_upper" => unary_sql_function("UPPER", args),
+        "str_trim" => unary_sql_function("TRIM", args),
         "substr" => {
             if args.len() >= 3 {
                 Some(format!("SUBSTR({}, {}, {})", args[0], args[1], args[2]))
@@ -76,8 +82,15 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "nchar" | "nzchar" => Some(format!("LENGTH({})", args.join(", "))),
-        "trimws" => Some(format!("TRIM({})", args.join(", "))),
+        "nchar" => unary_sql_function("LENGTH", args),
+        "nzchar" => {
+            if args.len() == 1 {
+                Some(format!("(LENGTH({}) > 0)", args[0]))
+            } else {
+                None
+            }
+        }
+        "trimws" => unary_sql_function("TRIM", args),
         // Conditional
         "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" => {
             if args.len() == 1 {
@@ -98,7 +111,6 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "case" => Some(format!("CASE({})", args.join(", "))),
         // NULL checks
         "is.na" => {
             if args.len() == 1 {
@@ -156,6 +168,22 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
     }
 }
 
+fn unary_sql_function(sql_function: &str, args: &[String]) -> Option<String> {
+    if args.len() == 1 {
+        Some(format!("{sql_function}({})", args[0]))
+    } else {
+        None
+    }
+}
+
+fn one_or_two_arg_sql_function(sql_function: &str, args: &[String]) -> Option<String> {
+    if (1..=2).contains(&args.len()) {
+        Some(format!("{sql_function}({})", args.join(", ")))
+    } else {
+        None
+    }
+}
+
 /// Returns whether a common R function has an explicit SQL translation.
 fn is_supported_common_function(function: &str) -> bool {
     matches!(
@@ -206,7 +234,6 @@ fn is_supported_common_function(function: &str) -> bool {
             | "as.logical"
             | "ifelse"
             | "if_else"
-            | "case"
             | "is.na"
             | "lead"
             | "lag"
@@ -457,6 +484,11 @@ pub trait SqlDialect {
         }
     }
 
+    /// Dialect-specific base-10 logarithm function.
+    fn log10(&self, value: &str) -> String {
+        format!("LOG10({value})")
+    }
+
     /// Concatenates string expressions without a separator.
     fn concat_no_separator(&self, args: &[String]) -> Option<String> {
         if args.is_empty() {
@@ -585,6 +617,10 @@ impl SqlDialect for PostgreSqlDialect {
             "as.logical" => Some("BOOLEAN"),
             _ => None,
         }
+    }
+
+    fn log10(&self, value: &str) -> String {
+        format!("LOG({value})")
     }
 
     fn is_case_sensitive(&self) -> bool {

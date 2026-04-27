@@ -724,35 +724,7 @@ mod ffi_tests {
         };
         assert!(error.contains("Magrittr pipe is not enabled"));
         assert!(error.contains("DPLYR_PIPE_SYNTAX=magrittr"));
-        assert!(error.contains("set_pipe_syntax_env(PipeSyntax::Magrittr)"));
-    }
-
-    #[test]
-    fn test_dplyr_set_pipe_syntax_env_configures_default_query_compile() {
-        let original = std::env::var_os("DPLYR_PIPE_SYNTAX");
-        let input = CString::new("mtcars |> select(mpg)").unwrap();
-        let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
-        let mut out_sql: *mut c_char = std::ptr::null_mut();
-        let mut out_error: *mut c_char = std::ptr::null_mut();
-
-        let set_result = dplyr_set_pipe_syntax_env(DplyrPipeSyntax::Native as u32);
-        assert_eq!(set_result, DPLYR_SUCCESS);
-
-        let result =
-            unsafe { dplyr_compile_query(input.as_ptr(), &options, &mut out_sql, &mut out_error) };
-
-        match original {
-            Some(value) => std::env::set_var("DPLYR_PIPE_SYNTAX", value),
-            None => std::env::remove_var("DPLYR_PIPE_SYNTAX"),
-        }
-
-        assert_eq!(result, DPLYR_SUCCESS);
-        assert!(!out_sql.is_null());
-        assert!(out_error.is_null());
-
-        unsafe {
-            dplyr_free_string(out_sql);
-        }
+        assert!(error.contains("explicit pipe syntax API with PipeSyntax::Magrittr"));
     }
 
     #[test]

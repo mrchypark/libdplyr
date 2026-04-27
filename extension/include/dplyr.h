@@ -208,14 +208,6 @@ int dplyr_compile_query_with_pipe_syntax(
     char** out_error
 );
 
-/**
- * @brief Set DPLYR_PIPE_SYNTAX for the current process.
- *
- * This affects APIs that read the default pipe syntax from the environment,
- * such as dplyr_compile() and dplyr_compile_query().
- */
-int dplyr_set_pipe_syntax_env(uint32_t pipe_syntax);
-
 /* ========================================================================
  * MEMORY MANAGEMENT FUNCTIONS
  * ======================================================================== */

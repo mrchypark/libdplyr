@@ -21,9 +21,7 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
-#include "duckdb/common/vector_operations/unary_executor.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
@@ -211,12 +209,10 @@ private:
                 suggestions += "\n  - Check dplyr function syntax (select, filter, mutate, etc.)";
                 suggestions += "\n  - Ensure proper use of pipe operator (%>%)";
                 if (error_message.find("Native pipe is not enabled") != string::npos) {
-                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=native or call dplyr_set_pipe_syntax_env(DPLYR_PIPE_SYNTAX_NATIVE)";
-                    suggestions += "\n  - In DuckDB SQL, call SELECT dplyr_set_pipe_syntax('native')";
+                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=native before starting DuckDB";
                     suggestions += "\n  - For the table function, pass 'native' as the second argument";
                 } else if (error_message.find("Magrittr pipe is not enabled") != string::npos) {
-                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=magrittr or call dplyr_set_pipe_syntax_env(DPLYR_PIPE_SYNTAX_MAGRITTR)";
-                    suggestions += "\n  - In DuckDB SQL, call SELECT dplyr_set_pipe_syntax('magrittr')";
+                    suggestions += "\n  - Set DPLYR_PIPE_SYNTAX=magrittr before starting DuckDB";
                     suggestions += "\n  - For the table function, pass 'magrittr' as the second argument";
                 }
                 suggestions += "\n  - Verify column names and function arguments";
@@ -509,10 +505,6 @@ static bool ParsePipeSyntaxOption(const string& value, uint32_t &pipe_syntax, st
     return false;
 }
 
-static const char* PipeSyntaxConfigValue(uint32_t pipe_syntax) {
-    return pipe_syntax == DPLYR_PIPE_SYNTAX_NATIVE ? "native" : "magrittr";
-}
-
 static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
     const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
     if (env_value == nullptr || string(env_value).empty()) {
@@ -584,25 +576,6 @@ static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out
         return status;
     }
     return CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql_out, error_out);
-}
-
-static void DplyrSetPipeSyntaxFunction(DataChunk &args, ExpressionState &, Vector &result) {
-    UnaryExecutor::Execute<string_t, string_t>(args.data[0], result, args.size(), [&](string_t input) {
-        string error;
-        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-        if (!ParsePipeSyntaxOption(input.GetString(), pipe_syntax, error)) {
-            throw InvalidInputException("%s", error.c_str());
-        }
-
-        auto set_result = dplyr_set_pipe_syntax_env(pipe_syntax);
-        if (set_result != DPLYR_SUCCESS) {
-            throw InvalidInputException(
-                "Failed to set dplyr pipe syntax: %s",
-                dplyr_error_code_name(set_result));
-        }
-
-        return StringVector::AddString(result, PipeSyntaxConfigValue(pipe_syntax));
-    });
 }
 
 static string StripTrailingSemicolon(string input) {
@@ -857,13 +830,6 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         DplyrTableInit);
     loader.RegisterFunction(dplyr_function_with_config);
 
-    ScalarFunction dplyr_set_pipe_syntax_function(
-        "dplyr_set_pipe_syntax",
-        {LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        DplyrSetPipeSyntaxFunction);
-    dplyr_set_pipe_syntax_function.stability = FunctionStability::VOLATILE;
-    loader.RegisterFunction(dplyr_set_pipe_syntax_function);
 }
 
 string DplyrExtension::Name() {

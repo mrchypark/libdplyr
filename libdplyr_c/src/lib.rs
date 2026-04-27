@@ -24,7 +24,7 @@ mod validation;
 
 pub use compile::{
     dplyr_compile, dplyr_compile_query, dplyr_compile_query_with_pipe_syntax,
-    dplyr_compile_with_pipe_syntax, dplyr_set_pipe_syntax_env,
+    dplyr_compile_with_pipe_syntax,
 };
 pub use ffi::dplyr_init_output_string;
 pub use ffi_safety::dplyr_is_valid_string_pointer;

@@ -289,9 +289,7 @@ pub use crate::parser::{DplyrNode, DplyrOperation, Parser};
 pub use crate::performance::{
     BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
 };
-pub use crate::pipe_syntax::{
-    set_pipe_syntax_env, PipeSyntax, PIPE_SYNTAX_ENV_SETTER, PIPE_SYNTAX_ENV_VAR,
-};
+pub use crate::pipe_syntax::{PipeSyntax, PIPE_SYNTAX_ENV_VAR};
 pub use crate::sql_generator::{
     DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator,
     SqliteDialect,
@@ -689,8 +687,8 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("set_pipe_syntax_env(PipeSyntax::Native)"),
-            "Expected setting function guidance, got: {error}"
+                .contains("explicit pipe syntax API with PipeSyntax::Native"),
+            "Expected explicit API guidance, got: {error}"
         );
     }
 
@@ -714,8 +712,8 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("set_pipe_syntax_env(PipeSyntax::Magrittr)"),
-            "Expected setting function guidance, got: {error}"
+                .contains("explicit pipe syntax API with PipeSyntax::Magrittr"),
+            "Expected explicit API guidance, got: {error}"
         );
     }
 

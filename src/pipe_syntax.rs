@@ -5,9 +5,6 @@ use std::str::FromStr;
 /// Environment variable used to select the accepted dplyr pipe syntax.
 pub const PIPE_SYNTAX_ENV_VAR: &str = "DPLYR_PIPE_SYNTAX";
 
-/// Rust helper used to configure `DPLYR_PIPE_SYNTAX` for this process.
-pub const PIPE_SYNTAX_ENV_SETTER: &str = "set_pipe_syntax_env";
-
 /// Supported pipe syntaxes for libdplyr's dplyr-subset grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PipeSyntax {
@@ -62,7 +59,7 @@ impl PipeSyntax {
     /// Guidance for enabling this syntax through supported configuration paths.
     pub fn disabled_suggestion(self) -> String {
         format!(
-            "Set {PIPE_SYNTAX_ENV_VAR}={} or call {PIPE_SYNTAX_ENV_SETTER}(PipeSyntax::{})",
+            "Set {PIPE_SYNTAX_ENV_VAR}={} before process start or use an explicit pipe syntax API with PipeSyntax::{}",
             self.config_value(),
             self.rust_variant()
         )
@@ -92,11 +89,6 @@ impl PipeSyntax {
     pub fn from_env_or_default() -> Result<Self, String> {
         Ok(Self::from_env()?.unwrap_or_default())
     }
-}
-
-/// Sets `DPLYR_PIPE_SYNTAX` for this process.
-pub fn set_pipe_syntax_env(pipe_syntax: PipeSyntax) {
-    std::env::set_var(PIPE_SYNTAX_ENV_VAR, pipe_syntax.config_value());
 }
 
 /// Returns pipe syntax configuration guidance when an error mentions a disabled pipe.
@@ -157,19 +149,19 @@ mod tests {
     }
 
     #[test]
-    fn set_pipe_syntax_env_configures_env_backed_default() {
+    fn environment_configures_env_backed_default() {
         let _restore = EnvRestore::capture();
 
-        set_pipe_syntax_env(PipeSyntax::Native);
+        std::env::set_var(PIPE_SYNTAX_ENV_VAR, PipeSyntax::Native.config_value());
 
         assert_eq!(PipeSyntax::from_env_or_default(), Ok(PipeSyntax::Native));
     }
 
     #[test]
-    fn disabled_pipe_suggestion_mentions_env_and_setter() {
+    fn disabled_pipe_suggestion_mentions_env_and_explicit_api() {
         assert_eq!(
             PipeSyntax::Native.disabled_suggestion(),
-            "Set DPLYR_PIPE_SYNTAX=native or call set_pipe_syntax_env(PipeSyntax::Native)"
+            "Set DPLYR_PIPE_SYNTAX=native before process start or use an explicit pipe syntax API with PipeSyntax::Native"
         );
     }
 }
