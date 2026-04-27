@@ -51,8 +51,21 @@ impl SimpleTranspileCache {
     where
         F: FnOnce(&str, &DplyrOptions) -> Result<String, TranspileError>,
     {
+        Self::get_or_transpile_with_discriminator(dplyr_code, options, "", transpile_fn)
+    }
+
+    pub fn get_or_transpile_with_discriminator<F>(
+        dplyr_code: &str,
+        options: &DplyrOptions,
+        discriminator: &str,
+        transpile_fn: F,
+    ) -> Result<String, TranspileError>
+    where
+        F: FnOnce(&str, &DplyrOptions) -> Result<String, TranspileError>,
+    {
         let cache_start = Instant::now();
-        let cache_key = Self::create_cache_key(dplyr_code, options);
+        let cache_key =
+            Self::create_cache_key_with_discriminator(dplyr_code, options, discriminator);
 
         // Cache lookup with LRU update
         let cached_result = REQUEST_CACHE.with(|cache| {
@@ -137,8 +150,18 @@ impl SimpleTranspileCache {
     }
 
     // Generate cache key from dplyr_code + dialect + options
+    #[cfg(test)]
     fn create_cache_key(dplyr_code: &str, options: &DplyrOptions) -> String {
+        Self::create_cache_key_with_discriminator(dplyr_code, options, "")
+    }
+
+    fn create_cache_key_with_discriminator(
+        dplyr_code: &str,
+        options: &DplyrOptions,
+        discriminator: &str,
+    ) -> String {
         let mut hasher = DefaultHasher::new();
+        discriminator.hash(&mut hasher);
         dplyr_code.hash(&mut hasher);
         options.debug_mode.hash(&mut hasher);
         options.dialect.hash(&mut hasher);
@@ -542,6 +565,26 @@ mod tests {
         };
         let key4 = SimpleTranspileCache::create_cache_key("select(col1)", &mysql_options);
         assert_ne!(key1, key4, "dialect changes should fragment the cache");
+    }
+
+    #[test]
+    fn test_cache_key_generation_accepts_small_discriminator() {
+        let options = DplyrOptions::default();
+        let magrittr_key = SimpleTranspileCache::create_cache_key_with_discriminator(
+            "select(col1)",
+            &options,
+            "pipe-syntax:magrittr",
+        );
+        let native_key = SimpleTranspileCache::create_cache_key_with_discriminator(
+            "select(col1)",
+            &options,
+            "pipe-syntax:native",
+        );
+
+        assert_ne!(
+            magrittr_key, native_key,
+            "pipe syntax should fragment the cache without prefixing the full input"
+        );
     }
 
     #[test]

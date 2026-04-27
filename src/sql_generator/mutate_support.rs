@@ -144,6 +144,7 @@ impl SqlGenerator {
             Expr::Function { args, .. } => args
                 .iter()
                 .any(|arg| self.expression_references_columns(arg, columns)),
+            Expr::NamedArg { value, .. } => self.expression_references_columns(value, columns),
             Expr::Literal(_) => false,
         }
     }
@@ -169,6 +170,7 @@ impl SqlGenerator {
             Expr::Binary { left, right, .. } => {
                 self.expression_is_complex(left) || self.expression_is_complex(right)
             }
+            Expr::NamedArg { value, .. } => self.expression_is_complex(value),
             _ => false,
         }
     }

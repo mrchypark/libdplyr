@@ -505,16 +505,37 @@ static bool ParsePipeSyntaxOption(const string& value, uint32_t &pipe_syntax, st
     return false;
 }
 
-static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
-    const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
-    if (env_value == nullptr || string(env_value).empty()) {
-        pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-        return QueryCompileStatus::Success;
-    }
+struct DefaultPipeSyntaxResult {
+    QueryCompileStatus status;
+    uint32_t pipe_syntax;
+    string error;
+};
 
-    return ParsePipeSyntaxOption(env_value, pipe_syntax, error_out)
-        ? QueryCompileStatus::Success
-        : QueryCompileStatus::Error;
+static const DefaultPipeSyntaxResult& CachedDefaultPipeSyntax() {
+    static const DefaultPipeSyntaxResult result = [] {
+        DefaultPipeSyntaxResult cached;
+        cached.pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+
+        const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
+        if (env_value == nullptr || string(env_value).empty()) {
+            cached.status = QueryCompileStatus::Success;
+            return cached;
+        }
+
+        cached.status = ParsePipeSyntaxOption(env_value, cached.pipe_syntax, cached.error)
+            ? QueryCompileStatus::Success
+            : QueryCompileStatus::Error;
+        return cached;
+    }();
+
+    return result;
+}
+
+static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
+    const auto &cached = CachedDefaultPipeSyntax();
+    pipe_syntax = cached.pipe_syntax;
+    error_out = cached.error;
+    return cached.status;
 }
 
 static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
@@ -807,6 +828,7 @@ static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &
 
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
+    (void)CachedDefaultPipeSyntax();
 
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);

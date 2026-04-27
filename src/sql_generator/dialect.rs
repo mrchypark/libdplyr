@@ -124,7 +124,7 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
             if args.is_empty() {
                 None
             } else {
-                let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                let n = args.get(1).map(String::as_str).unwrap_or("1");
                 Some(format!("LEAD({}, {}) OVER ()", args[0], n))
             }
         }
@@ -132,7 +132,7 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
             if args.is_empty() {
                 None
             } else {
-                let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                let n = args.get(1).map(String::as_str).unwrap_or("1");
                 Some(format!("LAG({}, {}) OVER ()", args[0], n))
             }
         }
@@ -145,8 +145,8 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "first" | "first_value" => Some("FIRST_VALUE() OVER ()".to_string()),
-        "last" | "last_value" => Some("LAST_VALUE() OVER ()".to_string()),
+        "first" | "first_value" => unary_window_function("FIRST_VALUE", args),
+        "last" | "last_value" => unary_window_function("LAST_VALUE", args),
         "nth_value" => {
             if args.len() >= 2 {
                 Some(format!("NTH_VALUE({}, {}) OVER ()", args[0], args[1]))
@@ -179,6 +179,14 @@ fn unary_sql_function(sql_function: &str, args: &[String]) -> Option<String> {
 fn one_or_two_arg_sql_function(sql_function: &str, args: &[String]) -> Option<String> {
     if (1..=2).contains(&args.len()) {
         Some(format!("{sql_function}({})", args.join(", ")))
+    } else {
+        None
+    }
+}
+
+fn unary_window_function(sql_function: &str, args: &[String]) -> Option<String> {
+    if args.len() == 1 {
+        Some(format!("{sql_function}({}) OVER ()", args[0]))
     } else {
         None
     }

@@ -1255,11 +1255,11 @@ impl Parser {
 
                     let mut args = Vec::new();
                     if self.current_token != Token::RightParen {
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_function_argument()?);
 
                         while self.current_token == Token::Comma {
                             self.advance()?; // Skip ,
-                            args.push(self.parse_expression()?);
+                            args.push(self.parse_function_argument()?);
                         }
                     }
 
@@ -1300,6 +1300,28 @@ impl Parser {
                 position: self.position,
             }),
         }
+    }
+
+    fn parse_function_argument(&mut self) -> ParseResult<Expr> {
+        let expr = self.parse_expression()?;
+        if self.current_token != Token::Assignment {
+            return Ok(expr);
+        }
+
+        let Expr::Identifier(name) = expr else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "named argument identifier".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        };
+
+        self.advance()?; // Skip =
+        let value = self.parse_expression()?;
+        Ok(Expr::NamedArg {
+            name,
+            value: Box::new(value),
+        })
     }
 }
 

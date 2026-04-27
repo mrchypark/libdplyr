@@ -431,6 +431,10 @@ fn test_mutate_operations() {
             "mutate(full_name = paste(first_name, last_name))",
             "CONCAT_WS(' ', \"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
         ),
+        (
+            "mutate(full_name = paste(first_name, last_name, sep = \"-\"))",
+            "CONCAT_WS('-', \"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
+        ),
     ];
 
     for (dplyr_code, expected_fragment) in test_cases {

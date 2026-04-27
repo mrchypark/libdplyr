@@ -7,6 +7,7 @@ use std::os::raw::c_char;
 use std::panic;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 #[cfg(test)]
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -133,7 +134,12 @@ fn validated_pipe_syntax(raw_pipe_syntax: u32) -> Result<PipeSyntax, TranspileEr
 }
 
 fn pipe_syntax_from_env_or_default() -> Result<PipeSyntax, TranspileError> {
-    PipeSyntax::from_env_or_default().map_err(|message| TranspileError::internal_error(&message))
+    static DEFAULT_PIPE_SYNTAX: OnceLock<Result<PipeSyntax, String>> = OnceLock::new();
+
+    DEFAULT_PIPE_SYNTAX
+        .get_or_init(PipeSyntax::from_env_or_default)
+        .clone()
+        .map_err(|message| TranspileError::internal_error(&message))
 }
 
 #[derive(Debug)]
@@ -257,35 +263,40 @@ fn compile_to_sql_with_deadline(
         "Reduce input complexity or increase timeout limit",
     )?;
 
-    let cache_code = format!("pipe-syntax:{}\n{}", pipe_syntax.config_value(), code_str);
-    let sql = SimpleTranspileCache::get_or_transpile(&cache_code, opts, |_cache_code, options| {
-        ensure_before_deadline(
-            deadline,
-            max_processing_time,
-            "Processing",
-            "Reduce input complexity or increase timeout limit",
-        )?;
+    let cache_discriminator = format!("pipe-syntax:{}", pipe_syntax.config_value());
+    let sql = SimpleTranspileCache::get_or_transpile_with_discriminator(
+        code_str,
+        opts,
+        &cache_discriminator,
+        |source_code, options| {
+            ensure_before_deadline(
+                deadline,
+                max_processing_time,
+                "Processing",
+                "Reduce input complexity or increase timeout limit",
+            )?;
 
-        validate_input_security(code_str)?;
+            validate_input_security(source_code)?;
 
-        let transpiler = Transpiler::with_pipe_syntax(
-            create_dialect(validated_dialect(options.dialect)?),
-            pipe_syntax,
-        );
-        let transpile_result = transpiler.transpile(code_str);
+            let transpiler = Transpiler::with_pipe_syntax(
+                create_dialect(validated_dialect(options.dialect)?),
+                pipe_syntax,
+            );
+            let transpile_result = transpiler.transpile(source_code);
 
-        ensure_before_deadline(
-            deadline,
-            max_processing_time,
-            "Transpilation",
-            "Input may be too complex for processing",
-        )?;
+            ensure_before_deadline(
+                deadline,
+                max_processing_time,
+                "Transpilation",
+                "Input may be too complex for processing",
+            )?;
 
-        match transpile_result {
-            Ok(sql) => Ok(sql),
-            Err(libdplyr_error) => Err(convert_libdplyr_error(libdplyr_error)),
-        }
-    })?;
+            match transpile_result {
+                Ok(sql) => Ok(sql),
+                Err(libdplyr_error) => Err(convert_libdplyr_error(libdplyr_error)),
+            }
+        },
+    )?;
 
     ensure_before_deadline(
         deadline,

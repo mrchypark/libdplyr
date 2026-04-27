@@ -374,24 +374,77 @@ impl SqlGenerator {
                 let op_sql = self.generate_binary_operator(operator);
                 Ok(format!("({left_sql} {op_sql} {right_sql})"))
             }
-            Expr::Function { name, args } => {
-                let args_sql: Result<Vec<_>, _> = args
-                    .iter()
-                    .map(|arg| self.generate_expression(arg))
-                    .collect();
-                let args_str = args_sql?;
+            Expr::Function { name, args } => self.generate_function_expression(name, args),
+            Expr::NamedArg { name, .. } => Err(GenerationError::InvalidAst {
+                reason: format!("named argument '{name}' cannot be used outside a function call"),
+            }),
+        }
+    }
 
-                // Try dialect-specific translation first
-                if let Some(translated) = self.dialect.translate_function(name, &args_str) {
-                    return Ok(translated);
+    fn generate_function_expression(&self, name: &str, args: &[Expr]) -> GenerationResult<String> {
+        if name.eq_ignore_ascii_case("paste") {
+            return self.generate_paste_expression(name, args);
+        }
+
+        if args.iter().any(|arg| matches!(arg, Expr::NamedArg { .. })) {
+            return Err(GenerationError::UnsupportedFunction {
+                function: name.to_string(),
+                dialect: self.dialect.dialect_name().to_string(),
+            });
+        }
+
+        let args_str: Result<Vec<_>, _> = args
+            .iter()
+            .map(|arg| self.generate_expression(arg))
+            .collect();
+        let args_str = args_str?;
+
+        if let Some(translated) = self.dialect.translate_function(name, &args_str) {
+            return Ok(translated);
+        }
+
+        Err(GenerationError::UnsupportedFunction {
+            function: name.to_string(),
+            dialect: self.dialect.dialect_name().to_string(),
+        })
+    }
+
+    fn generate_paste_expression(&self, name: &str, args: &[Expr]) -> GenerationResult<String> {
+        let mut positional_args = Vec::new();
+        let mut separator = self.dialect.quote_string(" ");
+        let mut seen_separator = false;
+
+        for arg in args {
+            match arg {
+                Expr::NamedArg {
+                    name: arg_name,
+                    value,
+                } if arg_name.eq_ignore_ascii_case("sep") => {
+                    if seen_separator {
+                        return Err(GenerationError::UnsupportedFunction {
+                            function: name.to_string(),
+                            dialect: self.dialect.dialect_name().to_string(),
+                        });
+                    }
+                    separator = self.generate_expression(value)?;
+                    seen_separator = true;
                 }
-
-                Err(GenerationError::UnsupportedFunction {
-                    function: name.clone(),
-                    dialect: self.dialect.dialect_name().to_string(),
-                })
+                Expr::NamedArg { .. } => {
+                    return Err(GenerationError::UnsupportedFunction {
+                        function: name.to_string(),
+                        dialect: self.dialect.dialect_name().to_string(),
+                    });
+                }
+                _ => positional_args.push(self.generate_expression(arg)?),
             }
         }
+
+        self.dialect
+            .concat_with_separator(&separator, &positional_args)
+            .ok_or_else(|| GenerationError::UnsupportedFunction {
+                function: name.to_string(),
+                dialect: self.dialect.dialect_name().to_string(),
+            })
     }
 
     /// Converts literal values to SQL.

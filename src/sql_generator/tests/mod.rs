@@ -503,6 +503,77 @@ mod dialect_specific_tests {
     }
 
     #[test]
+    fn test_tidyverse_paste_honors_named_sep_argument() {
+        let pg_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        let paste_expr = Expr::Function {
+            name: "paste".to_string(),
+            args: vec![
+                Expr::Identifier("first_name".to_string()),
+                Expr::Identifier("last_name".to_string()),
+                Expr::NamedArg {
+                    name: "sep".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::String("-".to_string()))),
+                },
+            ],
+        };
+
+        assert_eq!(
+            pg_generator.generate_expression(&paste_expr).unwrap(),
+            "CONCAT_WS('-', \"first_name\", \"last_name\")"
+        );
+        assert_eq!(
+            sqlite_generator.generate_expression(&paste_expr).unwrap(),
+            "(\"first_name\" || '-' || \"last_name\")"
+        );
+    }
+
+    #[test]
+    fn test_window_functions_preserve_expression_arguments() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let offset_expr = Expr::Binary {
+            left: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
+            operator: BinaryOp::Plus,
+            right: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
+        };
+
+        let lead_expr = Expr::Function {
+            name: "lead".to_string(),
+            args: vec![Expr::Identifier("value".to_string()), offset_expr.clone()],
+        };
+        let lag_expr = Expr::Function {
+            name: "lag".to_string(),
+            args: vec![Expr::Identifier("value".to_string()), offset_expr],
+        };
+        let first_expr = Expr::Function {
+            name: "first".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
+        let last_expr = Expr::Function {
+            name: "last".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&lead_expr).unwrap(),
+            "LEAD(\"value\", (1 + 1)) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&lag_expr).unwrap(),
+            "LAG(\"value\", (1 + 1)) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&first_expr).unwrap(),
+            "FIRST_VALUE(\"value\") OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&last_expr).unwrap(),
+            "LAST_VALUE(\"value\") OVER ()"
+        );
+    }
+
+    #[test]
     fn test_tidyverse_nzchar_returns_boolean_expression() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
