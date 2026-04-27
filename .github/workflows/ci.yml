@@ -77,9 +77,9 @@ jobs:
           cache-on-failure: true
 
       - name: Install CMake
-        uses: jwlawson/actions-setup-cmake@v1.14
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20"
+          cmake-version: "3.20.x"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -428,9 +428,9 @@ jobs:
           cache-on-failure: true
 
       - name: Install CMake
-        uses: jwlawson/actions-setup-cmake@v1.14
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20"
+          cmake-version: "3.20.x"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -775,9 +775,9 @@ jobs:
           cache-on-failure: true
 
       - name: Install CMake
-        uses: jwlawson/actions-setup-cmake@v1.14
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20"
+          cmake-version: "3.20.x"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
