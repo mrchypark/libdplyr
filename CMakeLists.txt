@@ -622,13 +622,17 @@ enable_testing()
 # This works correctly regardless of build generator (Ninja, MSVC, Makefiles)
 set(EXTENSION_BINARY_PATH "$<TARGET_FILE:${DUCKDB_EXTENSION_TARGET}>")
 set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
+set(DUCKDB_CLI_COMMAND duckdb)
+if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "(^|;)x86_64($|;)")
+    set(DUCKDB_CLI_COMMAND arch -x86_64 duckdb)
+endif()
 
 # R4-AC2: Smoke test - basic extension loading
 add_test(
     NAME smoke_test_load
     COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-        duckdb -unsigned -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
+        ${DUCKDB_CLI_COMMAND} -unsigned -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
 )
 set_tests_properties(smoke_test_load PROPERTIES TIMEOUT ${TEST_TIMEOUT})
 
@@ -639,7 +643,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_comprehensive
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_data AS SELECT i as id, (i % 5) + 18 as age FROM range(1, 6) as t(i);
                 -- Table function entry point (works in CLI scripts reliably)
@@ -656,7 +660,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_minimum_operations
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_ops AS SELECT i as id, 'name_' || i as name, (i % 5) + 18 as age FROM range(1, 6) as t(i);
                 -- Test each minimum operation via table function entry point
@@ -677,7 +681,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_dplyr_keyword
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_keyword AS SELECT 1 as id, 'test' as name;
                 SELECT COUNT(*) FROM dplyr('test_keyword %>% select(id)') AS t;
