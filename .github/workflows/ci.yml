@@ -79,7 +79,7 @@ jobs:
       - name: Install CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20.x"
+          cmake-version: "latest"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -430,7 +430,7 @@ jobs:
       - name: Install CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20.x"
+          cmake-version: "latest"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -777,7 +777,7 @@ jobs:
       - name: Install CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: "3.20.x"
+          cmake-version: "latest"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
