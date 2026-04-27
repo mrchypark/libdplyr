@@ -546,6 +546,10 @@ mod dialect_specific_tests {
             name: "lag".to_string(),
             args: vec![Expr::Identifier("value".to_string()), offset_expr],
         };
+        let row_number_expr = Expr::Function {
+            name: "row_number".to_string(),
+            args: vec![],
+        };
         let lead_default_expr = Expr::Function {
             name: "lead".to_string(),
             args: vec![
@@ -578,6 +582,10 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&lag_expr).unwrap(),
             "LAG(\"value\", (1 + 1)) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&row_number_expr).unwrap(),
+            "ROW_NUMBER() OVER ()"
         );
         assert_eq!(
             generator.generate_expression(&lead_default_expr).unwrap(),
@@ -674,7 +682,70 @@ mod dialect_specific_tests {
 
         assert_eq!(
             generator.generate_expression(&substr_expr).unwrap(),
-            "SUBSTR(\"name\", 2, (4 - 2 + 1))"
+            "SUBSTR(\"name\", 2, ((4) - (2) + 1))"
+        );
+
+        let complex_substr_expr = Expr::Function {
+            name: "substr".to_string(),
+            args: vec![
+                Expr::Identifier("name".to_string()),
+                Expr::Binary {
+                    left: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
+                    operator: BinaryOp::Plus,
+                    right: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
+                },
+                Expr::Binary {
+                    left: Box::new(Expr::Literal(LiteralValue::Number(5.0))),
+                    operator: BinaryOp::Plus,
+                    right: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
+                },
+            ],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&complex_substr_expr).unwrap(),
+            "SUBSTR(\"name\", (1 + 1), (((5 + 1)) - ((1 + 1)) + 1))"
+        );
+    }
+
+    #[test]
+    fn test_tidyverse_null_replacement_helpers_translate_to_coalesce() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let coalesce_expr = Expr::Function {
+            name: "coalesce".to_string(),
+            args: vec![
+                Expr::Identifier("nickname".to_string()),
+                Expr::Identifier("name".to_string()),
+                Expr::Literal(LiteralValue::String("unknown".to_string())),
+            ],
+        };
+        let replace_na_expr = Expr::Function {
+            name: "replace_na".to_string(),
+            args: vec![
+                Expr::Identifier("nickname".to_string()),
+                Expr::Literal(LiteralValue::String("unknown".to_string())),
+            ],
+        };
+        let na_replace_expr = Expr::Function {
+            name: "na.replace".to_string(),
+            args: vec![
+                Expr::Identifier("nickname".to_string()),
+                Expr::Literal(LiteralValue::String("unknown".to_string())),
+            ],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&coalesce_expr).unwrap(),
+            "COALESCE(\"nickname\", \"name\", 'unknown')"
+        );
+        assert_eq!(
+            generator.generate_expression(&replace_na_expr).unwrap(),
+            "COALESCE(\"nickname\", 'unknown')"
+        );
+        assert_eq!(
+            generator.generate_expression(&na_replace_expr).unwrap(),
+            "COALESCE(\"nickname\", 'unknown')"
         );
     }
 

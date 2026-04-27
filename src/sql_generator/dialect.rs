@@ -82,7 +82,7 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
         "substr" => {
             if args.len() >= 3 {
                 Some(format!(
-                    "SUBSTR({}, {}, ({} - {} + 1))",
+                    "SUBSTR({}, {}, (({}) - ({}) + 1))",
                     args[0], args[1], args[2], args[1]
                 ))
             } else if args.len() == 2 {
@@ -137,6 +137,20 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
+        "coalesce" => {
+            if !args.is_empty() {
+                Some(format!("COALESCE({})", args.join(", ")))
+            } else {
+                None
+            }
+        }
+        "na.replace" | "replace_na" => {
+            if args.len() == 2 {
+                Some(format!("COALESCE({}, {})", args[0], args[1]))
+            } else {
+                None
+            }
+        }
         // Window functions
         "lead" => {
             if args.is_empty() {
@@ -162,6 +176,7 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
         }
         "rank" => Some("RANK() OVER ()".to_string()),
         "dense_rank" => Some("DENSE_RANK() OVER ()".to_string()),
+        "row_number" => Some("ROW_NUMBER() OVER ()".to_string()),
         "ntile" => {
             if !args.is_empty() {
                 Some(format!("NTILE({}) OVER ()", args[0]))
@@ -174,16 +189,6 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
         "nth_value" => {
             if args.len() >= 2 {
                 Some(format!("NTH_VALUE({}, {}) OVER ()", args[0], args[1]))
-            } else {
-                None
-            }
-        }
-        "row_number" => Some("ROW_NUMBER() OVER ()".to_string()),
-        // NULL handling
-        "coalesce" => Some(format!("COALESCE({})", args.join(", "))),
-        "na.replace" | "replace_na" => {
-            if args.len() >= 2 {
-                Some(format!("COALESCE({}, {})", args[0], args[1]))
             } else {
                 None
             }
