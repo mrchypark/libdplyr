@@ -69,23 +69,38 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "str_length" => unary_sql_function("LENGTH", args),
+        "str_length" => {
+            if args.len() == 1 {
+                Some(dialect.char_length(&args[0]))
+            } else {
+                None
+            }
+        }
         "str_to_lower" => unary_sql_function("LOWER", args),
         "str_to_upper" => unary_sql_function("UPPER", args),
         "str_trim" => unary_sql_function("TRIM", args),
         "substr" => {
             if args.len() >= 3 {
-                Some(format!("SUBSTR({}, {}, {})", args[0], args[1], args[2]))
+                Some(format!(
+                    "SUBSTR({}, {}, ({} - {} + 1))",
+                    args[0], args[1], args[2], args[1]
+                ))
             } else if args.len() == 2 {
                 Some(format!("SUBSTR({}, {})", args[0], args[1]))
             } else {
                 None
             }
         }
-        "nchar" => unary_sql_function("LENGTH", args),
+        "nchar" => {
+            if args.len() == 1 {
+                Some(dialect.char_length(&args[0]))
+            } else {
+                None
+            }
+        }
         "nzchar" => {
             if args.len() == 1 {
-                Some(format!("(LENGTH({}) > 0)", args[0]))
+                Some(format!("({} > 0)", dialect.char_length(&args[0])))
             } else {
                 None
             }
@@ -481,6 +496,11 @@ pub trait SqlDialect {
         None
     }
 
+    /// Dialect-specific character-count function for R string helpers.
+    fn char_length(&self, value: &str) -> String {
+        format!("LENGTH({value})")
+    }
+
     /// Dialect-specific SQL type for R cast helpers.
     fn r_cast_type(&self, function: &str) -> Option<&'static str> {
         match function {
@@ -729,6 +749,10 @@ impl SqlDialect for MySqlDialect {
 
     fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
         Some(format!("REGEXP_LIKE({value}, {pattern})"))
+    }
+
+    fn char_length(&self, value: &str) -> String {
+        format!("CHAR_LENGTH({value})")
     }
 
     fn r_cast_type(&self, function: &str) -> Option<&'static str> {

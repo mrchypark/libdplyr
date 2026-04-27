@@ -576,6 +576,7 @@ mod dialect_specific_tests {
     #[test]
     fn test_tidyverse_nzchar_returns_boolean_expression() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let mysql_generator = SqlGenerator::new(Box::new(MySqlDialect::new()));
 
         let nzchar_expr = Expr::Function {
             name: "nzchar".to_string(),
@@ -593,6 +594,14 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&nchar_expr).unwrap(),
             "LENGTH(\"name\")"
+        );
+        assert_eq!(
+            mysql_generator.generate_expression(&nchar_expr).unwrap(),
+            "CHAR_LENGTH(`name`)"
+        );
+        assert_eq!(
+            mysql_generator.generate_expression(&nzchar_expr).unwrap(),
+            "(CHAR_LENGTH(`name`) > 0)"
         );
     }
 
@@ -623,6 +632,25 @@ mod dialect_specific_tests {
         assert_eq!(
             sqlite_generator.generate_expression(&log10_expr).unwrap(),
             "LOG10(\"value\")"
+        );
+    }
+
+    #[test]
+    fn test_tidyverse_substr_uses_r_stop_position() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let substr_expr = Expr::Function {
+            name: "substr".to_string(),
+            args: vec![
+                Expr::Identifier("name".to_string()),
+                Expr::Literal(LiteralValue::Number(2.0)),
+                Expr::Literal(LiteralValue::Number(4.0)),
+            ],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&substr_expr).unwrap(),
+            "SUBSTR(\"name\", 2, (4 - 2 + 1))"
         );
     }
 
