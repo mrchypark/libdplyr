@@ -297,7 +297,7 @@ fn translate_common_aggregate_function(function: &str) -> Option<String> {
         "count" => Some("COUNT".to_string()),
         "min" => Some("MIN".to_string()),
         "max" => Some("MAX".to_string()),
-        "n" => Some("COUNT(*)".to_string()),
+        "n" => Some("COUNT".to_string()),
         _ => None,
     }
 }
@@ -463,7 +463,7 @@ pub trait SqlDialect {
     ///
     /// let dialect = PostgreSqlDialect::new();
     /// assert_eq!(dialect.aggregate_function("mean"), "AVG");
-    /// assert_eq!(dialect.aggregate_function("n"), "COUNT(*)");
+    /// assert_eq!(dialect.aggregate_function("n"), "COUNT");
     /// ```
     fn aggregate_function(&self, function: &str) -> String;
 
@@ -642,7 +642,7 @@ impl SqlDialect for PostgreSqlDialect {
             "count" => "COUNT".to_string(),
             "min" => "MIN".to_string(),
             "max" => "MAX".to_string(),
-            "n" => "COUNT(*)".to_string(),
+            "n" => "COUNT".to_string(),
             _ => function.to_uppercase(),
         }
     }
@@ -756,7 +756,7 @@ impl SqlDialect for MySqlDialect {
             "count" => "COUNT".to_string(),
             "min" => "MIN".to_string(),
             "max" => "MAX".to_string(),
-            "n" => "COUNT(*)".to_string(),
+            "n" => "COUNT".to_string(),
             _ => function.to_uppercase(),
         }
     }
@@ -929,7 +929,7 @@ impl SqlDialect for DuckDbDialect {
             "count" => "COUNT".to_string(),
             "min" => "MIN".to_string(),
             "max" => "MAX".to_string(),
-            "n" => "COUNT(*)".to_string(),
+            "n" => "COUNT".to_string(),
             "median" => "MEDIAN".to_string(), // DuckDB specific
             "mode" => "MODE".to_string(),     // DuckDB specific
             _ => function.to_uppercase(),
@@ -1015,7 +1015,7 @@ impl SqlDialect for SqliteDialect {
             "count" => "COUNT".to_string(),
             "min" => "MIN".to_string(),
             "max" => "MAX".to_string(),
-            "n" => "COUNT(*)".to_string(),
+            "n" => "COUNT".to_string(),
             _ => function.to_uppercase(),
         }
     }

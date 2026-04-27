@@ -67,7 +67,7 @@ mod dialect_tests {
         assert_eq!(dialect.aggregate_function("count"), "COUNT");
         assert_eq!(dialect.aggregate_function("min"), "MIN");
         assert_eq!(dialect.aggregate_function("max"), "MAX");
-        assert_eq!(dialect.aggregate_function("n"), "COUNT(*)");
+        assert_eq!(dialect.aggregate_function("n"), "COUNT");
         assert_eq!(dialect.aggregate_function("custom"), "CUSTOM");
     }
 
@@ -857,7 +857,7 @@ mod dialect_specific_tests {
                     "count" => assert_eq!(result, "COUNT"),
                     "min" => assert_eq!(result, "MIN"),
                     "max" => assert_eq!(result, "MAX"),
-                    "n" => assert_eq!(result, "COUNT(*)"),
+                    "n" => assert_eq!(result, "COUNT"),
                     _ => {}
                 }
             }

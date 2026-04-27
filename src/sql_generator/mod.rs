@@ -335,16 +335,12 @@ impl SqlGenerator {
                         dialect: self.dialect.dialect_name().to_string(),
                     })?;
                 let column_ref = if agg.function.to_lowercase() == "n" {
-                    String::new() // COUNT(*) is already included in function name
+                    "*".to_string()
                 } else {
                     self.dialect.quote_identifier(&agg.column)
                 };
 
-                let expr = if column_ref.is_empty() {
-                    func_name
-                } else {
-                    format!("{func_name}({column_ref})")
-                };
+                let expr = format!("{func_name}({column_ref})");
 
                 if let Some(alias) = &agg.alias {
                     Ok(format!(
