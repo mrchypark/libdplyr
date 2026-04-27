@@ -173,6 +173,7 @@ impl std::fmt::Display for Token {
 /// Lexer struct
 ///
 /// Provides functionality to tokenize input strings.
+#[derive(Clone)]
 pub struct Lexer {
     input: Vec<char>,
     position: usize,

@@ -599,6 +599,23 @@ mod tests {
     }
 
     #[test]
+    fn test_native_pipe_lambda_rhs_does_not_consume_column_name_collision() {
+        let transpiler =
+            Transpiler::with_pipe_syntax(Box::new(PostgreSqlDialect::new()), PipeSyntax::Native);
+
+        let error = transpiler
+            .transpile(r"data |> (\(x) filter(x > 1))()")
+            .expect_err("native lambda must not consume a column expression as data");
+
+        assert!(
+            error
+                .to_string()
+                .contains("lambda body must receive the piped data argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn test_magrittr_mode_rejects_native_pipe_lambda_rhs() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 

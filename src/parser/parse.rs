@@ -383,7 +383,9 @@ impl Parser {
     fn consume_optional_lazy_data_argument(&mut self) -> ParseResult<()> {
         let should_consume = match (&self.lazy_input_context, &self.current_token) {
             (Some(LazyInput::MagrittrDot), Token::Dot) => true,
-            (Some(LazyInput::NativeParameter(param)), Token::Identifier(name)) => name == param,
+            (Some(LazyInput::NativeParameter(param)), Token::Identifier(name)) => {
+                name == param && matches!(self.peek_token()?, Token::Comma | Token::RightParen)
+            }
             _ => false,
         };
 
@@ -405,6 +407,11 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    fn peek_token(&self) -> ParseResult<Token> {
+        let mut lexer = self.lexer.clone();
+        Ok(lexer.next_token()?)
     }
 
     fn parse_magrittr_lambda_pipeline_application(
