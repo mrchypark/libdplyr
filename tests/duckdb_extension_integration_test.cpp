@@ -18,10 +18,57 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 
 // duckdb::DuckDB includes
 #include "duckdb.hpp"
 #include "duckdb/parser/parser_extension.hpp"
+
+namespace {
+
+void SetEnvironmentVariableForTest(const char *key, const std::string &value) {
+#ifdef _WIN32
+    _putenv_s(key, value.c_str());
+#else
+    setenv(key, value.c_str(), 1);
+#endif
+}
+
+void ClearEnvironmentVariableForTest(const char *key) {
+#ifdef _WIN32
+    _putenv_s(key, "");
+#else
+    unsetenv(key);
+#endif
+}
+
+class ScopedEnvironmentVariable {
+public:
+    ScopedEnvironmentVariable(const char *key_p, const std::string &value)
+        : key(key_p) {
+        const char *existing = std::getenv(key);
+        if (existing != nullptr) {
+            had_original = true;
+            original = existing;
+        }
+        SetEnvironmentVariableForTest(key, value);
+    }
+
+    ~ScopedEnvironmentVariable() {
+        if (had_original) {
+            SetEnvironmentVariableForTest(key, original);
+        } else {
+            ClearEnvironmentVariableForTest(key);
+        }
+    }
+
+private:
+    const char *key;
+    bool had_original = false;
+    std::string original;
+};
+
+} // namespace
 
 class DuckDBExtensionTest : public ::testing::Test {
 protected:
@@ -236,6 +283,22 @@ TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
     ASSERT_TRUE(chunk);
     ASSERT_EQ(chunk->size(), 1);
     EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 2);
+}
+
+TEST_F(DuckDBExtensionTest, InvalidPipeEnvironmentPreservesPlainSqlPassthrough) {
+    ScopedEnvironmentVariable pipe_syntax("DPLYR_PIPE_SYNTAX", "invalid-pipe-mode");
+
+    auto result = safe_query("SELECT 42 AS answer");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "Plain SQL should bypass dplyr pipe syntax configuration: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 1);
+
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 42);
 }
 
 TEST_F(DuckDBExtensionTest, SubqueryIntegration) {

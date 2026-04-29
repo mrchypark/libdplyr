@@ -8,7 +8,9 @@ use crate::cache::SimpleTranspileCache;
 use crate::cache::{
     dplyr_cache_clear, dplyr_cache_get_hits, dplyr_cache_get_misses, dplyr_cache_get_size,
 };
-use crate::compile::{convert_libdplyr_error, force_ffi_panic_for_test};
+use crate::compile::{
+    acquire_ffi_test_gate_for_test, convert_libdplyr_error, force_ffi_panic_for_test,
+};
 use crate::error::{
     DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
     DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_ERROR_SYNTAX, DPLYR_SUCCESS,
@@ -24,6 +26,29 @@ use crate::validation::{
 #[cfg(test)]
 mod ffi_tests {
     use super::*;
+
+    struct EnvRestore {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvRestore {
+        fn capture(key: &'static str) -> Self {
+            Self {
+                key,
+                original: std::env::var_os(key),
+            }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     #[test]
     fn test_dplyr_options_default() {
@@ -339,6 +364,30 @@ mod ffi_tests {
 
     #[test]
     fn test_dplyr_compile_query_returns_not_handled_for_plain_sql() {
+        let input = CString::new("SELECT 42").unwrap();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query(
+                input.as_ptr(),
+                std::ptr::null(),
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(out_error.is_null());
+    }
+
+    #[test]
+    fn test_dplyr_compile_query_preserves_plain_sql_passthrough_when_pipe_env_is_invalid() {
+        let _gate = acquire_ffi_test_gate_for_test();
+        let _restore = EnvRestore::capture("DPLYR_PIPE_SYNTAX");
+        std::env::set_var("DPLYR_PIPE_SYNTAX", "invalid-pipe-mode");
+
         let input = CString::new("SELECT 42").unwrap();
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();

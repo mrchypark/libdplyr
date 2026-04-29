@@ -538,19 +538,15 @@ static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error
     return cached.status;
 }
 
-static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
-                                                          string &sql_out, string &error_out) {
+template <class CompileFn>
+static QueryCompileStatus CompileDplyrQueryWithCompiler(const string& query, string &sql_out, string &error_out,
+                                                        CompileFn compile_fn) {
     char* sql_output = nullptr;
     char* error_output = nullptr;
     DplyrOptions options = DefaultDplyrOptions();
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    int result = dplyr_compile_query_with_pipe_syntax(
-        query.c_str(),
-        &options,
-        pipe_syntax,
-        &sql_output,
-        &error_output);
+    int result = compile_fn(&options, &sql_output, &error_output);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -591,12 +587,23 @@ static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, u
 }
 
 static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out, string &error_out) {
-    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-    auto status = DefaultPipeSyntax(pipe_syntax, error_out);
-    if (status != QueryCompileStatus::Success) {
-        return status;
-    }
-    return CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql_out, error_out);
+    return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
+        [&](DplyrOptions* options, char** sql_output, char** error_output) {
+            return dplyr_compile_query(query.c_str(), options, sql_output, error_output);
+        });
+}
+
+static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
+                                                          string &sql_out, string &error_out) {
+    return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
+        [&](DplyrOptions* options, char** sql_output, char** error_output) {
+            return dplyr_compile_query_with_pipe_syntax(
+                query.c_str(),
+                options,
+                pipe_syntax,
+                sql_output,
+                error_output);
+        });
 }
 
 static string StripTrailingSemicolon(string input) {

@@ -7,7 +7,6 @@ use std::os::raw::c_char;
 use std::panic;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
 #[cfg(test)]
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -101,6 +100,11 @@ pub(crate) fn force_ffi_panic_for_test() -> ForcedFfiPanicGuard {
 }
 
 #[cfg(test)]
+pub(crate) fn acquire_ffi_test_gate_for_test() -> impl Drop {
+    FfiTestGateGuard::acquire()
+}
+
+#[cfg(test)]
 impl Drop for ForcedFfiPanicGuard {
     fn drop(&mut self) {
         FORCE_FFI_PANIC.store(false, Ordering::SeqCst);
@@ -134,12 +138,7 @@ fn validated_pipe_syntax(raw_pipe_syntax: u32) -> Result<PipeSyntax, TranspileEr
 }
 
 fn pipe_syntax_from_env_or_default() -> Result<PipeSyntax, TranspileError> {
-    static DEFAULT_PIPE_SYNTAX: OnceLock<Result<PipeSyntax, String>> = OnceLock::new();
-
-    DEFAULT_PIPE_SYNTAX
-        .get_or_init(PipeSyntax::from_env_or_default)
-        .clone()
-        .map_err(|message| TranspileError::internal_error(&message))
+    PipeSyntax::from_env_or_default().map_err(|message| TranspileError::internal_error(&message))
 }
 
 #[derive(Debug)]
@@ -1134,6 +1133,17 @@ fn finish_compile_query(
     }
 }
 
+fn query_requires_pipe_syntax_resolution(query_str: &str, opts: &DplyrOptions) -> bool {
+    [PipeSyntax::Magrittr, PipeSyntax::Native]
+        .into_iter()
+        .map(|pipe_syntax| scan_config_for_options(opts, pipe_syntax))
+        .any(|scan_config| {
+            find_pipe_operator_with_config(query_str, 0, scan_config).is_some()
+                || find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some()
+                || find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some()
+        })
+}
+
 /// Compile dplyr code to SQL
 ///
 /// # Safety
@@ -1322,6 +1332,14 @@ pub unsafe extern "C" fn dplyr_compile_query(
         } else {
             unsafe { (*options).clone() }
         };
+
+        if let Err(error) = validate_compile_options(&opts) {
+            return set_compile_error_output(out_error, error);
+        }
+
+        if !query_requires_pipe_syntax_resolution(query_str, &opts) {
+            return DPLYR_QUERY_NOT_HANDLED;
+        }
 
         let pipe_syntax = match pipe_syntax_from_env_or_default() {
             Ok(pipe_syntax) => pipe_syntax,
