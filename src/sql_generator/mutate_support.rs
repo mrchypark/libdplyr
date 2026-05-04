@@ -200,10 +200,9 @@ impl SqlGenerator {
 
         // Add mutated columns
         for assignment in assignments {
-            let partition_by = "";
             let column_expr = format!(
                 "{} AS {}",
-                self.generate_expression_with_window_partition(&assignment.expr, partition_by)?,
+                self.generate_expression(&assignment.expr)?,
                 self.dialect.quote_identifier(&assignment.column)
             );
             outer_select.push(column_expr);
