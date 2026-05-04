@@ -530,6 +530,35 @@ mod dialect_specific_tests {
     }
 
     #[test]
+    fn test_named_argument_rejection_reports_argument_name() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let round_expr = Expr::Function {
+            name: "round".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "digits".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::Number(2.0))),
+                },
+            ],
+        };
+
+        assert!(matches!(
+            generator.generate_expression(&round_expr),
+            Err(GenerationError::UnsupportedNamedArgument {
+                function,
+                argument,
+                dialect
+            }) if function == "round" && argument == "digits" && dialect == "postgresql"
+        ));
+
+        let error = generator.generate_expression(&round_expr).unwrap_err();
+        assert!(error.to_string().contains("digits"));
+        assert!(error.to_string().contains("round"));
+    }
+
+    #[test]
     fn test_window_functions_preserve_expression_arguments() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let offset_expr = Expr::Binary {

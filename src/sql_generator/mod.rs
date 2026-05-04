@@ -382,9 +382,13 @@ impl SqlGenerator {
             return self.generate_paste_expression(name, args);
         }
 
-        if args.iter().any(|arg| matches!(arg, Expr::NamedArg { .. })) {
-            return Err(GenerationError::UnsupportedFunction {
+        if let Some(argument) = args.iter().find_map(|arg| match arg {
+            Expr::NamedArg { name, .. } => Some(name),
+            _ => None,
+        }) {
+            return Err(GenerationError::UnsupportedNamedArgument {
                 function: name.to_string(),
+                argument: argument.to_string(),
                 dialect: self.dialect.dialect_name().to_string(),
             });
         }
@@ -425,9 +429,10 @@ impl SqlGenerator {
                     separator = self.generate_expression(value)?;
                     seen_separator = true;
                 }
-                Expr::NamedArg { .. } => {
-                    return Err(GenerationError::UnsupportedFunction {
+                Expr::NamedArg { name: arg_name, .. } => {
+                    return Err(GenerationError::UnsupportedNamedArgument {
                         function: name.to_string(),
+                        argument: arg_name.to_string(),
                         dialect: self.dialect.dialect_name().to_string(),
                     });
                 }
