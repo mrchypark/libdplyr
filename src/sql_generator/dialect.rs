@@ -166,7 +166,8 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                let over = window_over_clause(window_clause);
+                let over =
+                    window_over_clause_with_order(window_clause, args.get(3).map(String::as_str));
                 match args.get(2) {
                     Some(default) => Some(format!("LEAD({}, {}, {}) {over}", args[0], n, default)),
                     None => Some(format!("LEAD({}, {}) {over}", args[0], n)),
@@ -178,22 +179,17 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                let over = window_over_clause(window_clause);
+                let over =
+                    window_over_clause_with_order(window_clause, args.get(3).map(String::as_str));
                 match args.get(2) {
                     Some(default) => Some(format!("LAG({}, {}, {}) {over}", args[0], n, default)),
                     None => Some(format!("LAG({}, {}) {over}", args[0], n)),
                 }
             }
         }
-        "rank" => Some(format!("RANK() {}", window_over_clause(window_clause))),
-        "dense_rank" => Some(format!(
-            "DENSE_RANK() {}",
-            window_over_clause(window_clause)
-        )),
-        "row_number" => Some(format!(
-            "ROW_NUMBER() {}",
-            window_over_clause(window_clause)
-        )),
+        "rank" => ranking_window_function("RANK", args, window_clause),
+        "dense_rank" => ranking_window_function("DENSE_RANK", args, window_clause),
+        "row_number" => ranking_window_function("ROW_NUMBER", args, window_clause),
         "ntile" => {
             if !args.is_empty() {
                 Some(format!(
@@ -205,8 +201,8 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             }
         }
-        "first" | "first_value" => unary_window_function("FIRST_VALUE", args, window_clause),
-        "last" | "last_value" => unary_window_function("LAST_VALUE", args, window_clause),
+        "first" | "first_value" => value_window_function("FIRST_VALUE", args, window_clause),
+        "last" | "last_value" => value_window_function("LAST_VALUE", args, window_clause),
         "nth_value" => {
             if args.len() >= 2 {
                 Some(format!(
@@ -239,16 +235,31 @@ fn one_or_two_arg_sql_function(sql_function: &str, args: &[String]) -> Option<St
     }
 }
 
-fn unary_window_function(
+fn ranking_window_function(
     sql_function: &str,
     args: &[String],
     window_clause: &str,
 ) -> Option<String> {
-    if args.len() == 1 {
+    if args.len() <= 1 {
+        Some(format!(
+            "{sql_function}() {}",
+            window_over_clause_with_order(window_clause, args.first().map(String::as_str))
+        ))
+    } else {
+        None
+    }
+}
+
+fn value_window_function(
+    sql_function: &str,
+    args: &[String],
+    window_clause: &str,
+) -> Option<String> {
+    if (1..=2).contains(&args.len()) {
         Some(format!(
             "{sql_function}({}) {}",
             args[0],
-            window_over_clause(window_clause)
+            window_over_clause_with_order(window_clause, args.get(1).map(String::as_str))
         ))
     } else {
         None
@@ -256,11 +267,18 @@ fn unary_window_function(
 }
 
 fn window_over_clause(window_clause: &str) -> String {
+    window_over_clause_with_order(window_clause, None)
+}
+
+fn window_over_clause_with_order(window_clause: &str, order_by: Option<&str>) -> String {
     let trimmed = window_clause.trim();
-    if trimmed.is_empty() {
-        "OVER ()".to_string()
-    } else {
-        format!("OVER ({trimmed})")
+    let order_by = order_by.map(str::trim).filter(|value| !value.is_empty());
+
+    match (trimmed.is_empty(), order_by) {
+        (true, None) => "OVER ()".to_string(),
+        (false, None) => format!("OVER ({trimmed})"),
+        (true, Some(order_by)) => format!("OVER (ORDER BY {order_by})"),
+        (false, Some(order_by)) => format!("OVER ({trimmed} ORDER BY {order_by})"),
     }
 }
 

@@ -634,6 +634,18 @@ mod dialect_specific_tests {
             name: "row_number".to_string(),
             args: vec![],
         };
+        let ranked_expr = Expr::Function {
+            name: "rank".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
+        let dense_ranked_expr = Expr::Function {
+            name: "dense_rank".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
+        let ordered_row_number_expr = Expr::Function {
+            name: "row_number".to_string(),
+            args: vec![Expr::Identifier("value".to_string())],
+        };
         let lead_default_expr = Expr::Function {
             name: "lead".to_string(),
             args: vec![
@@ -658,6 +670,26 @@ mod dialect_specific_tests {
             name: "last".to_string(),
             args: vec![Expr::Identifier("value".to_string())],
         };
+        let ordered_first_expr = Expr::Function {
+            name: "first".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "order_by".to_string(),
+                    value: Box::new(Expr::Identifier("event_date".to_string())),
+                },
+            ],
+        };
+        let ordered_last_expr = Expr::Function {
+            name: "last".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "order_by".to_string(),
+                    value: Box::new(Expr::Identifier("event_date".to_string())),
+                },
+            ],
+        };
 
         assert_eq!(
             generator.generate_expression(&lead_expr).unwrap(),
@@ -670,6 +702,20 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&row_number_expr).unwrap(),
             "ROW_NUMBER() OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&ranked_expr).unwrap(),
+            "RANK() OVER (ORDER BY \"value\")"
+        );
+        assert_eq!(
+            generator.generate_expression(&dense_ranked_expr).unwrap(),
+            "DENSE_RANK() OVER (ORDER BY \"value\")"
+        );
+        assert_eq!(
+            generator
+                .generate_expression(&ordered_row_number_expr)
+                .unwrap(),
+            "ROW_NUMBER() OVER (ORDER BY \"value\")"
         );
         assert_eq!(
             generator.generate_expression(&lead_default_expr).unwrap(),
@@ -686,6 +732,14 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&last_expr).unwrap(),
             "LAST_VALUE(\"value\") OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&ordered_first_expr).unwrap(),
+            "FIRST_VALUE(\"value\") OVER (ORDER BY \"event_date\")"
+        );
+        assert_eq!(
+            generator.generate_expression(&ordered_last_expr).unwrap(),
+            "LAST_VALUE(\"value\") OVER (ORDER BY \"event_date\")"
         );
     }
 
@@ -1370,13 +1424,22 @@ mod mutate_advanced_tests {
                     location: SourceLocation::unknown(),
                 },
                 DplyrOperation::Mutate {
-                    assignments: vec![Assignment {
-                        column: "previous_salary".to_string(),
-                        expr: Expr::Function {
-                            name: "lag".to_string(),
-                            args: vec![Expr::Identifier("salary".to_string())],
+                    assignments: vec![
+                        Assignment {
+                            column: "previous_salary".to_string(),
+                            expr: Expr::Function {
+                                name: "lag".to_string(),
+                                args: vec![Expr::Identifier("salary".to_string())],
+                            },
                         },
-                    }],
+                        Assignment {
+                            column: "salary_rank".to_string(),
+                            expr: Expr::Function {
+                                name: "dense_rank".to_string(),
+                                args: vec![Expr::Identifier("salary".to_string())],
+                            },
+                        },
+                    ],
                     location: SourceLocation::unknown(),
                 },
             ],
@@ -1387,6 +1450,9 @@ mod mutate_advanced_tests {
 
         assert!(sql.contains(
             "LAG(\"salary\", 1) OVER (PARTITION BY \"department\") AS \"previous_salary\""
+        ));
+        assert!(sql.contains(
+            "DENSE_RANK() OVER (PARTITION BY \"department\" ORDER BY \"salary\") AS \"salary_rank\""
         ));
     }
 

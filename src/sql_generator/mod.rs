@@ -52,6 +52,10 @@ const LEAD_LAG_FORMALS: &[NamedArgFormal] = &[
     },
     NamedArgFormal {
         name: "default",
+        default_sql: Some("NULL"),
+    },
+    NamedArgFormal {
+        name: "order_by",
         default_sql: None,
     },
 ];
@@ -93,6 +97,16 @@ const UNARY_X_FORMALS: &[NamedArgFormal] = &[NamedArgFormal {
     name: "x",
     default_sql: None,
 }];
+const VALUE_ORDER_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "order_by",
+        default_sql: None,
+    },
+];
 
 fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
     match function.to_ascii_lowercase().as_str() {
@@ -104,8 +118,10 @@ fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
         "abs" | "floor" | "ceiling" | "ceil" | "sqrt" | "sign" | "exp" | "log10" | "sin"
         | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "str_length"
         | "str_to_lower" | "str_to_upper" | "str_trim" | "nchar" | "nzchar" | "trimws"
-        | "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" | "first"
-        | "first_value" | "last" | "last_value" => Some(UNARY_X_FORMALS),
+        | "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" => {
+            Some(UNARY_X_FORMALS)
+        }
+        "first" | "first_value" | "last" | "last_value" => Some(VALUE_ORDER_FORMALS),
         _ => None,
     }
 }
