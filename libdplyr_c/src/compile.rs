@@ -210,6 +210,14 @@ fn validate_compile_input(code_str: &str, opts: &DplyrOptions) -> Result<(), Com
     Ok(())
 }
 
+fn log_debug_cache_stats() {
+    // SAFETY: The label is a static, NUL-terminated C string, and the FFI
+    // function only reads that pointer while synchronously logging cache stats.
+    unsafe {
+        cache::dplyr_cache_log_stats_detailed(c"DEBUG_TRANSPILE".as_ptr(), true);
+    }
+}
+
 fn processing_timeout(opts: &DplyrOptions) -> Duration {
     let timeout_ms = if opts.max_processing_time_ms == 0 {
         MAX_PROCESSING_TIME_MS
@@ -339,9 +347,7 @@ fn finish_compile_code(
                 );
 
                 // R10-AC2: Cache statistics logging in debug mode
-                unsafe {
-                    cache::dplyr_cache_log_stats_detailed(c"DEBUG_TRANSPILE".as_ptr(), true);
-                }
+                log_debug_cache_stats();
 
                 // R10-AC2: Log performance warning if cache is underperforming
                 cache::dplyr_cache_log_performance_warning();

@@ -531,6 +531,10 @@ static const DefaultPipeSyntaxResult& CachedDefaultPipeSyntax() {
     return result;
 }
 
+static void InitializeDefaultPipeSyntaxCache() {
+    (void)CachedDefaultPipeSyntax();
+}
+
 static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
     const auto &cached = CachedDefaultPipeSyntax();
     pipe_syntax = cached.pipe_syntax;
@@ -835,7 +839,7 @@ static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &
 
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
-    (void)CachedDefaultPipeSyntax();
+    InitializeDefaultPipeSyntaxCache();
 
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);
