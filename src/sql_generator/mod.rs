@@ -25,6 +25,91 @@ pub struct SqlGenerator {
     dialect: Box<dyn SqlDialect>,
 }
 
+#[derive(Clone, Copy)]
+struct NamedArgFormal {
+    name: &'static str,
+    default_sql: Option<&'static str>,
+}
+
+const ROUND_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "digits",
+        default_sql: None,
+    },
+];
+const LEAD_LAG_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "n",
+        default_sql: Some("1"),
+    },
+    NamedArgFormal {
+        name: "default",
+        default_sql: None,
+    },
+];
+const STR_DETECT_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "string",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "pattern",
+        default_sql: None,
+    },
+];
+const SUBSTR_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "start",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "stop",
+        default_sql: None,
+    },
+];
+const LOG_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "base",
+        default_sql: None,
+    },
+];
+const UNARY_X_FORMALS: &[NamedArgFormal] = &[NamedArgFormal {
+    name: "x",
+    default_sql: None,
+}];
+
+fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
+    match function.to_ascii_lowercase().as_str() {
+        "round" => Some(ROUND_FORMALS),
+        "lead" | "lag" => Some(LEAD_LAG_FORMALS),
+        "str_detect" => Some(STR_DETECT_FORMALS),
+        "substr" => Some(SUBSTR_FORMALS),
+        "log" => Some(LOG_FORMALS),
+        "abs" | "floor" | "ceiling" | "ceil" | "sqrt" | "sign" | "exp" | "log10" | "sin"
+        | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "str_length"
+        | "str_to_lower" | "str_to_upper" | "str_trim" | "nchar" | "nzchar" | "trimws"
+        | "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" | "first"
+        | "first_value" | "last" | "last_value" => Some(UNARY_X_FORMALS),
+        _ => None,
+    }
+}
+
 impl SqlGenerator {
     /// Creates a new SQL generator instance.
     ///
@@ -399,22 +484,8 @@ impl SqlGenerator {
             return self.generate_paste_expression_with_window_partition(name, args, partition_by);
         }
 
-        if let Some(argument) = args.iter().find_map(|arg| match arg {
-            Expr::NamedArg { name, .. } => Some(name),
-            _ => None,
-        }) {
-            return Err(GenerationError::UnsupportedNamedArgument {
-                function: name.to_string(),
-                argument: argument.to_string(),
-                dialect: self.dialect.dialect_name().to_string(),
-            });
-        }
-
-        let args_str: Result<Vec<_>, _> = args
-            .iter()
-            .map(|arg| self.generate_expression_with_window_partition(arg, partition_by))
-            .collect();
-        let args_str = args_str?;
+        let args_str =
+            self.generate_function_arguments_with_window_partition(name, args, partition_by)?;
 
         if let Some(translated) =
             self.dialect
@@ -427,6 +498,101 @@ impl SqlGenerator {
             function: name.to_string(),
             dialect: self.dialect.dialect_name().to_string(),
         })
+    }
+
+    fn generate_function_arguments_with_window_partition(
+        &self,
+        function: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<Vec<String>> {
+        let has_named_args = args.iter().any(|arg| matches!(arg, Expr::NamedArg { .. }));
+        if !has_named_args {
+            return args
+                .iter()
+                .map(|arg| self.generate_expression_with_window_partition(arg, partition_by))
+                .collect();
+        }
+
+        let formals = named_argument_formals(function).ok_or_else(|| {
+            GenerationError::UnsupportedNamedArgument {
+                function: function.to_string(),
+                argument: args
+                    .iter()
+                    .find_map(|arg| match arg {
+                        Expr::NamedArg { name, .. } => Some(name.to_string()),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+                dialect: self.dialect.dialect_name().to_string(),
+            }
+        })?;
+
+        let mut slots = vec![None::<String>; formals.len()];
+        let mut overflow = Vec::new();
+        let mut next_positional = 0;
+
+        for arg in args {
+            match arg {
+                Expr::NamedArg { name, value } => {
+                    let Some(index) = formals
+                        .iter()
+                        .position(|formal| formal.name.eq_ignore_ascii_case(name))
+                    else {
+                        return Err(GenerationError::UnsupportedNamedArgument {
+                            function: function.to_string(),
+                            argument: name.to_string(),
+                            dialect: self.dialect.dialect_name().to_string(),
+                        });
+                    };
+
+                    if slots[index].is_some() {
+                        return Err(GenerationError::InvalidAst {
+                            reason: format!(
+                                "duplicate argument '{name}' for function '{function}'"
+                            ),
+                        });
+                    }
+
+                    slots[index] =
+                        Some(self.generate_expression_with_window_partition(value, partition_by)?);
+                }
+                _ => {
+                    let sql = self.generate_expression_with_window_partition(arg, partition_by)?;
+                    while next_positional < slots.len() && slots[next_positional].is_some() {
+                        next_positional += 1;
+                    }
+                    if next_positional < slots.len() {
+                        slots[next_positional] = Some(sql);
+                        next_positional += 1;
+                    } else {
+                        overflow.push(sql);
+                    }
+                }
+            }
+        }
+
+        let last_explicit = slots.iter().rposition(Option::is_some);
+        let mut normalized = Vec::new();
+        if let Some(last_explicit) = last_explicit {
+            for index in 0..=last_explicit {
+                if let Some(sql) = slots[index].take() {
+                    normalized.push(sql);
+                } else if let Some(default_sql) = formals[index].default_sql {
+                    normalized.push(default_sql.to_string());
+                } else {
+                    return Err(GenerationError::InvalidAst {
+                        reason: format!(
+                            "named argument for function '{function}' requires preceding argument '{}'",
+                            formals[index].name
+                        ),
+                    });
+                }
+            }
+        }
+        normalized.extend(overflow);
+
+        Ok(normalized)
     }
 
     fn generate_paste_expression_with_window_partition(

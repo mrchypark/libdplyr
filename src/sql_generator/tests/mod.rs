@@ -530,7 +530,7 @@ mod dialect_specific_tests {
     }
 
     #[test]
-    fn test_named_argument_rejection_reports_argument_name() {
+    fn test_named_arguments_are_mapped_for_supported_functions() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let round_expr = Expr::Function {
@@ -544,17 +544,72 @@ mod dialect_specific_tests {
             ],
         };
 
+        let lead_expr = Expr::Function {
+            name: "lead".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "default".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::Number(0.0))),
+                },
+            ],
+        };
+
+        let lag_expr = Expr::Function {
+            name: "lag".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "n".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::Number(2.0))),
+                },
+                Expr::NamedArg {
+                    name: "default".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::Number(0.0))),
+                },
+            ],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&round_expr).unwrap(),
+            "ROUND(\"value\", 2)"
+        );
+        assert_eq!(
+            generator.generate_expression(&lead_expr).unwrap(),
+            "LEAD(\"value\", 1, 0) OVER ()"
+        );
+        assert_eq!(
+            generator.generate_expression(&lag_expr).unwrap(),
+            "LAG(\"value\", 2, 0) OVER ()"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_named_argument_reports_argument_name() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let round_expr = Expr::Function {
+            name: "round".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::NamedArg {
+                    name: "missing".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::Number(2.0))),
+                },
+            ],
+        };
+
         assert!(matches!(
             generator.generate_expression(&round_expr),
             Err(GenerationError::UnsupportedNamedArgument {
                 function,
                 argument,
                 dialect
-            }) if function == "round" && argument == "digits" && dialect == "postgresql"
+            }) if function == "round" && argument == "missing" && dialect == "postgresql"
         ));
 
         let error = generator.generate_expression(&round_expr).unwrap_err();
-        assert!(error.to_string().contains("digits"));
+        assert!(error.to_string().contains("missing"));
         assert!(error.to_string().contains("round"));
     }
 
@@ -690,9 +745,54 @@ mod dialect_specific_tests {
             duckdb_generator.generate_expression(&log10_expr).unwrap(),
             "LOG10(\"value\")"
         );
+        assert!(matches!(
+            sqlite_generator.generate_expression(&log10_expr),
+            Err(GenerationError::UnsupportedFunction { function, dialect })
+                if function == "log10" && dialect == "sqlite"
+        ));
+    }
+
+    #[test]
+    fn test_sqlite_rejects_non_standard_math_functions() {
+        let sqlite_generator = SqlGenerator::new(Box::new(SqliteDialect::new()));
+
+        for function in [
+            "floor", "ceiling", "sqrt", "sign", "exp", "log", "log10", "sin", "cos", "tan", "asin",
+            "acos", "atan", "atan2", "sinh", "cosh", "tanh",
+        ] {
+            let args = if function == "atan2" || function == "log" {
+                vec![
+                    Expr::Identifier("value".to_string()),
+                    Expr::Literal(LiteralValue::Number(2.0)),
+                ]
+            } else {
+                vec![Expr::Identifier("value".to_string())]
+            };
+            let expr = Expr::Function {
+                name: function.to_string(),
+                args,
+            };
+
+            assert!(matches!(
+                sqlite_generator.generate_expression(&expr),
+                Err(GenerationError::UnsupportedFunction {
+                    function: actual,
+                    dialect
+                }) if actual == function && dialect == "sqlite"
+            ));
+        }
+
+        let round_expr = Expr::Function {
+            name: "round".to_string(),
+            args: vec![
+                Expr::Identifier("value".to_string()),
+                Expr::Literal(LiteralValue::Number(2.0)),
+            ],
+        };
+
         assert_eq!(
-            sqlite_generator.generate_expression(&log10_expr).unwrap(),
-            "LOG10(\"value\")"
+            sqlite_generator.generate_expression(&round_expr).unwrap(),
+            "ROUND(\"value\", 2)"
         );
     }
 

@@ -332,6 +332,30 @@ fn is_supported_common_function(function: &str) -> bool {
     )
 }
 
+fn sqlite_requires_math_extension(function: &str) -> bool {
+    matches!(
+        function.to_ascii_lowercase().as_str(),
+        "floor"
+            | "ceiling"
+            | "ceil"
+            | "sqrt"
+            | "sign"
+            | "exp"
+            | "log"
+            | "log10"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "asin"
+            | "acos"
+            | "atan"
+            | "atan2"
+            | "sinh"
+            | "cosh"
+            | "tanh"
+    )
+}
+
 /// Translates common dplyr aggregate functions to SQL aggregate names.
 fn translate_common_aggregate_function(function: &str) -> Option<String> {
     match function.to_lowercase().as_str() {
@@ -1078,6 +1102,37 @@ impl SqlDialect for SqliteDialect {
             "n" => "COUNT".to_string(),
             _ => function.to_uppercase(),
         }
+    }
+
+    fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
+        if sqlite_requires_math_extension(function) {
+            return None;
+        }
+
+        translate_common_function(self, function, args)
+    }
+
+    fn translate_function_with_window_partition(
+        &self,
+        function: &str,
+        args: &[String],
+        partition_by: &str,
+    ) -> Option<String> {
+        if sqlite_requires_math_extension(function) {
+            return None;
+        }
+
+        let partition_by = partition_by.trim();
+        if partition_by.is_empty() {
+            return self.translate_function(function, args);
+        }
+
+        let window_clause = format!("PARTITION BY {partition_by}");
+        translate_common_function_with_window_clause(self, function, args, &window_clause)
+    }
+
+    fn is_supported_function(&self, function: &str) -> bool {
+        !sqlite_requires_math_extension(function) && is_supported_common_function(function)
     }
 
     fn r_cast_type(&self, function: &str) -> Option<&'static str> {

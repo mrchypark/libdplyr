@@ -384,12 +384,10 @@ impl Parser {
         let should_consume = match &self.lazy_input_context {
             Some(LazyInput::MagrittrDot) => self.current_token == Token::Dot,
             Some(LazyInput::NativeParameter(param)) => {
-                let param = param.clone();
-                match self.current_token.clone() {
-                    Token::Identifier(name) if name == param => {
-                        matches!(self.peek_token()?, Token::Comma | Token::RightParen)
-                    }
-                    _ => false,
+                if let Token::Identifier(name) = &self.current_token {
+                    name == param && matches!(self.peek_token()?, Token::Comma | Token::RightParen)
+                } else {
+                    false
                 }
             }
             None => false,
