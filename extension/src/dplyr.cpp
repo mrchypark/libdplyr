@@ -517,7 +517,7 @@ static const DefaultPipeSyntaxResult& CachedDefaultPipeSyntax() {
         cached.pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
 
         const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
-        if (env_value == nullptr || string(env_value).empty()) {
+        if (env_value == nullptr || env_value[0] == '\0') {
             cached.status = QueryCompileStatus::Success;
             return cached;
         }

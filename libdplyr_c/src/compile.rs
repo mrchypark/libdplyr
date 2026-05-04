@@ -218,6 +218,13 @@ fn log_debug_cache_stats() {
     }
 }
 
+fn pipe_syntax_cache_discriminator(pipe_syntax: PipeSyntax) -> &'static str {
+    match pipe_syntax {
+        PipeSyntax::Magrittr => "pipe-syntax:magrittr",
+        PipeSyntax::Native => "pipe-syntax:native",
+    }
+}
+
 fn processing_timeout(opts: &DplyrOptions) -> Duration {
     let timeout_ms = if opts.max_processing_time_ms == 0 {
         MAX_PROCESSING_TIME_MS
@@ -270,11 +277,11 @@ fn compile_to_sql_with_deadline(
         "Reduce input complexity or increase timeout limit",
     )?;
 
-    let cache_discriminator = format!("pipe-syntax:{}", pipe_syntax.config_value());
+    let cache_discriminator = pipe_syntax_cache_discriminator(pipe_syntax);
     let sql = SimpleTranspileCache::get_or_transpile_with_discriminator(
         code_str,
         opts,
-        &cache_discriminator,
+        cache_discriminator,
         |source_code, options| {
             ensure_before_deadline(
                 deadline,
