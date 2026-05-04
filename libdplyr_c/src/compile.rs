@@ -138,7 +138,14 @@ fn validated_pipe_syntax(raw_pipe_syntax: u32) -> Result<PipeSyntax, TranspileEr
 }
 
 fn pipe_syntax_from_env_or_default() -> Result<PipeSyntax, TranspileError> {
-    PipeSyntax::from_env_or_default().map_err(|message| TranspileError::internal_error(&message))
+    PipeSyntax::from_env_or_default().map_err(|message| {
+        TranspileError::syntax_error_with_suggestion(
+            &message,
+            0,
+            Some("DPLYR_PIPE_SYNTAX".to_string()),
+            Some("Set DPLYR_PIPE_SYNTAX=magrittr or DPLYR_PIPE_SYNTAX=native".to_string()),
+        )
+    })
 }
 
 #[derive(Debug)]
