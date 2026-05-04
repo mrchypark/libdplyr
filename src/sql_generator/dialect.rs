@@ -6,6 +6,15 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
     function: &str,
     args: &[String],
 ) -> Option<String> {
+    translate_common_function_with_window_clause(dialect, function, args, "")
+}
+
+fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
+    dialect: &D,
+    function: &str,
+    args: &[String],
+    window_clause: &str,
+) -> Option<String> {
     let fn_lower = function.to_lowercase();
     match fn_lower.as_str() {
         // Math functions
@@ -157,9 +166,10 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
+                let over = window_over_clause(window_clause);
                 match args.get(2) {
-                    Some(default) => Some(format!("LEAD({}, {}, {}) OVER ()", args[0], n, default)),
-                    None => Some(format!("LEAD({}, {}) OVER ()", args[0], n)),
+                    Some(default) => Some(format!("LEAD({}, {}, {}) {over}", args[0], n, default)),
+                    None => Some(format!("LEAD({}, {}) {over}", args[0], n)),
                 }
             }
         }
@@ -168,27 +178,43 @@ fn translate_common_function<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
+                let over = window_over_clause(window_clause);
                 match args.get(2) {
-                    Some(default) => Some(format!("LAG({}, {}, {}) OVER ()", args[0], n, default)),
-                    None => Some(format!("LAG({}, {}) OVER ()", args[0], n)),
+                    Some(default) => Some(format!("LAG({}, {}, {}) {over}", args[0], n, default)),
+                    None => Some(format!("LAG({}, {}) {over}", args[0], n)),
                 }
             }
         }
-        "rank" => Some("RANK() OVER ()".to_string()),
-        "dense_rank" => Some("DENSE_RANK() OVER ()".to_string()),
-        "row_number" => Some("ROW_NUMBER() OVER ()".to_string()),
+        "rank" => Some(format!("RANK() {}", window_over_clause(window_clause))),
+        "dense_rank" => Some(format!(
+            "DENSE_RANK() {}",
+            window_over_clause(window_clause)
+        )),
+        "row_number" => Some(format!(
+            "ROW_NUMBER() {}",
+            window_over_clause(window_clause)
+        )),
         "ntile" => {
             if !args.is_empty() {
-                Some(format!("NTILE({}) OVER ()", args[0]))
+                Some(format!(
+                    "NTILE({}) {}",
+                    args[0],
+                    window_over_clause(window_clause)
+                ))
             } else {
                 None
             }
         }
-        "first" | "first_value" => unary_window_function("FIRST_VALUE", args),
-        "last" | "last_value" => unary_window_function("LAST_VALUE", args),
+        "first" | "first_value" => unary_window_function("FIRST_VALUE", args, window_clause),
+        "last" | "last_value" => unary_window_function("LAST_VALUE", args, window_clause),
         "nth_value" => {
             if args.len() >= 2 {
-                Some(format!("NTH_VALUE({}, {}) OVER ()", args[0], args[1]))
+                Some(format!(
+                    "NTH_VALUE({}, {}) {}",
+                    args[0],
+                    args[1],
+                    window_over_clause(window_clause)
+                ))
             } else {
                 None
             }
@@ -213,11 +239,28 @@ fn one_or_two_arg_sql_function(sql_function: &str, args: &[String]) -> Option<St
     }
 }
 
-fn unary_window_function(sql_function: &str, args: &[String]) -> Option<String> {
+fn unary_window_function(
+    sql_function: &str,
+    args: &[String],
+    window_clause: &str,
+) -> Option<String> {
     if args.len() == 1 {
-        Some(format!("{sql_function}({}) OVER ()", args[0]))
+        Some(format!(
+            "{sql_function}({}) {}",
+            args[0],
+            window_over_clause(window_clause)
+        ))
     } else {
         None
+    }
+}
+
+fn window_over_clause(window_clause: &str) -> String {
+    let trimmed = window_clause.trim();
+    if trimmed.is_empty() {
+        "OVER ()".to_string()
+    } else {
+        format!("OVER ({trimmed})")
     }
 }
 
@@ -487,6 +530,23 @@ pub trait SqlDialect {
     /// method in dialect implementations for database-specific translations.
     fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
         translate_common_function(self, function, args)
+            .or_else(|| self.translate_unknown_function(function, args))
+    }
+
+    /// Translates a function while applying grouped pipeline columns to window functions.
+    fn translate_function_with_window_partition(
+        &self,
+        function: &str,
+        args: &[String],
+        partition_by: &str,
+    ) -> Option<String> {
+        let partition_by = partition_by.trim();
+        if partition_by.is_empty() {
+            return self.translate_function(function, args);
+        }
+
+        let window_clause = format!("PARTITION BY {partition_by}");
+        translate_common_function_with_window_clause(self, function, args, &window_clause)
             .or_else(|| self.translate_unknown_function(function, args))
     }
 

@@ -1259,6 +1259,38 @@ mod mutate_advanced_tests {
     }
 
     #[test]
+    fn test_grouped_mutate_window_functions_use_partition() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let ast = DplyrNode::Pipeline {
+            source: Some("employees".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::GroupBy {
+                    columns: vec!["department".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Mutate {
+                    assignments: vec![Assignment {
+                        column: "previous_salary".to_string(),
+                        expr: Expr::Function {
+                            name: "lag".to_string(),
+                            args: vec![Expr::Identifier("salary".to_string())],
+                        },
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let sql = generator.generate(&ast).unwrap();
+
+        assert!(sql.contains(
+            "LAG(\"salary\", 1) OVER (PARTITION BY \"department\") AS \"previous_salary\""
+        ));
+    }
+
+    #[test]
     fn test_mutate_subquery_generation() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let base_query = "SELECT * FROM employees";

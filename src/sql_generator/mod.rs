@@ -357,6 +357,14 @@ impl SqlGenerator {
 
     /// Converts expressions to SQL.
     fn generate_expression(&self, expr: &Expr) -> GenerationResult<String> {
+        self.generate_expression_with_window_partition(expr, "")
+    }
+
+    fn generate_expression_with_window_partition(
+        &self,
+        expr: &Expr,
+        partition_by: &str,
+    ) -> GenerationResult<String> {
         match expr {
             Expr::Identifier(name) => Ok(self.dialect.quote_identifier(name)),
             Expr::Literal(literal) => self.generate_literal(literal),
@@ -365,21 +373,30 @@ impl SqlGenerator {
                 operator,
                 right,
             } => {
-                let left_sql = self.generate_expression(left)?;
-                let right_sql = self.generate_expression(right)?;
+                let left_sql =
+                    self.generate_expression_with_window_partition(left, partition_by)?;
+                let right_sql =
+                    self.generate_expression_with_window_partition(right, partition_by)?;
                 let op_sql = self.generate_binary_operator(operator);
                 Ok(format!("({left_sql} {op_sql} {right_sql})"))
             }
-            Expr::Function { name, args } => self.generate_function_expression(name, args),
+            Expr::Function { name, args } => {
+                self.generate_function_expression_with_window_partition(name, args, partition_by)
+            }
             Expr::NamedArg { name, .. } => Err(GenerationError::InvalidAst {
                 reason: format!("named argument '{name}' cannot be used outside a function call"),
             }),
         }
     }
 
-    fn generate_function_expression(&self, name: &str, args: &[Expr]) -> GenerationResult<String> {
+    fn generate_function_expression_with_window_partition(
+        &self,
+        name: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<String> {
         if name.eq_ignore_ascii_case("paste") {
-            return self.generate_paste_expression(name, args);
+            return self.generate_paste_expression_with_window_partition(name, args, partition_by);
         }
 
         if let Some(argument) = args.iter().find_map(|arg| match arg {
@@ -395,11 +412,14 @@ impl SqlGenerator {
 
         let args_str: Result<Vec<_>, _> = args
             .iter()
-            .map(|arg| self.generate_expression(arg))
+            .map(|arg| self.generate_expression_with_window_partition(arg, partition_by))
             .collect();
         let args_str = args_str?;
 
-        if let Some(translated) = self.dialect.translate_function(name, &args_str) {
+        if let Some(translated) =
+            self.dialect
+                .translate_function_with_window_partition(name, &args_str, partition_by)
+        {
             return Ok(translated);
         }
 
@@ -409,7 +429,12 @@ impl SqlGenerator {
         })
     }
 
-    fn generate_paste_expression(&self, name: &str, args: &[Expr]) -> GenerationResult<String> {
+    fn generate_paste_expression_with_window_partition(
+        &self,
+        name: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<String> {
         let mut positional_args = Vec::new();
         let mut separator = self.dialect.quote_string(" ");
         let mut seen_separator = false;
@@ -426,7 +451,8 @@ impl SqlGenerator {
                             dialect: self.dialect.dialect_name().to_string(),
                         });
                     }
-                    separator = self.generate_expression(value)?;
+                    separator =
+                        self.generate_expression_with_window_partition(value, partition_by)?;
                     seen_separator = true;
                 }
                 Expr::NamedArg { name: arg_name, .. } => {
@@ -436,7 +462,8 @@ impl SqlGenerator {
                         dialect: self.dialect.dialect_name().to_string(),
                     });
                 }
-                _ => positional_args.push(self.generate_expression(arg)?),
+                _ => positional_args
+                    .push(self.generate_expression_with_window_partition(arg, partition_by)?),
             }
         }
 
