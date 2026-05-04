@@ -372,7 +372,7 @@ impl Parser {
         let operation = result?;
         if require_input && !consumed {
             return Err(ParseError::InvalidOperation {
-                operation: "lambda body must receive the piped data argument".to_string(),
+                operation: "lambda body must consume the piped data argument".to_string(),
                 position: self.position,
             });
         }

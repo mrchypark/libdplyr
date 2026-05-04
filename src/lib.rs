@@ -610,7 +610,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("lambda body must receive the piped data argument"),
+                .contains("lambda body must consume the piped data argument"),
             "unexpected error: {error}"
         );
     }
