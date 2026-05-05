@@ -72,6 +72,7 @@ jobs:
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           key: ${{ matrix.target }}
           cache-on-failure: true
@@ -420,6 +421,7 @@ jobs:
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           key: compat-${{ matrix.target }}
           cache-on-failure: true
@@ -764,6 +766,7 @@ jobs:
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           key: compat-${{ matrix.target }}
           cache-on-failure: true
@@ -1073,6 +1076,7 @@ jobs:
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
+        continue-on-error: true
 
       - name: Install additional tools
         run: |
