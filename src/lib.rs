@@ -658,6 +658,19 @@ mod tests {
     }
 
     #[test]
+    fn test_magrittr_pipe_braced_lambda_pipeline_rhs_accepts_first_dot_data_placeholder() {
+        let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+        let sql = transpiler
+            .transpile(r"data %>% { . %>% filter(., age > 18) }")
+            .expect("magrittr braced lambda pipeline RHS should accept first dot data placeholder");
+
+        assert!(sql.contains("FROM \"data\""));
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("\"age\" > 18"));
+    }
+
+    #[test]
     fn test_magrittr_pipe_rhs_accepts_dot_data_placeholder() {
         let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
 

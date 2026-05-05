@@ -430,7 +430,7 @@ impl Parser {
             self.skip_newlines()?;
             self.expect_token(Token::Pipe)?;
             self.skip_newlines()?;
-            vec![self.parse_operation()?]
+            vec![self.parse_operation_with_lazy_input(LazyInput::MagrittrDot, false)?]
         } else {
             vec![self.parse_operation_with_lazy_input(LazyInput::MagrittrDot, true)?]
         };
