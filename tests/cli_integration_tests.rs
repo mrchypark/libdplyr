@@ -794,7 +794,10 @@ fn test_large_input_processing() {
     );
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
-    assert!(stdout.contains("GROUP BY"), "Should contain GROUP BY");
+    assert!(
+        !stdout.contains("GROUP BY"),
+        "Grouping metadata without summarise should not emit GROUP BY"
+    );
     assert!(stdout.contains("ORDER BY"), "Should contain ORDER BY");
 }
 

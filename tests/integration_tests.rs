@@ -628,13 +628,13 @@ fn test_chaining_patterns() {
 #[test]
 fn test_dialect_identifier_quoting_comparison() {
     let test_cases = vec![
-        "select(name, age)",
-        "filter(user_id > 100)",
-        "group_by(department_name)",
-        "arrange(created_at)",
+        ("select(name, age)", Some("name")),
+        ("filter(user_id > 100)", Some("user_id")),
+        ("group_by(department_name)", None),
+        ("arrange(created_at)", Some("created_at")),
     ];
 
-    for dplyr_code in test_cases {
+    for (dplyr_code, emitted_identifier) in test_cases {
         let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
         let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
@@ -667,22 +667,22 @@ fn test_dialect_identifier_quoting_comparison() {
         let sqlite_sql = sqlite_result.unwrap();
         let duckdb_sql = duckdb_result.unwrap();
 
-        // Verify dialect-specific quoting (check for any quoted identifier, not specific case)
-        if dplyr_code.contains("name") {
+        // Verify dialect-specific quoting only for identifiers emitted in final SQL.
+        if let Some(identifier) = emitted_identifier {
             assert!(
-                pg_sql.contains("\"") && pg_sql.to_lowercase().contains("name"),
+                pg_sql.contains(&format!("\"{}\"", identifier)),
                 "PostgreSQL should use double quotes for identifiers"
             );
             assert!(
-                mysql_sql.contains("`") && mysql_sql.to_lowercase().contains("name"),
+                mysql_sql.contains(&format!("`{}`", identifier)),
                 "MySQL should use backticks for identifiers"
             );
             assert!(
-                sqlite_sql.contains("\"") && sqlite_sql.to_lowercase().contains("name"),
+                sqlite_sql.contains(&format!("\"{}\"", identifier)),
                 "SQLite should use double quotes for identifiers"
             );
             assert!(
-                duckdb_sql.contains("\"") && duckdb_sql.to_lowercase().contains("name"),
+                duckdb_sql.contains(&format!("\"{}\"", identifier)),
                 "DuckDB should use double quotes for identifiers"
             );
         }

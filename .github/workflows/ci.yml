@@ -77,8 +77,14 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
 
-      - name: Install CMake
-        if: runner.os != 'macOS'
+      - name: Verify CMake (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          timeout 60s cmake --version
+
+      - name: Install CMake (Windows)
+        if: runner.os == 'Windows'
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: "latest"
@@ -86,14 +92,36 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt_with_retry() {
+            local timeout_seconds="$1"
+            shift
+            local command=("$@")
+            local max_attempts=3
+            local sleep_seconds=10
+            local attempt=1
+            while [ "${attempt}" -le "${max_attempts}" ]; do
+              echo "APT command attempt ${attempt}/${max_attempts}"
+              if timeout "${timeout_seconds}s" sudo env DEBIAN_FRONTEND="${DEBIAN_FRONTEND}" "${command[@]}"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq "${max_attempts}" ]; then
+                echo "APT command failed after ${max_attempts} attempts" >&2
+                return 1
+              fi
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+          }
+          apt_with_retry 300 apt-get update
+          apt_with_retry 600 apt-get install -y \
             build-essential \
             pkg-config \
             libssl-dev \
             unzip \
             valgrind
-          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+          echo "VALGRIND_AVAILABLE=1" >> "${GITHUB_ENV}"
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -426,8 +454,14 @@ jobs:
           key: compat-${{ matrix.target }}
           cache-on-failure: true
 
-      - name: Install CMake
-        if: runner.os != 'macOS'
+      - name: Verify CMake (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          timeout 60s cmake --version
+
+      - name: Install CMake (Windows)
+        if: runner.os == 'Windows'
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: "latest"
@@ -435,14 +469,36 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt_with_retry() {
+            local timeout_seconds="$1"
+            shift
+            local command=("$@")
+            local max_attempts=3
+            local sleep_seconds=10
+            local attempt=1
+            while [ "${attempt}" -le "${max_attempts}" ]; do
+              echo "APT command attempt ${attempt}/${max_attempts}"
+              if timeout "${timeout_seconds}s" sudo env DEBIAN_FRONTEND="${DEBIAN_FRONTEND}" "${command[@]}"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq "${max_attempts}" ]; then
+                echo "APT command failed after ${max_attempts} attempts" >&2
+                return 1
+              fi
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+          }
+          apt_with_retry 300 apt-get update
+          apt_with_retry 600 apt-get install -y \
             build-essential \
             pkg-config \
             libssl-dev \
             unzip \
             valgrind
-          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+          echo "VALGRIND_AVAILABLE=1" >> "${GITHUB_ENV}"
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -771,8 +827,14 @@ jobs:
           key: compat-${{ matrix.target }}
           cache-on-failure: true
 
-      - name: Install CMake
-        if: runner.os != 'macOS'
+      - name: Verify CMake (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          timeout 60s cmake --version
+
+      - name: Install CMake (Windows)
+        if: runner.os == 'Windows'
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: "latest"
@@ -780,14 +842,36 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt_with_retry() {
+            local timeout_seconds="$1"
+            shift
+            local command=("$@")
+            local max_attempts=3
+            local sleep_seconds=10
+            local attempt=1
+            while [ "${attempt}" -le "${max_attempts}" ]; do
+              echo "APT command attempt ${attempt}/${max_attempts}"
+              if timeout "${timeout_seconds}s" sudo env DEBIAN_FRONTEND="${DEBIAN_FRONTEND}" "${command[@]}"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq "${max_attempts}" ]; then
+                echo "APT command failed after ${max_attempts} attempts" >&2
+                return 1
+              fi
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+          }
+          apt_with_retry 300 apt-get update
+          apt_with_retry 600 apt-get install -y \
             build-essential \
             pkg-config \
             libssl-dev \
             unzip \
             valgrind
-          echo "VALGRIND_AVAILABLE=1" >> $GITHUB_ENV
+          echo "VALGRIND_AVAILABLE=1" >> "${GITHUB_ENV}"
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'

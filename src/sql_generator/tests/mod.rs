@@ -739,7 +739,7 @@ mod dialect_specific_tests {
         );
         assert_eq!(
             generator.generate_expression(&ordered_last_expr).unwrap(),
-            "LAST_VALUE(\"value\") OVER (ORDER BY \"event_date\")"
+            "LAST_VALUE(\"value\") OVER (ORDER BY \"event_date\" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
         );
     }
 
@@ -759,7 +759,7 @@ mod dialect_specific_tests {
 
         assert_eq!(
             generator.generate_expression(&nzchar_expr).unwrap(),
-            "COALESCE((LENGTH(\"name\") > 0), TRUE)"
+            "COALESCE((LENGTH(\"name\") > 0), FALSE)"
         );
         assert_eq!(
             generator.generate_expression(&nchar_expr).unwrap(),
@@ -771,7 +771,7 @@ mod dialect_specific_tests {
         );
         assert_eq!(
             mysql_generator.generate_expression(&nzchar_expr).unwrap(),
-            "COALESCE((CHAR_LENGTH(`name`) > 0), TRUE)"
+            "COALESCE((CHAR_LENGTH(`name`) > 0), FALSE)"
         );
     }
 
@@ -1426,17 +1426,35 @@ mod mutate_advanced_tests {
                 DplyrOperation::Mutate {
                     assignments: vec![
                         Assignment {
-                            column: "previous_salary".to_string(),
+                            column: "salary_rank".to_string(),
                             expr: Expr::Function {
-                                name: "lag".to_string(),
+                                name: "rank".to_string(),
                                 args: vec![Expr::Identifier("salary".to_string())],
                             },
                         },
                         Assignment {
-                            column: "salary_rank".to_string(),
+                            column: "next_salary".to_string(),
                             expr: Expr::Function {
-                                name: "dense_rank".to_string(),
-                                args: vec![Expr::Identifier("salary".to_string())],
+                                name: "lead".to_string(),
+                                args: vec![
+                                    Expr::Identifier("salary".to_string()),
+                                    Expr::Literal(LiteralValue::Number(1.0)),
+                                    Expr::Literal(LiteralValue::Null),
+                                    Expr::Identifier("event_date".to_string()),
+                                ],
+                            },
+                        },
+                        Assignment {
+                            column: "last_salary".to_string(),
+                            expr: Expr::Function {
+                                name: "last".to_string(),
+                                args: vec![
+                                    Expr::Identifier("salary".to_string()),
+                                    Expr::NamedArg {
+                                        name: "order_by".to_string(),
+                                        value: Box::new(Expr::Identifier("event_date".to_string())),
+                                    },
+                                ],
                             },
                         },
                     ],
@@ -1449,11 +1467,18 @@ mod mutate_advanced_tests {
         let sql = generator.generate(&ast).unwrap();
 
         assert!(sql.contains(
-            "LAG(\"salary\", 1) OVER (PARTITION BY \"department\") AS \"previous_salary\""
+            "RANK() OVER (PARTITION BY \"department\" ORDER BY \"salary\") AS \"salary_rank\""
         ));
         assert!(sql.contains(
-            "DENSE_RANK() OVER (PARTITION BY \"department\" ORDER BY \"salary\") AS \"salary_rank\""
+            "LEAD(\"salary\", 1, NULL) OVER (PARTITION BY \"department\" ORDER BY \"event_date\") AS \"next_salary\""
         ));
+        assert!(sql.contains(
+            "LAST_VALUE(\"salary\") OVER (PARTITION BY \"department\" ORDER BY \"event_date\" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS \"last_salary\""
+        ));
+        assert!(
+            !sql.contains("GROUP BY"),
+            "grouped mutate should not emit final GROUP BY: {sql}"
+        );
     }
 
     #[test]

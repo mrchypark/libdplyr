@@ -21,6 +21,8 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/execution/expression_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -501,45 +503,88 @@ static bool ParsePipeSyntaxOption(const string& value, uint32_t &pipe_syntax, st
         return true;
     }
 
-    error_out = "Invalid dplyr pipe syntax '" + value + "'. Expected 'magrittr' or 'native'.";
+    error_out = "Invalid dplyr pipe syntax '" + value +
+                "'. Expected 'magrittr' or 'native'. "
+                "Set DPLYR_PIPE_SYNTAX to 'magrittr' or 'native'.";
     return false;
 }
 
-struct DefaultPipeSyntaxResult {
-    QueryCompileStatus status;
-    uint32_t pipe_syntax;
-    string error;
-};
-
-static const DefaultPipeSyntaxResult& CachedDefaultPipeSyntax() {
-    static const DefaultPipeSyntaxResult result = [] {
-        DefaultPipeSyntaxResult cached;
-        cached.pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-
-        const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
-        if (env_value == nullptr || env_value[0] == '\0') {
-            cached.status = QueryCompileStatus::Success;
-            return cached;
-        }
-
-        cached.status = ParsePipeSyntaxOption(env_value, cached.pipe_syntax, cached.error)
-            ? QueryCompileStatus::Success
-            : QueryCompileStatus::Error;
-        return cached;
-    }();
-
-    return result;
-}
-
-static void InitializeDefaultPipeSyntaxCache() {
-    (void)CachedDefaultPipeSyntax();
+static const char *CanonicalPipeSyntaxName(uint32_t pipe_syntax) {
+    return pipe_syntax == DPLYR_PIPE_SYNTAX_NATIVE ? "native" : "magrittr";
 }
 
 static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
-    const auto &cached = CachedDefaultPipeSyntax();
-    pipe_syntax = cached.pipe_syntax;
-    error_out = cached.error;
-    return cached.status;
+    pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    error_out.clear();
+
+    const char* env_value = std::getenv("DPLYR_PIPE_SYNTAX");
+    if (env_value == nullptr || env_value[0] == '\0') {
+        return QueryCompileStatus::Success;
+    }
+
+    return ParsePipeSyntaxOption(env_value, pipe_syntax, error_out)
+        ? QueryCompileStatus::Success
+        : QueryCompileStatus::Error;
+}
+
+static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState & /*state*/, Vector &result) {
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    auto status = DefaultPipeSyntax(pipe_syntax, error);
+    if (status != QueryCompileStatus::Success) {
+        throw InvalidInputException("%s", error.c_str());
+    }
+    result.Reference(Value(CanonicalPipeSyntaxName(pipe_syntax)));
+}
+
+static void DplyrPipeSyntaxNormalizeFunction(DataChunk &args, ExpressionState & /*state*/, Vector &result) {
+    auto &input = args.data[0];
+    UnifiedVectorFormat input_data;
+    input.ToUnifiedFormat(args.size(), input_data);
+
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto output_data = FlatVector::GetData<string_t>(result);
+    auto &output_validity = FlatVector::Validity(result);
+    auto input_values = UnifiedVectorFormat::GetData<string_t>(input_data);
+
+    for (idx_t i = 0; i < args.size(); i++) {
+        const auto input_index = input_data.sel->get_index(i);
+        if (!input_data.validity.RowIsValid(input_index)) {
+            output_validity.SetInvalid(i);
+            continue;
+        }
+
+        string error;
+        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        if (!ParsePipeSyntaxOption(input_values[input_index].GetString(), pipe_syntax, error)) {
+            throw InvalidInputException("%s", error.c_str());
+        }
+        output_data[i] = StringVector::AddString(result, CanonicalPipeSyntaxName(pipe_syntax));
+    }
+
+    if (input.GetVectorType() == VectorType::CONSTANT_VECTOR && args.size() > 0) {
+        result.SetVectorType(VectorType::CONSTANT_VECTOR);
+    }
+}
+
+static unique_ptr<FunctionData> DplyrPipeSyntaxNormalizeBind(ClientContext &context,
+                                                             ScalarFunction & /*bound_function*/,
+                                                             vector<unique_ptr<Expression>> &arguments) {
+    if (arguments.empty() || arguments[0]->HasParameter() || !arguments[0]->IsFoldable()) {
+        return nullptr;
+    }
+
+    auto value = ExpressionExecutor::EvaluateScalar(context, *arguments[0]).CastAs(context, LogicalType::VARCHAR);
+    if (value.IsNull()) {
+        return nullptr;
+    }
+
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (!ParsePipeSyntaxOption(StringValue::Get(value), pipe_syntax, error)) {
+        throw BinderException("%s", error.c_str());
+    }
+    return nullptr;
 }
 
 template <class CompileFn>
@@ -839,7 +884,6 @@ static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &
 
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
-    InitializeDefaultPipeSyntaxCache();
 
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);
@@ -862,6 +906,19 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         DplyrTableBind,
         DplyrTableInit);
     loader.RegisterFunction(dplyr_function_with_config);
+
+    auto dplyr_pipe_syntax_current = ScalarFunction(
+        "dplyr_pipe_syntax", {}, LogicalType::VARCHAR, DplyrPipeSyntaxCurrentFunction);
+    BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_current);
+    loader.RegisterFunction(dplyr_pipe_syntax_current);
+
+    auto dplyr_pipe_syntax_normalize = ScalarFunction("dplyr_pipe_syntax",
+        {LogicalType::VARCHAR},
+        LogicalType::VARCHAR,
+        DplyrPipeSyntaxNormalizeFunction,
+        DplyrPipeSyntaxNormalizeBind);
+    BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_normalize);
+    loader.RegisterFunction(dplyr_pipe_syntax_normalize);
 
 }
 

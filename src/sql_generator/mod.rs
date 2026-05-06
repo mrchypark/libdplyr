@@ -175,6 +175,9 @@ impl SqlGenerator {
         }
 
         let mut query_parts = QueryParts::new();
+        let has_summarise = operations
+            .iter()
+            .any(|operation| matches!(operation, DplyrOperation::Summarise { .. }));
 
         // Get the source table name for join operations
         let source_table = source.as_deref().unwrap_or("data");
@@ -182,6 +185,10 @@ impl SqlGenerator {
         // Process each operation in order
         for operation in operations {
             self.process_operation(operation, &mut query_parts, source_table)?;
+        }
+
+        if !has_summarise {
+            query_parts.group_by.clear();
         }
 
         // Assemble final SQL query

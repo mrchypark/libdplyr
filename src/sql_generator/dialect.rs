@@ -110,7 +110,7 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
         "nzchar" => {
             if args.len() == 1 {
                 Some(format!(
-                    "COALESCE(({} > 0), TRUE)",
+                    "COALESCE(({} > 0), FALSE)",
                     dialect.char_length(&args[0])
                 ))
             } else {
@@ -202,7 +202,7 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
             }
         }
         "first" | "first_value" => value_window_function("FIRST_VALUE", args, window_clause),
-        "last" | "last_value" => value_window_function("LAST_VALUE", args, window_clause),
+        "last" | "last_value" => last_value_window_function(args, window_clause),
         "nth_value" => {
             if args.len() >= 2 {
                 Some(format!(
@@ -266,6 +266,18 @@ fn value_window_function(
     }
 }
 
+fn last_value_window_function(args: &[String], window_clause: &str) -> Option<String> {
+    if (1..=2).contains(&args.len()) {
+        Some(format!(
+            "LAST_VALUE({}) {}",
+            args[0],
+            window_over_clause_with_full_frame(window_clause, args.get(1).map(String::as_str))
+        ))
+    } else {
+        None
+    }
+}
+
 fn window_over_clause(window_clause: &str) -> String {
     window_over_clause_with_order(window_clause, None)
 }
@@ -279,6 +291,22 @@ fn window_over_clause_with_order(window_clause: &str, order_by: Option<&str>) ->
         (false, None) => format!("OVER ({trimmed})"),
         (true, Some(order_by)) => format!("OVER (ORDER BY {order_by})"),
         (false, Some(order_by)) => format!("OVER ({trimmed} ORDER BY {order_by})"),
+    }
+}
+
+fn window_over_clause_with_full_frame(window_clause: &str, order_by: Option<&str>) -> String {
+    let trimmed = window_clause.trim();
+    let order_by = order_by.map(str::trim).filter(|value| !value.is_empty());
+
+    match (trimmed.is_empty(), order_by) {
+        (true, None) => "OVER ()".to_string(),
+        (false, None) => format!("OVER ({trimmed})"),
+        (true, Some(order_by)) => format!(
+            "OVER (ORDER BY {order_by} ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
+        ),
+        (false, Some(order_by)) => format!(
+            "OVER ({trimmed} ORDER BY {order_by} ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
+        ),
     }
 }
 
