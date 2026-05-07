@@ -9,10 +9,17 @@
  */
 
 #include "duckdb.hpp"
+#include "duckdb/common/error_data.hpp"
+#include "duckdb/function/scalar/generic_functions.hpp"
 #include "duckdb/parser/parser_extension.hpp"
+#include "duckdb/parser/parser.hpp"
 // Note: Parser.hpp removed - use Connection::Query for parsing validation
 #include "duckdb/parser/statement/extension_statement.hpp"
+#include "duckdb/parser/statement/select_statement.hpp"
+#include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #if defined(__has_include)
@@ -34,6 +41,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <cstdlib> // for std::getenv
+#include <cerrno>
+#include <cstring>
 #include <algorithm> // for std::transform
 #include <cctype> // for ::tolower
 #include <vector>
@@ -513,6 +522,51 @@ static const char *CanonicalPipeSyntaxName(uint32_t pipe_syntax) {
     return pipe_syntax == DPLYR_PIPE_SYNTAX_NATIVE ? "native" : "magrittr";
 }
 
+static string SqlStringLiteral(const string &value) {
+    string literal = "'";
+    for (const auto ch : value) {
+        if (ch == '\'') {
+            literal += "''";
+        } else {
+            literal += ch;
+        }
+    }
+    literal += "'";
+    return literal;
+}
+
+[[noreturn]] static void ThrowInvalidPipeSyntaxError(const string &error) {
+    ErrorData(ExceptionType::INVALID_INPUT, error).Throw();
+}
+
+static unique_ptr<Expression> PipeSyntaxErrorExpression(const string &error) {
+    vector<unique_ptr<Expression>> children;
+    children.push_back(make_uniq<BoundConstantExpression>(Value(error)));
+    return make_uniq<BoundFunctionExpression>(
+        LogicalType::SQLNULL,
+        ErrorFun::GetFunction(),
+        std::move(children),
+        nullptr);
+}
+
+static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
+    Parser parser(options);
+    parser.ParseQuery("SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error");
+    auto select_stmt = unique_ptr_cast<SQLStatement, SelectStatement>(std::move(parser.statements[0]));
+    return make_uniq<SubqueryRef>(std::move(select_stmt));
+}
+
+static void SetPipeSyntaxEnvironment(uint32_t pipe_syntax) {
+    const auto *canonical = CanonicalPipeSyntaxName(pipe_syntax);
+#ifdef _WIN32
+    if (_putenv_s("DPLYR_PIPE_SYNTAX", canonical) != 0) {
+#else
+    if (setenv("DPLYR_PIPE_SYNTAX", canonical, 1) != 0) {
+#endif
+        ThrowInvalidPipeSyntaxError("Failed to set DPLYR_PIPE_SYNTAX: " + string(std::strerror(errno)));
+    }
+}
+
 static QueryCompileStatus DefaultPipeSyntax(uint32_t &pipe_syntax, string &error_out) {
     pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     error_out.clear();
@@ -532,12 +586,12 @@ static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     auto status = DefaultPipeSyntax(pipe_syntax, error);
     if (status != QueryCompileStatus::Success) {
-        throw InvalidInputException("%s", error.c_str());
+        ThrowInvalidPipeSyntaxError(error);
     }
     result.Reference(Value(CanonicalPipeSyntaxName(pipe_syntax)));
 }
 
-static void DplyrPipeSyntaxNormalizeFunction(DataChunk &args, ExpressionState & /*state*/, Vector &result) {
+static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState & /*state*/, Vector &result) {
     auto &input = args.data[0];
     UnifiedVectorFormat input_data;
     input.ToUnifiedFormat(args.size(), input_data);
@@ -557,8 +611,9 @@ static void DplyrPipeSyntaxNormalizeFunction(DataChunk &args, ExpressionState & 
         string error;
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         if (!ParsePipeSyntaxOption(input_values[input_index].GetString(), pipe_syntax, error)) {
-            throw InvalidInputException("%s", error.c_str());
+            ThrowInvalidPipeSyntaxError(error);
         }
+        SetPipeSyntaxEnvironment(pipe_syntax);
         output_data[i] = StringVector::AddString(result, CanonicalPipeSyntaxName(pipe_syntax));
     }
 
@@ -567,14 +622,34 @@ static void DplyrPipeSyntaxNormalizeFunction(DataChunk &args, ExpressionState & 
     }
 }
 
-static unique_ptr<FunctionData> DplyrPipeSyntaxNormalizeBind(ClientContext &context,
-                                                             ScalarFunction & /*bound_function*/,
-                                                             vector<unique_ptr<Expression>> &arguments) {
-    if (arguments.empty() || arguments[0]->HasParameter() || !arguments[0]->IsFoldable()) {
+static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindExpressionInput &input) {
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (DefaultPipeSyntax(pipe_syntax, error) != QueryCompileStatus::Success) {
+        return PipeSyntaxErrorExpression(error);
+    }
+    return nullptr;
+}
+
+static unique_ptr<Expression> DplyrPipeSyntaxSetBindExpression(FunctionBindExpressionInput &input) {
+    if (input.children.empty()) {
         return nullptr;
     }
 
-    auto value = ExpressionExecutor::EvaluateScalar(context, *arguments[0]).CastAs(context, LogicalType::VARCHAR);
+    auto &value_expr = *input.children[0];
+    if (value_expr.return_type.id() == LogicalTypeId::SQLNULL) {
+        return nullptr;
+    }
+
+    if (value_expr.return_type.id() == LogicalTypeId::UNKNOWN ||
+        value_expr.HasParameter() ||
+        !value_expr.IsFoldable()) {
+        return PipeSyntaxErrorExpression(
+            "Invalid dplyr pipe syntax '<non-constant>'. Expected 'magrittr' or 'native'. "
+            "Set DPLYR_PIPE_SYNTAX to 'magrittr' or 'native'.");
+    }
+
+    auto value = ExpressionExecutor::EvaluateScalar(input.context, value_expr).CastAs(input.context, LogicalType::VARCHAR);
     if (value.IsNull()) {
         return nullptr;
     }
@@ -582,7 +657,7 @@ static unique_ptr<FunctionData> DplyrPipeSyntaxNormalizeBind(ClientContext &cont
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (!ParsePipeSyntaxOption(StringValue::Get(value), pipe_syntax, error)) {
-        throw BinderException("%s", error.c_str());
+        return PipeSyntaxErrorExpression(error);
     }
     return nullptr;
 }
@@ -766,7 +841,7 @@ static uint32_t GetDplyrPipeSyntax(const TableFunctionBindInput &input) {
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         auto status = DefaultPipeSyntax(pipe_syntax, error);
         if (status != QueryCompileStatus::Success) {
-            throw InvalidInputException("%s", error.c_str());
+            ThrowInvalidPipeSyntaxError(error);
         }
         return pipe_syntax;
     }
@@ -774,9 +849,25 @@ static uint32_t GetDplyrPipeSyntax(const TableFunctionBindInput &input) {
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (!ParsePipeSyntaxOption(StringValue::Get(input.inputs[1]), pipe_syntax, error)) {
-        throw InvalidInputException("%s", error.c_str());
+        ThrowInvalidPipeSyntaxError(error);
     }
     return pipe_syntax;
+}
+
+static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableFunctionBindInput &input) {
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (input.inputs.size() < 2 || input.inputs[1].IsNull()) {
+        if (DefaultPipeSyntax(pipe_syntax, error) != QueryCompileStatus::Success) {
+            return PipeSyntaxErrorTableRef(error, context.GetParserOptions());
+        }
+        return nullptr;
+    }
+
+    if (!ParsePipeSyntaxOption(StringValue::Get(input.inputs[1]), pipe_syntax, error)) {
+        return PipeSyntaxErrorTableRef(error, context.GetParserOptions());
+    }
+    return nullptr;
 }
 
 static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
@@ -898,6 +989,7 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         DplyrTableFunction,
         DplyrTableBind,
         DplyrTableInit);
+    dplyr_function.bind_replace = DplyrTableBindReplace;
     loader.RegisterFunction(dplyr_function);
 
     TableFunction dplyr_function_with_config("dplyr",
@@ -905,20 +997,37 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         DplyrTableFunction,
         DplyrTableBind,
         DplyrTableInit);
+    dplyr_function_with_config.bind_replace = DplyrTableBindReplace;
     loader.RegisterFunction(dplyr_function_with_config);
 
     auto dplyr_pipe_syntax_current = ScalarFunction(
-        "dplyr_pipe_syntax", {}, LogicalType::VARCHAR, DplyrPipeSyntaxCurrentFunction);
+        "dplyr_pipe_syntax",
+        {},
+        LogicalType::VARCHAR,
+        DplyrPipeSyntaxCurrentFunction,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        LogicalType::INVALID,
+        FunctionStability::VOLATILE);
+    dplyr_pipe_syntax_current.bind_expression = DplyrPipeSyntaxCurrentBindExpression;
     BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_current);
     loader.RegisterFunction(dplyr_pipe_syntax_current);
 
-    auto dplyr_pipe_syntax_normalize = ScalarFunction("dplyr_pipe_syntax",
+    auto dplyr_pipe_syntax_set = ScalarFunction("dplyr_pipe_syntax",
         {LogicalType::VARCHAR},
         LogicalType::VARCHAR,
-        DplyrPipeSyntaxNormalizeFunction,
-        DplyrPipeSyntaxNormalizeBind);
-    BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_normalize);
-    loader.RegisterFunction(dplyr_pipe_syntax_normalize);
+        DplyrPipeSyntaxSetFunction,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        LogicalType::INVALID,
+        FunctionStability::VOLATILE);
+    dplyr_pipe_syntax_set.bind_expression = DplyrPipeSyntaxSetBindExpression;
+    BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_set);
+    loader.RegisterFunction(dplyr_pipe_syntax_set);
 
 }
 

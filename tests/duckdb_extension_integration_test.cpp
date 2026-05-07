@@ -54,6 +54,16 @@ public:
         SetEnvironmentVariableForTest(key, value);
     }
 
+    explicit ScopedEnvironmentVariable(const char *key_p)
+        : key(key_p) {
+        const char *existing = std::getenv(key);
+        if (existing != nullptr) {
+            had_original = true;
+            original = existing;
+        }
+        ClearEnvironmentVariableForTest(key);
+    }
+
     ~ScopedEnvironmentVariable() {
         if (had_original) {
             SetEnvironmentVariableForTest(key, original);
@@ -73,6 +83,7 @@ private:
 class DuckDBExtensionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        scoped_pipe_syntax = std::make_unique<ScopedEnvironmentVariable>("DPLYR_PIPE_SYNTAX");
 
         duckdb::DBConfig config;
         try {
@@ -107,6 +118,7 @@ protected:
         // Clean up connections
         conn.reset();
         db.reset();
+        scoped_pipe_syntax.reset();
     }
     
     // Helper function to normalize SQL for comparison
@@ -134,6 +146,7 @@ protected:
     
     std::unique_ptr<duckdb::DuckDB> db;
     std::unique_ptr<duckdb::Connection> conn;
+    std::unique_ptr<ScopedEnvironmentVariable> scoped_pipe_syntax;
 };
 
 // ============================================================================
@@ -228,17 +241,7 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarDefaultReportsConfiguredMode) {
     ASSERT_TRUE(chunk);
     ASSERT_EQ(chunk->size(), 1);
 
-    const char *env_value = std::getenv("DPLYR_PIPE_SYNTAX");
-    std::string normalized = env_value == nullptr ? "" : env_value;
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    normalized.erase(std::remove_if(normalized.begin(), normalized.end(), [](unsigned char ch) {
-        return std::isspace(ch) != 0;
-    }), normalized.end());
-
-    const std::string expected = (normalized == "native" || normalized == "|>") ? "native" : "magrittr";
-    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), expected);
+    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxScalarDefaultReflectsCurrentEnvironment) {
@@ -267,25 +270,62 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarDefaultReflectsCurrentEnvironment) {
     EXPECT_EQ(magrittr_chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarExplicitValuesNormalize) {
-    auto result = safe_query(
-        "SELECT dplyr_pipe_syntax('native'), dplyr_pipe_syntax('|>'), "
-        "dplyr_pipe_syntax('magrittr'), dplyr_pipe_syntax('%>%')");
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarExplicitValuesSetDefaultAndCanonicalizeAliases) {
+    auto native_alias = safe_query("SELECT dplyr_pipe_syntax('|>')");
+    ASSERT_NE(native_alias, nullptr);
+    ASSERT_FALSE(native_alias->HasError())
+        << "native alias setter should succeed: " << native_alias->GetError();
+    auto native_alias_chunk = native_alias->Fetch();
+    ASSERT_TRUE(native_alias_chunk);
+    ASSERT_EQ(native_alias_chunk->size(), 1);
+    EXPECT_EQ(native_alias_chunk->GetValue(0, 0).ToString(), "native");
 
-    ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError()) << "dplyr_pipe_syntax(value) should succeed: " << result->GetError();
-    ASSERT_EQ(result->RowCount(), 1);
+    auto current_native = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_native, nullptr);
+    ASSERT_FALSE(current_native->HasError())
+        << "current syntax should reflect native setter: " << current_native->GetError();
+    auto current_native_chunk = current_native->Fetch();
+    ASSERT_TRUE(current_native_chunk);
+    ASSERT_EQ(current_native_chunk->size(), 1);
+    EXPECT_EQ(current_native_chunk->GetValue(0, 0).ToString(), "native");
 
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 1);
-    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "native");
-    EXPECT_EQ(chunk->GetValue(1, 0).ToString(), "native");
-    EXPECT_EQ(chunk->GetValue(2, 0).ToString(), "magrittr");
-    EXPECT_EQ(chunk->GetValue(3, 0).ToString(), "magrittr");
+    auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
+    ASSERT_NE(native_default, nullptr);
+    ASSERT_FALSE(native_default->HasError())
+        << "table function default should use native setter: " << native_default->GetError();
+    EXPECT_EQ(native_default->RowCount(), 3);
+
+    auto magrittr_alias = safe_query("SELECT dplyr_pipe_syntax('%>%')");
+    ASSERT_NE(magrittr_alias, nullptr);
+    ASSERT_FALSE(magrittr_alias->HasError())
+        << "magrittr alias setter should succeed: " << magrittr_alias->GetError();
+    auto magrittr_alias_chunk = magrittr_alias->Fetch();
+    ASSERT_TRUE(magrittr_alias_chunk);
+    ASSERT_EQ(magrittr_alias_chunk->size(), 1);
+    EXPECT_EQ(magrittr_alias_chunk->GetValue(0, 0).ToString(), "magrittr");
+
+    auto current_magrittr = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_magrittr, nullptr);
+    ASSERT_FALSE(current_magrittr->HasError())
+        << "current syntax should reflect magrittr setter: " << current_magrittr->GetError();
+    auto current_magrittr_chunk = current_magrittr->Fetch();
+    ASSERT_TRUE(current_magrittr_chunk);
+    ASSERT_EQ(current_magrittr_chunk->size(), 1);
+    EXPECT_EQ(current_magrittr_chunk->GetValue(0, 0).ToString(), "magrittr");
+
+    auto magrittr_default = safe_query("SELECT * FROM dplyr('mtcars %>% select(mpg)')");
+    ASSERT_NE(magrittr_default, nullptr);
+    ASSERT_FALSE(magrittr_default->HasError())
+        << "table function default should use magrittr setter: " << magrittr_default->GetError();
+    EXPECT_EQ(magrittr_default->RowCount(), 3);
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxScalarNullInputReturnsNull) {
+    auto set_native = safe_query("SELECT dplyr_pipe_syntax('native')");
+    ASSERT_NE(set_native, nullptr);
+    ASSERT_FALSE(set_native->HasError())
+        << "native setter should succeed before NULL check: " << set_native->GetError();
+
     auto result = safe_query("SELECT dplyr_pipe_syntax(NULL)");
 
     ASSERT_NE(result, nullptr);
@@ -296,38 +336,50 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarNullInputReturnsNull) {
     ASSERT_TRUE(chunk);
     ASSERT_EQ(chunk->size(), 1);
     EXPECT_TRUE(chunk->GetValue(0, 0).IsNull());
+
+    auto current = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current, nullptr);
+    ASSERT_FALSE(current->HasError())
+        << "NULL input should not change current pipe syntax: " << current->GetError();
+    auto current_chunk = current->Fetch();
+    ASSERT_TRUE(current_chunk);
+    ASSERT_EQ(current_chunk->size(), 1);
+    EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "native");
+
+    auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
+    ASSERT_NE(native_default, nullptr);
+    ASSERT_FALSE(native_default->HasError())
+        << "NULL input should not change default native mode: " << native_default->GetError();
+    EXPECT_EQ(native_default->RowCount(), 3);
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidValueErrorsWithGuidance) {
     auto result = safe_query("SELECT dplyr_pipe_syntax('invalid-pipe-mode')");
-    if (result == nullptr) {
-        SUCCEED() << "Invalid literal pipe mode threw an uninspectable exception";
-        return;
-    }
 
+    ASSERT_NE(result, nullptr) << "Invalid literal pipe mode should return an inspectable query error";
     ASSERT_TRUE(result->HasError()) << "Invalid literal pipe mode should return an error";
+    const auto error = result->GetError();
+    EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
+    EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidColumnValueErrors) {
     auto result = safe_query(
         "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('invalid-pipe-mode')) modes(mode)");
 
-    ASSERT_TRUE(result == nullptr || result->HasError())
-        << "Invalid non-literal pipe mode should return an error";
+    ASSERT_NE(result, nullptr) << "Invalid non-literal pipe mode should return an inspectable query error";
+    ASSERT_TRUE(result->HasError()) << "Invalid non-literal pipe mode should return an error";
+    const auto error = result->GetError();
+    EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
+    EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;
 }
 
 TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {
-    std::string error;
-    try {
-        auto result = conn->Query(
-            "SELECT * FROM dplyr('mtcars %>% select(mpg)', 'invalid-pipe-mode')");
-        ASSERT_NE(result, nullptr);
-        ASSERT_TRUE(result->HasError()) << "Invalid explicit pipe mode should return an error";
-        error = result->GetError();
-    } catch (const std::exception &ex) {
-        error = ex.what();
-    }
+    auto result = safe_query("SELECT * FROM dplyr('mtcars %>% select(mpg)', 'invalid-pipe-mode')");
 
+    ASSERT_NE(result, nullptr) << "Invalid explicit pipe mode should return an inspectable query error";
+    ASSERT_TRUE(result->HasError()) << "Invalid explicit pipe mode should return an error";
+    const auto error = result->GetError();
     ASSERT_FALSE(error.empty()) << "Invalid explicit pipe mode should report an error message";
     EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
     EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;

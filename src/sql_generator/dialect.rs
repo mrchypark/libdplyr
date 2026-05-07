@@ -109,10 +109,7 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
         }
         "nzchar" => {
             if args.len() == 1 {
-                Some(format!(
-                    "COALESCE(({} > 0), FALSE)",
-                    dialect.char_length(&args[0])
-                ))
+                Some(format!("({} > 0)", dialect.char_length(&args[0])))
             } else {
                 None
             }

@@ -759,7 +759,7 @@ mod dialect_specific_tests {
 
         assert_eq!(
             generator.generate_expression(&nzchar_expr).unwrap(),
-            "COALESCE((LENGTH(\"name\") > 0), FALSE)"
+            "(LENGTH(\"name\") > 0)"
         );
         assert_eq!(
             generator.generate_expression(&nchar_expr).unwrap(),
@@ -771,7 +771,7 @@ mod dialect_specific_tests {
         );
         assert_eq!(
             mysql_generator.generate_expression(&nzchar_expr).unwrap(),
-            "COALESCE((CHAR_LENGTH(`name`) > 0), FALSE)"
+            "(CHAR_LENGTH(`name`) > 0)"
         );
     }
 
@@ -1150,6 +1150,74 @@ mod complex_query_tests {
         assert!(normalized.contains("COUNT(*) AS \"COUNT\""));
         assert!(normalized.contains("GROUP BY"));
         assert!(normalized.contains("\"DEPARTMENT\""));
+    }
+
+    #[test]
+    fn test_group_by_after_summarise_is_metadata_only() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let ast = DplyrNode::Pipeline {
+            source: Some("data".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::Summarise {
+                    aggregations: vec![Aggregation {
+                        function: "n".to_string(),
+                        column: "".to_string(),
+                        alias: Some("n".to_string()),
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::GroupBy {
+                    columns: vec!["g".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let sql = generator.generate(&ast).unwrap();
+
+        assert!(
+            !sql.contains("GROUP BY"),
+            "late group_by should not emit final GROUP BY: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_group_by_after_grouped_summarise_is_metadata_only() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let ast = DplyrNode::Pipeline {
+            source: Some("data".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::GroupBy {
+                    columns: vec!["g".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Summarise {
+                    aggregations: vec![Aggregation {
+                        function: "n".to_string(),
+                        column: "".to_string(),
+                        alias: Some("n".to_string()),
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::GroupBy {
+                    columns: vec!["h".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let sql = generator.generate(&ast).unwrap();
+
+        assert!(
+            !sql.contains("GROUP BY"),
+            "late group_by should replace grouping metadata without final GROUP BY: {sql}"
+        );
     }
 
     #[test]

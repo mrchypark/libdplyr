@@ -157,6 +157,38 @@ fn test_group_by_and_summarise() {
 }
 
 #[test]
+fn test_group_by_after_summarise_is_metadata_only() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = "data %>% summarise(n = n()) %>% group_by(g)";
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+
+    let sql = result.unwrap();
+
+    assert!(
+        !sql.contains("GROUP BY"),
+        "late group_by should not emit final GROUP BY: {sql}"
+    );
+}
+
+#[test]
+fn test_group_by_after_grouped_summarise_is_metadata_only() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = "data %>% group_by(g) %>% summarise(n = n()) %>% group_by(h)";
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+
+    let sql = result.unwrap();
+
+    assert!(
+        !sql.contains("GROUP BY"),
+        "late group_by should replace grouping metadata without final GROUP BY: {sql}"
+    );
+}
+
+#[test]
 fn test_invalid_syntax() {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let dplyr_code = "invalid_function(test)";
