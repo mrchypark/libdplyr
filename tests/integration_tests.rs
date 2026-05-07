@@ -173,7 +173,7 @@ fn test_group_by_after_summarise_is_metadata_only() {
 }
 
 #[test]
-fn test_group_by_after_grouped_summarise_is_metadata_only() {
+fn test_group_by_after_grouped_summarise_preserves_summarise_grouping() {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let dplyr_code = "data %>% group_by(g) %>% summarise(n = n()) %>% group_by(h)";
 
@@ -183,8 +183,12 @@ fn test_group_by_after_grouped_summarise_is_metadata_only() {
     let sql = result.unwrap();
 
     assert!(
-        !sql.contains("GROUP BY"),
-        "late group_by should replace grouping metadata without final GROUP BY: {sql}"
+        sql.contains("GROUP BY \"g\""),
+        "summarise grouping should be preserved: {sql}"
+    );
+    assert!(
+        !sql.contains("GROUP BY \"h\""),
+        "late group_by should not replace summarise grouping: {sql}"
     );
 }
 

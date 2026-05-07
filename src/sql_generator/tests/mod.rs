@@ -1185,7 +1185,7 @@ mod complex_query_tests {
     }
 
     #[test]
-    fn test_group_by_after_grouped_summarise_is_metadata_only() {
+    fn test_group_by_after_grouped_summarise_preserves_summarise_grouping() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let ast = DplyrNode::Pipeline {
@@ -1215,8 +1215,12 @@ mod complex_query_tests {
         let sql = generator.generate(&ast).unwrap();
 
         assert!(
-            !sql.contains("GROUP BY"),
-            "late group_by should replace grouping metadata without final GROUP BY: {sql}"
+            sql.contains("GROUP BY \"g\""),
+            "summarise grouping should be preserved: {sql}"
+        );
+        assert!(
+            !sql.contains("GROUP BY \"h\""),
+            "late group_by should not replace summarise grouping: {sql}"
         );
     }
 

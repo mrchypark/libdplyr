@@ -19,11 +19,13 @@ struct DplyrParserExtension : public duckdb::ParserExtension {
 
 struct DplyrParseData : duckdb::ParserExtensionParseData {
     std::string sql;
+    bool is_compiled_sql;
 
-    explicit DplyrParseData(std::string sql_p) : sql(std::move(sql_p)) {}
+    explicit DplyrParseData(std::string sql_p, bool is_compiled_sql_p = true)
+        : sql(std::move(sql_p)), is_compiled_sql(is_compiled_sql_p) {}
 
     duckdb::unique_ptr<duckdb::ParserExtensionParseData> Copy() const override {
-        return duckdb::make_uniq_base<duckdb::ParserExtensionParseData, DplyrParseData>(sql);
+        return duckdb::make_uniq_base<duckdb::ParserExtensionParseData, DplyrParseData>(sql, is_compiled_sql);
     }
 
     std::string ToString() const override { return "DplyrParseData"; }

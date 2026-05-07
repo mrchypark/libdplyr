@@ -175,7 +175,7 @@ impl SqlGenerator {
         }
 
         let mut query_parts = QueryParts::new();
-        let mut group_by_used_by_summarise = false;
+        let mut aggregation_group_by = None;
 
         // Get the source table name for join operations
         let source_table = source.as_deref().unwrap_or("data");
@@ -183,20 +183,16 @@ impl SqlGenerator {
         // Process each operation in order
         for operation in operations {
             self.process_operation(operation, &mut query_parts, source_table)?;
-            match operation {
-                DplyrOperation::GroupBy { .. } => {
-                    group_by_used_by_summarise = false;
-                }
-                DplyrOperation::Summarise { .. } => {
-                    group_by_used_by_summarise = !query_parts.group_by.is_empty();
-                }
-                _ => {}
+            if matches!(operation, DplyrOperation::Summarise { .. }) {
+                aggregation_group_by = if query_parts.group_by.is_empty() {
+                    None
+                } else {
+                    Some(query_parts.group_by.clone())
+                };
             }
         }
 
-        if !group_by_used_by_summarise {
-            query_parts.group_by.clear();
-        }
+        query_parts.group_by = aggregation_group_by.unwrap_or_default();
 
         // Assemble final SQL query
         self.assemble_query(source, &query_parts)
