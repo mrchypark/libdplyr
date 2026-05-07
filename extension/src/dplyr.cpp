@@ -579,9 +579,10 @@ static QueryCompileStatus ParsePipeSyntaxValue(const string &value, uint32_t &pi
         : QueryCompileStatus::Error;
 }
 
-static QueryCompileStatus EffectivePipeSyntax(const ClientContext &context, uint32_t &pipe_syntax, string &error_out) {
+static QueryCompileStatus EffectivePipeSyntax(ClientContext &context, uint32_t &pipe_syntax, string &error_out) {
     Value session_value;
-    if (context.TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, session_value)) {
+    auto &client_config = ClientConfig::GetConfig(context);
+    if (client_config.GetUserVariable(DPLYR_PIPE_SYNTAX_SETTING, session_value)) {
         if (session_value.IsNull()) {
             return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
         }
@@ -590,7 +591,7 @@ static QueryCompileStatus EffectivePipeSyntax(const ClientContext &context, uint
     return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
 }
 
-static QueryCompileStatus PipeSyntaxFromTableInput(const ClientContext &context, const TableFunctionBindInput &input,
+static QueryCompileStatus PipeSyntaxFromTableInput(ClientContext &context, const TableFunctionBindInput &input,
                                                    uint32_t &pipe_syntax, string &error_out) {
     if (input.inputs.size() < 2 || input.inputs[1].IsNull()) {
         return EffectivePipeSyntax(context, pipe_syntax, error_out);
@@ -600,7 +601,7 @@ static QueryCompileStatus PipeSyntaxFromTableInput(const ClientContext &context,
 
 static void SetSessionPipeSyntax(ClientContext &context, uint32_t pipe_syntax) {
     auto &client_config = ClientConfig::GetConfig(context);
-    client_config.set_variables[DPLYR_PIPE_SYNTAX_SETTING] = Value(CanonicalPipeSyntaxName(pipe_syntax));
+    client_config.SetUserVariable(DPLYR_PIPE_SYNTAX_SETTING, Value(CanonicalPipeSyntaxName(pipe_syntax)));
 }
 
 static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState &state, Vector &result) {
@@ -901,7 +902,7 @@ static string GetDplyrQuery(const TableFunctionBindInput &input) {
     return StringValue::Get(input.inputs[0]);
 }
 
-static uint32_t GetDplyrPipeSyntax(const ClientContext &context, const TableFunctionBindInput &input) {
+static uint32_t GetDplyrPipeSyntax(ClientContext &context, const TableFunctionBindInput &input) {
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (PipeSyntaxFromTableInput(context, input, pipe_syntax, error) != QueryCompileStatus::Success) {
