@@ -868,6 +868,10 @@ static uint32_t GetDplyrPipeSyntax(ClientContext &context, const TableFunctionBi
 }
 
 static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableFunctionBindInput &input) {
+    if (input.inputs.empty() || input.inputs[0].IsNull()) {
+        return PipeSyntaxErrorTableRef("dplyr() requires a non-null query string", context.GetParserOptions());
+    }
+
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (PipeSyntaxFromTableInput(context, input, pipe_syntax, error) != QueryCompileStatus::Success) {
