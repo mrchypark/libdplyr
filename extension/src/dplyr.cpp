@@ -10,7 +10,6 @@
 
 #include "duckdb.hpp"
 #include "duckdb/common/error_data.hpp"
-#include "duckdb/function/scalar/generic_functions.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 #include "duckdb/parser/parser.hpp"
 // Note: Parser.hpp removed - use Connection::Query for parsing validation
@@ -18,8 +17,6 @@
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/binder.hpp"
-#include "duckdb/planner/expression/bound_constant_expression.hpp"
-#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #if defined(__has_include)
@@ -28,7 +25,6 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
-#include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
@@ -538,16 +534,6 @@ static string SqlStringLiteral(const string &value) {
     ErrorData(ExceptionType::INVALID_INPUT, error).Throw();
 }
 
-static unique_ptr<Expression> PipeSyntaxErrorExpression(const string &error) {
-    vector<unique_ptr<Expression>> children;
-    children.push_back(make_uniq<BoundConstantExpression>(Value(error)));
-    return make_uniq<BoundFunctionExpression>(
-        LogicalType::SQLNULL,
-        ErrorFun::GetFunction(),
-        std::move(children),
-        nullptr);
-}
-
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
     Parser parser(options);
     parser.ParseQuery("SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error");
@@ -609,7 +595,8 @@ static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     auto status = EffectivePipeSyntax(state.GetContext(), pipe_syntax, error);
     if (status != QueryCompileStatus::Success) {
-        ThrowInvalidPipeSyntaxError(error);
+        result.Reference(Value(error));
+        return;
     }
     result.Reference(Value(CanonicalPipeSyntaxName(pipe_syntax)));
 }
@@ -634,7 +621,8 @@ static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, 
         string error;
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         if (ParsePipeSyntaxValue(input_values[input_index].GetString(), pipe_syntax, error) != QueryCompileStatus::Success) {
-            ThrowInvalidPipeSyntaxError(error);
+            output_data[i] = StringVector::AddString(result, error);
+            continue;
         }
         SetSessionPipeSyntax(state.GetContext(), pipe_syntax);
         output_data[i] = StringVector::AddString(result, CanonicalPipeSyntaxName(pipe_syntax));
@@ -646,42 +634,10 @@ static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, 
 }
 
 static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindExpressionInput &input) {
-    string error;
-    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-    if (EffectivePipeSyntax(input.context, pipe_syntax, error) != QueryCompileStatus::Success) {
-        return PipeSyntaxErrorExpression(error);
-    }
     return nullptr;
 }
 
 static unique_ptr<Expression> DplyrPipeSyntaxSetBindExpression(FunctionBindExpressionInput &input) {
-    if (input.children.empty()) {
-        return nullptr;
-    }
-
-    auto &value_expr = *input.children[0];
-    if (value_expr.return_type.id() == LogicalTypeId::SQLNULL) {
-        return nullptr;
-    }
-
-    if (value_expr.return_type.id() == LogicalTypeId::UNKNOWN ||
-        value_expr.HasParameter() ||
-        !value_expr.IsFoldable()) {
-        return PipeSyntaxErrorExpression(
-            "Invalid dplyr pipe syntax '<non-constant>'. Expected 'magrittr' or 'native'. "
-            "Set DPLYR_PIPE_SYNTAX to 'magrittr' or 'native'.");
-    }
-
-    auto value = ExpressionExecutor::EvaluateScalar(input.context, value_expr).CastAs(input.context, LogicalType::VARCHAR);
-    if (value.IsNull()) {
-        return nullptr;
-    }
-
-    string error;
-    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-    if (ParsePipeSyntaxValue(StringValue::Get(value), pipe_syntax, error) != QueryCompileStatus::Success) {
-        return PipeSyntaxErrorExpression(error);
-    }
     return nullptr;
 }
 

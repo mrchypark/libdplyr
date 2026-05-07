@@ -138,9 +138,14 @@ protected:
     std::unique_ptr<duckdb::MaterializedQueryResult> safe_query(duckdb::Connection &target_conn, const std::string& query) {
         try {
             return target_conn.Query(query);
+        } catch (const duckdb::Exception &ex) {
+            return duckdb::make_uniq<duckdb::MaterializedQueryResult>(duckdb::ErrorData(ex));
+        } catch (const std::exception &ex) {
+            return duckdb::make_uniq<duckdb::MaterializedQueryResult>(
+                duckdb::ErrorData(duckdb::ExceptionType::INVALID_INPUT, ex.what()));
         } catch (...) {
-            // Exception occurred - return nullptr, let individual tests decide if this is acceptable
-            return nullptr;
+            return duckdb::make_uniq<duckdb::MaterializedQueryResult>(
+                duckdb::ErrorData(duckdb::ExceptionType::INVALID_INPUT, "Unknown C++ exception"));
         }
     }
 
@@ -399,25 +404,34 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarNullInputReturnsNull) {
     EXPECT_EQ(native_default->RowCount(), 3);
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidValueErrorsWithGuidance) {
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidValueReturnsGuidance) {
     auto result = safe_query("SELECT dplyr_pipe_syntax('invalid-pipe-mode')");
 
-    ASSERT_NE(result, nullptr) << "Invalid literal pipe mode should return an inspectable query error";
-    ASSERT_TRUE(result->HasError()) << "Invalid literal pipe mode should return an error";
-    const auto error = result->GetError();
-    EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
-    EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "Invalid scalar pipe mode should return guidance without aborting clients: " << result->GetError();
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    const auto message = chunk->GetValue(0, 0).ToString();
+    EXPECT_NE(message.find("Expected 'magrittr' or 'native'"), std::string::npos) << message;
+    EXPECT_NE(message.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << message;
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidColumnValueErrors) {
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidColumnValueReturnsGuidance) {
     auto result = safe_query(
         "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('invalid-pipe-mode')) modes(mode)");
 
-    ASSERT_NE(result, nullptr) << "Invalid non-literal pipe mode should return an inspectable query error";
-    ASSERT_TRUE(result->HasError()) << "Invalid non-literal pipe mode should return an error";
-    const auto error = result->GetError();
-    EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
-    EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "Invalid scalar pipe mode rows should return guidance without aborting clients: " << result->GetError();
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 2);
+    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "native");
+    const auto message = chunk->GetValue(0, 1).ToString();
+    EXPECT_NE(message.find("Expected 'magrittr' or 'native'"), std::string::npos) << message;
+    EXPECT_NE(message.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << message;
 }
 
 TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {
