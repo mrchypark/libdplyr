@@ -17,8 +17,6 @@
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/binder.hpp"
-#include "duckdb/planner/expression/bound_constant_expression.hpp"
-#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #if defined(__has_include)
@@ -27,7 +25,6 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
-#include "duckdb/function/scalar/generic_functions.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
@@ -537,16 +534,6 @@ static string SqlStringLiteral(const string &value) {
     ErrorData(ExceptionType::INVALID_INPUT, error).Throw();
 }
 
-static unique_ptr<Expression> PipeSyntaxErrorExpression(const string &error) {
-    vector<unique_ptr<Expression>> children;
-    children.push_back(make_uniq<BoundConstantExpression>(Value(error)));
-    return make_uniq<BoundFunctionExpression>(
-        LogicalType::SQLNULL,
-        ErrorFun::GetFunction(),
-        std::move(children),
-        nullptr);
-}
-
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
     Parser parser(options);
     parser.ParseQuery("SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error");
@@ -566,6 +553,8 @@ static unique_ptr<TableRef> SelectSubqueryTableRef(const string &query, const Pa
 }
 
 static constexpr const char *DPLYR_PIPE_SYNTAX_SETTING = "dplyr_pipe_syntax";
+static constexpr const char *DPLYR_PIPE_SYNTAX_SINGLE_ROW_ERROR =
+    "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument";
 
 static QueryCompileStatus DefaultPipeSyntaxFromEnvironment(uint32_t &pipe_syntax, string &error_out) {
     pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
@@ -614,6 +603,14 @@ static void SetSessionPipeSyntax(ClientContext &context, uint32_t pipe_syntax) {
     client_config.SetUserVariable(DPLYR_PIPE_SYNTAX_SETTING, Value(CanonicalPipeSyntaxName(pipe_syntax)));
 }
 
+static void SetPipeSyntaxGuidanceResult(Vector &result, idx_t count) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto output_data = FlatVector::GetData<string_t>(result);
+    for (idx_t i = 0; i < count; i++) {
+        output_data[i] = StringVector::AddString(result, DPLYR_PIPE_SYNTAX_SINGLE_ROW_ERROR);
+    }
+}
+
 static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState &state, Vector &result) {
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
@@ -628,8 +625,8 @@ static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState
 static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &input = args.data[0];
     if (args.size() != 1 || input.GetVectorType() != VectorType::CONSTANT_VECTOR) {
-        throw InvalidInputException(
-            "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument");
+        SetPipeSyntaxGuidanceResult(result, args.size());
+        return;
     }
 
     UnifiedVectorFormat input_data;
@@ -663,24 +660,6 @@ static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, 
 }
 
 static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindExpressionInput &input) {
-    return nullptr;
-}
-
-static unique_ptr<Expression> DplyrPipeSyntaxSetBindExpression(FunctionBindExpressionInput &input) {
-    if (input.children.empty()) {
-        return nullptr;
-    }
-
-    auto &value_expr = *input.children[0];
-    if (value_expr.return_type.id() == LogicalTypeId::SQLNULL) {
-        return nullptr;
-    }
-
-    if (value_expr.HasParameter() || !value_expr.IsFoldable()) {
-        return PipeSyntaxErrorExpression(
-            "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument");
-    }
-
     return nullptr;
 }
 
@@ -1117,7 +1096,6 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         nullptr,
         LogicalType::INVALID,
         FunctionStability::VOLATILE);
-    dplyr_pipe_syntax_set.bind_expression = DplyrPipeSyntaxSetBindExpression;
     BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_set);
     loader.RegisterFunction(dplyr_pipe_syntax_set);
 

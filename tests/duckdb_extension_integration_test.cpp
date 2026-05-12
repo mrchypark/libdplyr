@@ -466,9 +466,17 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarRejectsMultiRowColumnInput) {
         "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('magrittr')) modes(mode)");
 
     ASSERT_NE(result, nullptr);
-    ASSERT_TRUE(result->HasError()) << "Column input should be rejected instead of mutating once per row";
-    const auto error = result->GetError();
-    EXPECT_NE(error.find("constant single-row"), std::string::npos) << error;
+    ASSERT_FALSE(result->HasError())
+        << "Column input should return guidance without aborting clients: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 2);
+    for (idx_t row = 0; row < chunk->size(); row++) {
+        const auto message = chunk->GetValue(0, row).ToString();
+        EXPECT_NE(message.find("constant single-row"), std::string::npos) << message;
+    }
 
     auto current = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current, nullptr);
