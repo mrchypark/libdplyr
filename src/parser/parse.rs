@@ -63,7 +63,16 @@ impl Parser {
     ///
     /// Returns DplyrNode on success, ParseError on failure.
     pub fn parse(&mut self) -> ParseResult<DplyrNode> {
-        self.parse_pipeline()
+        let node = self.parse_pipeline()?;
+        self.skip_newlines()?;
+        if self.current_token != Token::EOF {
+            return Err(ParseError::UnexpectedToken {
+                expected: "end of input".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        }
+        Ok(node)
     }
 
     /// Returns the current source location.
@@ -96,6 +105,17 @@ impl Parser {
                 found: format!("{}", self.current_token),
                 position: self.position,
             })
+        }
+    }
+
+    fn expect_identifier_name(&mut self, expected_name: &str) -> ParseResult<()> {
+        match &self.current_token {
+            Token::Identifier(name) if name == expected_name => self.advance(),
+            _ => Err(ParseError::UnexpectedToken {
+                expected: expected_name.to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            }),
         }
     }
 
@@ -781,7 +801,7 @@ impl Parser {
         }
 
         self.expect_token(Token::Comma)?;
-        self.expect_token(Token::Identifier("by".to_string()))?;
+        self.expect_identifier_name("by")?;
         self.expect_token(Token::Assignment)?;
 
         // Parse by parameter - handle string literal as column name
@@ -875,11 +895,11 @@ impl Parser {
 
                 let mut args = Vec::new();
                 if self.current_token != Token::RightParen {
-                    args.push(self.parse_expression()?);
+                    args.push(self.parse_function_argument()?);
 
                     while self.current_token == Token::Comma {
                         self.advance()?; // Skip ,
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_function_argument()?);
                     }
                 }
 

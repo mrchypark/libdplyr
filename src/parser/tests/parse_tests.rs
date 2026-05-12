@@ -80,6 +80,35 @@ fn test_parse_single_table_inner_join() {
 }
 
 #[test]
+fn test_join_rejects_unknown_join_parameter_name() {
+    let lexer = Lexer::new("inner_join(df2, bogus = \"id\")".to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    let error = parser.parse().unwrap_err();
+
+    assert!(
+        error.to_string().contains("by"),
+        "Unexpected error: {error}"
+    );
+}
+
+#[test]
+fn test_parse_rejects_trailing_tokens_after_operation() {
+    let lexer = Lexer::new("select(name) filter(age > 18)".to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    assert!(parser.parse().is_err());
+}
+
+#[test]
+fn test_parse_rejects_trailing_tokens_after_pipeline() {
+    let lexer = Lexer::new("data %>% select(name) bogus".to_string());
+    let mut parser = Parser::new(lexer).unwrap();
+
+    assert!(parser.parse().is_err());
+}
+
+#[test]
 fn test_parse_single_table_left_join() {
     let input = "left_join(df2, by = \"id\")";
     let lexer = Lexer::new(input.to_string());
@@ -599,6 +628,40 @@ mod select_parsing_tests {
                     panic!("Expected function call expression");
                 }
                 assert_eq!(columns[1].alias, None);
+            } else {
+                panic!("Expected Select operation");
+            }
+        } else {
+            panic!("Expected Pipeline node");
+        }
+    }
+
+    #[test]
+    fn test_select_with_unaliased_function_call_named_argument() {
+        let lexer = Lexer::new(r#"select(paste(name, sep = "-"))"#.to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+
+        let ast = parser.parse().unwrap();
+
+        if let DplyrNode::Pipeline { operations, .. } = ast {
+            assert_eq!(operations.len(), 1);
+            if let DplyrOperation::Select { columns, .. } = &operations[0] {
+                assert_eq!(columns.len(), 1);
+                if let Expr::Function { name, args } = &columns[0].expr {
+                    assert_eq!(name, "paste");
+                    assert_eq!(args.len(), 2);
+                    assert_eq!(args[0], Expr::Identifier("name".to_string()));
+                    assert_eq!(
+                        args[1],
+                        Expr::NamedArg {
+                            name: "sep".to_string(),
+                            value: Box::new(Expr::Literal(LiteralValue::String("-".to_string()))),
+                        }
+                    );
+                } else {
+                    panic!("Expected function call expression");
+                }
+                assert_eq!(columns[0].alias, None);
             } else {
                 panic!("Expected Select operation");
             }

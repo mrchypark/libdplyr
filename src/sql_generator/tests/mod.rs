@@ -48,6 +48,7 @@ mod dialect_tests {
         assert_eq!(dialect.quote_identifier("test"), "\"test\"");
         assert_eq!(dialect.quote_identifier("column_name"), "\"column_name\"");
         assert_eq!(dialect.quote_identifier("CamelCase"), "\"CamelCase\"");
+        assert_eq!(dialect.quote_identifier("bad\"name"), "\"bad\"\"name\"");
     }
 
     #[test]
@@ -86,6 +87,7 @@ mod dialect_tests {
         let dialect = MySqlDialect::new();
         assert_eq!(dialect.quote_identifier("test"), "`test`");
         assert_eq!(dialect.quote_identifier("column_name"), "`column_name`");
+        assert_eq!(dialect.quote_identifier("bad`name"), "`bad``name`");
     }
 
     #[test]
@@ -102,6 +104,7 @@ mod dialect_tests {
     fn test_sqlite_dialect() {
         let dialect = SqliteDialect::new();
         assert_eq!(dialect.quote_identifier("test"), "\"test\"");
+        assert_eq!(dialect.quote_identifier("bad\"name"), "\"bad\"\"name\"");
         assert_eq!(dialect.string_concat("a", "b"), "a || b");
         assert_eq!(dialect.aggregate_function("mean"), "AVG");
     }
@@ -109,6 +112,7 @@ mod dialect_tests {
     #[test]
     fn test_duckdb_dialect_special_functions() {
         let dialect = DuckDbDialect::new();
+        assert_eq!(dialect.quote_identifier("bad\"name"), "\"bad\"\"name\"");
         assert_eq!(dialect.aggregate_function("median"), "MEDIAN");
         assert_eq!(dialect.aggregate_function("mode"), "MODE");
         assert_eq!(dialect.aggregate_function("mean"), "AVG");
@@ -530,6 +534,24 @@ mod dialect_specific_tests {
     }
 
     #[test]
+    fn test_is_na_predicate_is_parenthesized_in_binary_expression() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let expr = Expr::Binary {
+            left: Box::new(Expr::Function {
+                name: "is.na".to_string(),
+                args: vec![Expr::Identifier("value".to_string())],
+            }),
+            operator: BinaryOp::Equal,
+            right: Box::new(Expr::Literal(LiteralValue::Boolean(true))),
+        };
+
+        assert_eq!(
+            generator.generate_expression(&expr).unwrap(),
+            "((\"value\" IS NULL) = TRUE)"
+        );
+    }
+
+    #[test]
     fn test_named_arguments_are_mapped_for_supported_functions() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
@@ -581,6 +603,59 @@ mod dialect_specific_tests {
         assert_eq!(
             generator.generate_expression(&lag_expr).unwrap(),
             "LAG(\"value\", 2, 0) OVER ()"
+        );
+    }
+
+    #[test]
+    fn test_ifelse_named_arguments_are_mapped_for_supported_variants() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let ifelse_expr = Expr::Function {
+            name: "ifelse".to_string(),
+            args: vec![
+                Expr::NamedArg {
+                    name: "test".to_string(),
+                    value: Box::new(Expr::Binary {
+                        left: Box::new(Expr::Identifier("score".to_string())),
+                        operator: BinaryOp::GreaterThan,
+                        right: Box::new(Expr::Literal(LiteralValue::Number(80.0))),
+                    }),
+                },
+                Expr::NamedArg {
+                    name: "yes".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::String("high".to_string()))),
+                },
+                Expr::NamedArg {
+                    name: "no".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::String("low".to_string()))),
+                },
+            ],
+        };
+        let if_else_expr = Expr::Function {
+            name: "if_else".to_string(),
+            args: vec![
+                Expr::NamedArg {
+                    name: "condition".to_string(),
+                    value: Box::new(Expr::Identifier("active".to_string())),
+                },
+                Expr::NamedArg {
+                    name: "true".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::String("yes".to_string()))),
+                },
+                Expr::NamedArg {
+                    name: "false".to_string(),
+                    value: Box::new(Expr::Literal(LiteralValue::String("no".to_string()))),
+                },
+            ],
+        };
+
+        assert_eq!(
+            generator.generate_expression(&ifelse_expr).unwrap(),
+            "CASE WHEN (\"score\" > 80) THEN 'high' ELSE 'low' END"
+        );
+        assert_eq!(
+            generator.generate_expression(&if_else_expr).unwrap(),
+            "CASE WHEN \"active\" THEN 'yes' ELSE 'no' END"
         );
     }
 
@@ -978,7 +1053,7 @@ mod dialect_specific_tests {
     }
 
     #[test]
-    fn test_duckdb_unknown_function_is_late_bound() {
+    fn test_duckdb_unknown_function_call_is_rejected() {
         let duckdb_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
 
         let extension_expr = Expr::Function {
@@ -989,12 +1064,14 @@ mod dialect_specific_tests {
             ],
         };
 
-        assert_eq!(
-            duckdb_generator
-                .generate_expression(&extension_expr)
-                .unwrap(),
-            "extension_func(\"value\", 2)"
-        );
+        let error = duckdb_generator
+            .generate_expression(&extension_expr)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            GenerationError::UnsupportedFunction { function, dialect }
+                if function == "extension_func" && dialect == "duckdb"
+        ));
     }
 
     #[test]
@@ -1012,6 +1089,113 @@ mod dialect_specific_tests {
             GenerationError::UnsupportedAggregateFunction { function, dialect }
                 if function == "extension_agg" && dialect == "postgresql"
         ));
+    }
+
+    #[test]
+    fn test_duckdb_unknown_aggregate_is_rejected() {
+        let generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let aggregations = vec![Aggregation {
+            function: "extension_agg".to_string(),
+            column: "value".to_string(),
+            alias: Some("result".to_string()),
+        }];
+
+        let error = generator.generate_aggregations(&aggregations).unwrap_err();
+        assert!(matches!(
+            error,
+            GenerationError::UnsupportedAggregateFunction { function, dialect }
+                if function == "extension_agg" && dialect == "duckdb"
+        ));
+    }
+
+    #[test]
+    fn test_identifier_quote_characters_are_escaped_in_generated_sql() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let ast = DplyrNode::Pipeline {
+            source: Some("data\"set".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::Select {
+                    columns: vec![ColumnExpr {
+                        expr: Expr::Identifier("name\"x".to_string()),
+                        alias: None,
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Join {
+                    join_type: JoinType::Inner,
+                    spec: JoinSpec {
+                        table: "users\"x".to_string(),
+                        by_column: Some("id\"x".to_string()),
+                        on_expr: None,
+                    },
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Arrange {
+                    columns: vec![OrderExpr {
+                        column: "name\"x".to_string(),
+                        direction: OrderDirection::Asc,
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let sql = generator.generate(&ast).unwrap();
+
+        assert!(sql.contains("SELECT \"name\"\"x\""));
+        assert!(sql.contains("FROM \"data\"\"set\""));
+        assert!(sql.contains("INNER JOIN \"users\"\"x\""));
+        assert!(sql.contains("ON \"data\"\"set\".\"id\"\"x\" = \"users\"\"x\".\"id\"\"x\""));
+        assert!(sql.contains("ORDER BY \"name\"\"x\" ASC"));
+        assert!(!sql.contains("\"data\"\"set.id\"\"x\""));
+    }
+
+    #[test]
+    fn test_group_by_and_rename_escape_identifier_quote_characters() {
+        let grouped_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let grouped_ast = DplyrNode::Pipeline {
+            source: Some("data".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::GroupBy {
+                    columns: vec!["dept\"x".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Summarise {
+                    aggregations: vec![Aggregation {
+                        function: "mean".to_string(),
+                        column: "salary\"x".to_string(),
+                        alias: Some("avg\"x".to_string()),
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let grouped_sql = grouped_generator.generate(&grouped_ast).unwrap();
+        assert!(grouped_sql.contains("SELECT \"dept\"\"x\", AVG(\"salary\"\"x\") AS \"avg\"\"x\""));
+        assert!(grouped_sql.contains("GROUP BY \"dept\"\"x\""));
+
+        let rename_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
+        let rename_ast = DplyrNode::Pipeline {
+            source: Some("data".to_string()),
+            target: None,
+            operations: vec![DplyrOperation::Rename {
+                renames: vec![RenameSpec {
+                    old_name: "old\"x".to_string(),
+                    new_name: "new\"x".to_string(),
+                }],
+                location: SourceLocation::unknown(),
+            }],
+            location: SourceLocation::unknown(),
+        };
+
+        let rename_sql = rename_generator.generate(&rename_ast).unwrap();
+        assert!(rename_sql.contains("* EXCLUDE (\"old\"\"x\")"));
+        assert!(rename_sql.contains("\"old\"\"x\" AS \"new\"\"x\""));
     }
 
     #[test]
@@ -1150,6 +1334,42 @@ mod complex_query_tests {
         assert!(normalized.contains("COUNT(*) AS \"COUNT\""));
         assert!(normalized.contains("GROUP BY"));
         assert!(normalized.contains("\"DEPARTMENT\""));
+    }
+
+    #[test]
+    fn test_grouped_summarise_selects_grouping_keys() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+
+        let ast = DplyrNode::Pipeline {
+            source: Some("data".to_string()),
+            target: None,
+            operations: vec![
+                DplyrOperation::GroupBy {
+                    columns: vec!["dept".to_string()],
+                    location: SourceLocation::unknown(),
+                },
+                DplyrOperation::Summarise {
+                    aggregations: vec![Aggregation {
+                        function: "mean".to_string(),
+                        column: "salary".to_string(),
+                        alias: Some("avg".to_string()),
+                    }],
+                    location: SourceLocation::unknown(),
+                },
+            ],
+            location: SourceLocation::unknown(),
+        };
+
+        let sql = generator.generate(&ast).unwrap();
+
+        assert!(
+            sql.contains("SELECT \"dept\", AVG(\"salary\") AS \"avg\""),
+            "grouped summarise should select grouping keys: {sql}"
+        );
+        assert!(
+            sql.contains("GROUP BY \"dept\""),
+            "grouped summarise should group by grouping keys: {sql}"
+        );
     }
 
     #[test]

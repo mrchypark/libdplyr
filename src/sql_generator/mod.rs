@@ -107,6 +107,34 @@ const VALUE_ORDER_FORMALS: &[NamedArgFormal] = &[
         default_sql: None,
     },
 ];
+const IFELSE_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "test",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "yes",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "no",
+        default_sql: None,
+    },
+];
+const IF_ELSE_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "condition",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "true",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "false",
+        default_sql: None,
+    },
+];
 
 fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
     match function.to_ascii_lowercase().as_str() {
@@ -122,6 +150,8 @@ fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
             Some(UNARY_X_FORMALS)
         }
         "first" | "first_value" | "last" | "last_value" => Some(VALUE_ORDER_FORMALS),
+        "ifelse" => Some(IFELSE_FORMALS),
+        "if_else" => Some(IF_ELSE_FORMALS),
         _ => None,
     }
 }
@@ -238,7 +268,12 @@ impl SqlGenerator {
                     .join(", ");
             }
             DplyrOperation::Summarise { aggregations, .. } => {
-                query_parts.select_columns = self.generate_aggregations(aggregations)?;
+                let mut select_columns = Vec::new();
+                if !query_parts.group_by.is_empty() {
+                    select_columns.push(query_parts.group_by.clone());
+                }
+                select_columns.extend(self.generate_aggregations(aggregations)?);
+                query_parts.select_columns = select_columns;
             }
             DplyrOperation::Join {
                 join_type, spec, ..
@@ -341,9 +376,9 @@ impl SqlGenerator {
                     format!(
                         "{} = {}",
                         self.dialect
-                            .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                            .quote_identifier_path(&[source_table, by_column]),
                         self.dialect
-                            .quote_identifier(&format!("{}.{}", spec.table, by_column))
+                            .quote_identifier_path(&[&spec.table, by_column])
                     )
                 } else if let Some(expr) = &spec.on_expr {
                     self.generate_expression(expr)?
@@ -388,9 +423,9 @@ impl SqlGenerator {
             format!(
                 "{} = {}",
                 self.dialect
-                    .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                    .quote_identifier_path(&[source_table, by_column]),
                 self.dialect
-                    .quote_identifier(&format!("{}.{}", spec.table, by_column))
+                    .quote_identifier_path(&[&spec.table, by_column])
             )
         } else if let Some(expr) = &spec.on_expr {
             // Fallback to expression-based ON clause

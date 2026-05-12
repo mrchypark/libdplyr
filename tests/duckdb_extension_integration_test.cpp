@@ -231,6 +231,49 @@ TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
     EXPECT_EQ(result->RowCount(), 3);
 }
 
+TEST_F(DuckDBExtensionTest, TableFunctionMissingTableReturnsQueryErrorWithoutThrowing) {
+    std::unique_ptr<duckdb::MaterializedQueryResult> result;
+
+    EXPECT_NO_THROW({
+        result = conn->Query("SELECT * FROM dplyr('missing_table %>% select(x)')");
+    });
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_TRUE(result->HasError()) << "Missing table should be reported as a query error";
+    const auto error = result->GetError();
+    EXPECT_NE(error.find("missing_table"), std::string::npos) << error;
+}
+
+TEST_F(DuckDBExtensionTest, TableFunctionUsesCallerContextForTempTables) {
+    ASSERT_FALSE(conn->Query("CREATE TEMP TABLE dplyr_temp_visible(x INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO dplyr_temp_visible VALUES (11), (12)")->HasError());
+
+    auto result = safe_query("SELECT * FROM dplyr('dplyr_temp_visible %>% select(x)')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "dplyr() should bind and execute against caller-visible temp tables: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 2);
+}
+
+TEST_F(DuckDBExtensionTest, TableFunctionUsesCallerTransactionForUncommittedRows) {
+    ASSERT_FALSE(conn->Query("CREATE TABLE dplyr_tx_visible(x INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO dplyr_tx_visible VALUES (1)")->HasError());
+    ASSERT_FALSE(conn->Query("BEGIN TRANSACTION")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO dplyr_tx_visible VALUES (2)")->HasError());
+
+    auto result = safe_query("SELECT COUNT(*) FROM dplyr('dplyr_tx_visible %>% select(x)')");
+
+    ASSERT_FALSE(conn->Query("ROLLBACK")->HasError());
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "dplyr() should execute inside the caller transaction: " << result->GetError();
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 2);
+}
+
 TEST_F(DuckDBExtensionTest, TableFunctionNativePipeSyntaxConfig) {
     auto result = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)', 'native')");
 
@@ -418,20 +461,23 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidValueReturnsGuidance) {
     EXPECT_NE(message.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << message;
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidColumnValueReturnsGuidance) {
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarRejectsMultiRowColumnInput) {
     auto result = safe_query(
-        "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('invalid-pipe-mode')) modes(mode)");
+        "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('magrittr')) modes(mode)");
 
     ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError())
-        << "Invalid scalar pipe mode rows should return guidance without aborting clients: " << result->GetError();
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 2);
-    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "native");
-    const auto message = chunk->GetValue(0, 1).ToString();
-    EXPECT_NE(message.find("Expected 'magrittr' or 'native'"), std::string::npos) << message;
-    EXPECT_NE(message.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << message;
+    ASSERT_TRUE(result->HasError()) << "Column input should be rejected instead of mutating once per row";
+    const auto error = result->GetError();
+    EXPECT_NE(error.find("constant single-row"), std::string::npos) << error;
+
+    auto current = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current, nullptr);
+    ASSERT_FALSE(current->HasError())
+        << "Rejected setter input should not change session pipe syntax: " << current->GetError();
+    auto current_chunk = current->Fetch();
+    ASSERT_TRUE(current_chunk);
+    ASSERT_EQ(current_chunk->size(), 1);
+    EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
 TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {

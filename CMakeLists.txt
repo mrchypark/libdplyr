@@ -707,6 +707,15 @@ add_test(
 )
 set_tests_properties(rust_unit_tests PROPERTIES TIMEOUT 120)
 
+add_test(
+    NAME rust_root_tests
+    COMMAND ${CMAKE_COMMAND} -E env
+        "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
+        cargo test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_tests_properties(rust_root_tests PROPERTIES TIMEOUT 120)
+
 # R7-AC1, R7-AC3: C++ Integration Tests
 option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
 
@@ -915,6 +924,7 @@ add_custom_target(dev-clean
 
 add_custom_target(rust-test
     COMMAND cargo test --manifest-path ${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml
+    COMMAND cargo test
     COMMENT "Running Rust unit tests"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )

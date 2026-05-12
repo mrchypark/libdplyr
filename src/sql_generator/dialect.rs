@@ -1,5 +1,10 @@
 //! SQL dialects.
 
+fn quote_with_escape(name: &str, quote: char) -> String {
+    let escaped = name.replace(quote, &quote.to_string().repeat(2));
+    format!("{quote}{escaped}{quote}")
+}
+
 /// Translates a common R/tidyverse function to dialect-specific SQL.
 fn translate_common_function<D: SqlDialect + ?Sized>(
     dialect: &D,
@@ -138,7 +143,7 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
         // NULL checks
         "is.na" => {
             if args.len() == 1 {
-                Some(format!("{} IS NULL", args[0]))
+                Some(format!("({} IS NULL)", args[0]))
             } else {
                 None
             }
@@ -412,22 +417,6 @@ fn translate_common_aggregate_function(function: &str) -> Option<String> {
     }
 }
 
-fn is_safe_sql_function_name(function: &str) -> bool {
-    function.split('.').all(|part| {
-        let mut chars = part.chars();
-        matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
-            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-    })
-}
-
-fn pass_through_function_call(function: &str, args: &[String]) -> Option<String> {
-    if is_safe_sql_function_name(function) {
-        Some(format!("{function}({})", args.join(", ")))
-    } else {
-        None
-    }
-}
-
 fn concat_with_operator(args: &[String]) -> Option<String> {
     if args.is_empty() {
         None
@@ -505,6 +494,15 @@ pub trait SqlDialect {
     /// assert_eq!(mysql.quote_identifier("user"), "`user`");     // MySQL
     /// ```
     fn quote_identifier(&self, name: &str) -> String;
+
+    /// Quotes a qualified identifier path, e.g. table + column.
+    fn quote_identifier_path(&self, parts: &[&str]) -> String {
+        parts
+            .iter()
+            .map(|part| self.quote_identifier(part))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
 
     /// Quotes string literals according to the database's conventions.
     ///
@@ -742,7 +740,7 @@ impl Default for PostgreSqlDialect {
 
 impl SqlDialect for PostgreSqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{name}\"")
+        quote_with_escape(name, '"')
     }
 
     fn quote_string(&self, value: &str) -> String {
@@ -856,7 +854,7 @@ impl Default for MySqlDialect {
 
 impl SqlDialect for MySqlDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("`{name}`")
+        quote_with_escape(name, '`')
     }
 
     fn quote_string(&self, value: &str) -> String {
@@ -1029,7 +1027,7 @@ impl Default for DuckDbDialect {
 
 impl SqlDialect for DuckDbDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{name}\"")
+        quote_with_escape(name, '"')
     }
 
     fn quote_string(&self, value: &str) -> String {
@@ -1068,14 +1066,9 @@ impl SqlDialect for DuckDbDialect {
             match function.to_lowercase().as_str() {
                 "median" => Some("MEDIAN".to_string()),
                 "mode" => Some("MODE".to_string()),
-                _ if is_safe_sql_function_name(function) => Some(function.to_string()),
                 _ => None,
             }
         })
-    }
-
-    fn translate_unknown_function(&self, function: &str, args: &[String]) -> Option<String> {
-        pass_through_function_call(function, args)
     }
 
     fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
@@ -1115,7 +1108,7 @@ pub struct DialectConfig {
 
 impl SqlDialect for SqliteDialect {
     fn quote_identifier(&self, name: &str) -> String {
-        format!("\"{name}\"")
+        quote_with_escape(name, '"')
     }
 
     fn quote_string(&self, value: &str) -> String {

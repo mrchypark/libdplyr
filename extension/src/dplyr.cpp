@@ -541,6 +541,17 @@ static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const P
     return make_uniq<SubqueryRef>(std::move(select_stmt));
 }
 
+static unique_ptr<TableRef> SelectSubqueryTableRef(const string &query, const ParserOptions &options,
+                                                   const string &error_message) {
+    Parser parser(options);
+    parser.ParseQuery(query);
+    if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
+        throw ParserException(error_message);
+    }
+    auto select_stmt = unique_ptr_cast<SQLStatement, SelectStatement>(std::move(parser.statements[0]));
+    return make_uniq<SubqueryRef>(std::move(select_stmt));
+}
+
 static constexpr const char *DPLYR_PIPE_SYNTAX_SETTING = "dplyr_pipe_syntax";
 
 static QueryCompileStatus DefaultPipeSyntaxFromEnvironment(uint32_t &pipe_syntax, string &error_out) {
@@ -603,6 +614,11 @@ static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState
 
 static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &input = args.data[0];
+    if (args.size() != 1 || input.GetVectorType() != VectorType::CONSTANT_VECTOR) {
+        throw InvalidInputException(
+            "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument");
+    }
+
     UnifiedVectorFormat input_data;
     input.ToUnifiedFormat(args.size(), input_data);
 
@@ -771,8 +787,7 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
 // (Removed duplicate Load implementation)
 
 static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output);
-static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names);
+static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, TableFunctionBindInput &input);
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
 
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientContext& context,
@@ -799,8 +814,8 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
     }
 
     ParserExtensionPlanResult result;
-    result.function = TableFunction("dplyr_query", {LogicalType::VARCHAR}, DplyrTableFunction, DplyrSqlTableBind,
-                                    DplyrTableInit);
+    result.function = TableFunction("dplyr_query", {LogicalType::VARCHAR}, nullptr, nullptr);
+    result.function.bind_replace = DplyrSqlTableBindReplace;
     result.parameters.emplace_back(sql);
     result.requires_valid_transaction = true;
     result.return_type = StatementReturnType::QUERY_RESULT;
@@ -877,7 +892,21 @@ static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableF
     if (PipeSyntaxFromTableInput(context, input, pipe_syntax, error) != QueryCompileStatus::Success) {
         return PipeSyntaxErrorTableRef(error, context.GetParserOptions());
     }
-    return nullptr;
+
+    auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
+    string sql;
+    auto status = CompileDplyrQueryWithPipeSyntax(dplyr_code, pipe_syntax, sql, error);
+    if (status == QueryCompileStatus::NotHandled) {
+        return PipeSyntaxErrorTableRef("dplyr() requires a configured pipeline expression", context.GetParserOptions());
+    }
+    if (status == QueryCompileStatus::Error || !error.empty()) {
+        return PipeSyntaxErrorTableRef("dplyr() transpilation failed: " + error, context.GetParserOptions());
+    }
+
+    return SelectSubqueryTableRef(
+        sql,
+        context.GetParserOptions(),
+        "dplyr() generated SQL must be a single SELECT statement");
 }
 
 static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
@@ -918,37 +947,21 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
     return bind_data;
 }
 
-static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, TableFunctionBindInput &input) {
     if (input.inputs.empty() || input.inputs[0].IsNull()) {
-        throw InvalidInputException("dplyr_query() requires a non-null SQL string");
+        return PipeSyntaxErrorTableRef("dplyr_query() requires a non-null SQL string", context.GetParserOptions());
     }
 
     string sql = StringValue::Get(input.inputs[0]);
     sql = StripTrailingSemicolon(std::move(sql));
     if (sql.empty()) {
-        throw InvalidInputException("dplyr_query() requires a non-empty SQL string");
+        return PipeSyntaxErrorTableRef("dplyr_query() requires a non-empty SQL string", context.GetParserOptions());
     }
 
-    auto &db = DatabaseInstance::GetDatabase(context);
-    Connection conn(db);
-
-    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
-    auto schema_result = conn.Query(schema_query);
-    if (schema_result->HasError()) {
-        throw InvalidInputException("dplyr_query() schema inference failed: %s", schema_result->GetError().c_str());
-    }
-
-    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
-
-    auto bind_data = make_uniq<DplyrTableFunctionData>();
-    bind_data->sql = std::move(sql);
-    bind_data->names = materialized.names;
-    bind_data->types = materialized.types;
-
-    names = bind_data->names;
-    return_types = bind_data->types;
-    return bind_data;
+    return SelectSubqueryTableRef(
+        sql,
+        context.GetParserOptions(),
+        "dplyr_query() SQL must be a single SELECT statement");
 }
 
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {

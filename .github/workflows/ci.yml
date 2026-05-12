@@ -183,6 +183,7 @@ jobs:
       - name: Run Rust unit tests
         run: |
           cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+          cargo test --release --target ${{ matrix.target }}
 
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'
@@ -560,6 +561,7 @@ jobs:
       - name: Run Rust unit tests
         run: |
           cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+          cargo test --release --target ${{ matrix.target }}
 
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'
@@ -933,6 +935,7 @@ jobs:
       - name: Run Rust unit tests
         run: |
           cargo test --manifest-path libdplyr_c/Cargo.toml --release --target ${{ matrix.target }}
+          cargo test --release --target ${{ matrix.target }}
 
       - name: Configure CMake (Unix)
         if: runner.os != 'Windows'

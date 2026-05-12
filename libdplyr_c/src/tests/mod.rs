@@ -607,6 +607,102 @@ mod ffi_tests {
     }
 
     #[test]
+    fn test_dplyr_compile_with_pipe_syntax_accepts_native_pipe_syntax() {
+        let input = CString::new("mtcars |> select(mpg) |> filter(mpg > 20)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_with_pipe_syntax(
+                input.as_ptr(),
+                &options,
+                DplyrPipeSyntax::Native as u32,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        let sql = unsafe {
+            let c_str = CStr::from_ptr(out_sql);
+            let sql = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_sql);
+            sql
+        };
+
+        assert!(sql.contains("FROM \"mtcars\""));
+        assert!(sql.contains("WHERE"));
+        assert!(!sql.contains("|>"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_with_pipe_syntax_rejects_magrittr_pipe_in_native_mode() {
+        let input = CString::new("mtcars %>% select(mpg)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_with_pipe_syntax(
+                input.as_ptr(),
+                &options,
+                DplyrPipeSyntax::Native as u32,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+
+        let error = unsafe {
+            let c_str = CStr::from_ptr(out_error);
+            let error = c_str.to_string_lossy().into_owned();
+            dplyr_free_string(out_error);
+            error
+        };
+
+        assert!(error.contains("Magrittr pipe is not enabled"));
+        assert!(error.contains("DPLYR_PIPE_SYNTAX=magrittr"));
+        assert!(error.contains("explicit pipe syntax API with PipeSyntax::Magrittr"));
+    }
+
+    #[test]
+    fn test_dplyr_compile_with_pipe_syntax_ignores_invalid_pipe_env() {
+        let _gate = acquire_ffi_test_gate_for_test();
+        let _restore = EnvRestore::capture("DPLYR_PIPE_SYNTAX");
+        std::env::set_var("DPLYR_PIPE_SYNTAX", "invalid-pipe-mode");
+
+        let input = CString::new("mtcars |> select(mpg)").unwrap();
+        let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_with_pipe_syntax(
+                input.as_ptr(),
+                &options,
+                DplyrPipeSyntax::Native as u32,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(!out_sql.is_null());
+        assert!(out_error.is_null());
+
+        unsafe {
+            dplyr_free_string(out_sql);
+        }
+    }
+
+    #[test]
     fn test_dplyr_compile_query_reports_invalid_pipe_syntax_as_syntax_error() {
         let input = CString::new("mtcars |> select(mpg)").unwrap();
         let options = dplyr_options_create(false, 1024, DplyrDialect::DuckDb as u32);
