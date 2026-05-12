@@ -9,6 +9,36 @@ use std::process::{Command, Stdio};
 
 use std::time::Duration;
 
+fn libdplyr_bin() -> String {
+    if let Some(path) = option_env!("CARGO_BIN_EXE_libdplyr") {
+        return path.to_string();
+    }
+
+    if let Ok(mut path) = std::env::current_exe() {
+        path.pop();
+        if path
+            .file_name()
+            .is_some_and(|name| name == std::ffi::OsStr::new("deps"))
+        {
+            path.pop();
+        }
+        path.push(format!("libdplyr{}", std::env::consts::EXE_SUFFIX));
+        if path.exists() {
+            return path.to_string_lossy().into_owned();
+        }
+    }
+
+    if cfg!(debug_assertions) {
+        "target/debug/libdplyr".to_string()
+    } else {
+        "target/release/libdplyr".to_string()
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[test]
 fn test_signal_handler_creation() {
     let handler = SignalHandler::new();
@@ -106,9 +136,13 @@ mod unix_integration_tests {
     #[test]
     fn test_pipe_detection_with_echo() {
         // Test basic pipe functionality with echo command
+        let command = format!(
+            "echo 'select(name, age)' | {}",
+            shell_quote(&libdplyr_bin())
+        );
         let child = Command::new("sh")
             .arg("-c")
-            .arg("echo 'select(name, age)' | target/debug/libdplyr")
+            .arg(command)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -126,11 +160,13 @@ mod unix_integration_tests {
     #[test]
     fn test_sigpipe_handling() {
         // Test SIGPIPE handling by piping to head -c 1 (which closes pipe early)
+        let command = format!(
+            "echo 'select(name, age) %>% filter(age > 18)' | {} | head -c 1",
+            shell_quote(&libdplyr_bin())
+        );
         let child = Command::new("sh")
             .arg("-c")
-            .arg(
-                "echo 'select(name, age) %>% filter(age > 18)' | target/debug/libdplyr | head -c 1",
-            )
+            .arg(command)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -148,10 +184,16 @@ mod unix_integration_tests {
 
     #[test]
     fn test_large_input_processing() {
-        // Test memory-efficient processing with large input
-        let large_input = "select(name, age)".repeat(1000);
+        let mut large_input = String::from("select(");
+        for i in 0..250 {
+            if i > 0 {
+                large_input.push_str(", ");
+            }
+            large_input.push_str(&format!("col_{}", i));
+        }
+        large_input.push(')');
 
-        let mut child = Command::new("target/debug/libdplyr")
+        let mut child = Command::new(libdplyr_bin())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -175,6 +217,14 @@ mod unix_integration_tests {
 
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
         assert!(stdout.contains("SELECT"), "Output should contain SQL");
+        assert!(
+            stdout.contains("col_0"),
+            "Output should contain first column"
+        );
+        assert!(
+            stdout.contains("col_249"),
+            "Output should contain last column"
+        );
     }
 
     #[test]
@@ -192,9 +242,13 @@ mod unix_integration_tests {
     #[test]
     fn test_pipeline_environment_detection() {
         // Test pipeline environment detection
+        let command = format!(
+            "echo 'select(name)' | {} --verbose",
+            shell_quote(&libdplyr_bin())
+        );
         let child = Command::new("sh")
             .arg("-c")
-            .arg("echo 'select(name)' | target/debug/libdplyr --verbose")
+            .arg(command)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -267,14 +321,9 @@ fn test_error_handling_for_signal_operations() {
     assert_eq!(error.to_string(), "Signal setup error: test error");
 }
 
-/// Helper function to build the binary for testing
+/// Helper function to verify the test binary is available
 fn ensure_binary_built() -> bool {
-    let output = Command::new("cargo")
-        .args(["build", "--bin", "libdplyr"])
-        .output()
-        .expect("Failed to run cargo build");
-
-    output.status.success()
+    std::path::Path::new(&libdplyr_bin()).is_file()
 }
 
 /// Integration test that requires the binary to be built
@@ -285,7 +334,7 @@ fn test_cli_with_signal_handling_integration() {
     }
 
     // Test basic CLI functionality with stdin
-    let mut child = Command::new("target/debug/libdplyr")
+    let mut child = Command::new(libdplyr_bin())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

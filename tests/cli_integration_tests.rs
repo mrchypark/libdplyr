@@ -24,11 +24,21 @@ fn get_libdplyr_path() -> String {
         return path.to_string();
     }
 
-    let binary_name = if cfg!(windows) {
-        "libdplyr.exe"
-    } else {
-        "libdplyr"
-    };
+    let binary_name = format!("libdplyr{}", std::env::consts::EXE_SUFFIX);
+
+    if let Ok(mut path) = std::env::current_exe() {
+        path.pop();
+        if path
+            .file_name()
+            .is_some_and(|name| name == std::ffi::OsStr::new("deps"))
+        {
+            path.pop();
+        }
+        path.push(&binary_name);
+        if path.exists() {
+            return path.to_string_lossy().into_owned();
+        }
+    }
 
     // Try different possible paths for the binary
     let possible_paths = [
