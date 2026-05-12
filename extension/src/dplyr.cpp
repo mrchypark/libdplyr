@@ -787,6 +787,8 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
 // (Removed duplicate Load implementation)
 
 static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output);
+static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
+                                                  vector<LogicalType> &return_types, vector<string> &names);
 static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, TableFunctionBindInput &input);
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
 
@@ -814,8 +816,14 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
     }
 
     ParserExtensionPlanResult result;
-    result.function = TableFunction("dplyr_query", {LogicalType::VARCHAR}, nullptr, nullptr);
-    result.function.bind_replace = DplyrSqlTableBindReplace;
+    // DuckDB v1.4 binds ParserExtension results as LogicalGet and cannot accept
+    // bind_replace output here. Keep bind_replace for dplyr() in FROM clauses,
+    // but use a regular table function for parser-extension statements.
+    result.function = TableFunction("dplyr_query",
+        {LogicalType::VARCHAR},
+        DplyrTableFunction,
+        DplyrSqlTableBind,
+        DplyrTableInit);
     result.parameters.emplace_back(sql);
     result.requires_valid_transaction = true;
     result.return_type = StatementReturnType::QUERY_RESULT;
@@ -962,6 +970,40 @@ static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, Tab
         sql,
         context.GetParserOptions(),
         "dplyr_query() SQL must be a single SELECT statement");
+}
+
+static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
+                                                  vector<LogicalType> &return_types, vector<string> &names) {
+    if (input.inputs.empty() || input.inputs[0].IsNull()) {
+        throw InvalidInputException("dplyr_query() requires a non-null SQL string");
+    }
+
+    string sql = StripTrailingSemicolon(StringValue::Get(input.inputs[0]));
+    if (sql.empty()) {
+        throw InvalidInputException("dplyr_query() requires a non-empty SQL string");
+    }
+
+    auto &db = DatabaseInstance::GetDatabase(context);
+    Connection conn(db);
+
+    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
+    auto schema_result = conn.Query(schema_query);
+    if (schema_result->HasError()) {
+        throw InvalidInputException(
+            "dplyr_query() schema inference failed: %s",
+            schema_result->GetError().c_str());
+    }
+
+    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
+
+    auto bind_data = make_uniq<DplyrTableFunctionData>();
+    bind_data->sql = sql;
+    bind_data->names = materialized.names;
+    bind_data->types = materialized.types;
+
+    names = bind_data->names;
+    return_types = bind_data->types;
+    return bind_data;
 }
 
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {
