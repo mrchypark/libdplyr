@@ -17,6 +17,8 @@
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #if defined(__has_include)
@@ -25,6 +27,7 @@
 #endif
 #endif
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/function/scalar/generic_functions.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
@@ -534,6 +537,16 @@ static string SqlStringLiteral(const string &value) {
     ErrorData(ExceptionType::INVALID_INPUT, error).Throw();
 }
 
+static unique_ptr<Expression> PipeSyntaxErrorExpression(const string &error) {
+    vector<unique_ptr<Expression>> children;
+    children.push_back(make_uniq<BoundConstantExpression>(Value(error)));
+    return make_uniq<BoundFunctionExpression>(
+        LogicalType::SQLNULL,
+        ErrorFun::GetFunction(),
+        std::move(children),
+        nullptr);
+}
+
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
     Parser parser(options);
     parser.ParseQuery("SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error");
@@ -654,6 +667,20 @@ static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindE
 }
 
 static unique_ptr<Expression> DplyrPipeSyntaxSetBindExpression(FunctionBindExpressionInput &input) {
+    if (input.children.empty()) {
+        return nullptr;
+    }
+
+    auto &value_expr = *input.children[0];
+    if (value_expr.return_type.id() == LogicalTypeId::SQLNULL) {
+        return nullptr;
+    }
+
+    if (value_expr.HasParameter() || !value_expr.IsFoldable()) {
+        return PipeSyntaxErrorExpression(
+            "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument");
+    }
+
     return nullptr;
 }
 
