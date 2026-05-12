@@ -553,8 +553,6 @@ static unique_ptr<TableRef> SelectSubqueryTableRef(const string &query, const Pa
 }
 
 static constexpr const char *DPLYR_PIPE_SYNTAX_SETTING = "dplyr_pipe_syntax";
-static constexpr const char *DPLYR_PIPE_SYNTAX_SINGLE_ROW_ERROR =
-    "dplyr_pipe_syntax(mode) changes session state and requires a constant single-row argument";
 
 static QueryCompileStatus DefaultPipeSyntaxFromEnvironment(uint32_t &pipe_syntax, string &error_out) {
     pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
@@ -580,8 +578,7 @@ static QueryCompileStatus ParsePipeSyntaxValue(const string &value, uint32_t &pi
 
 static QueryCompileStatus EffectivePipeSyntax(ClientContext &context, uint32_t &pipe_syntax, string &error_out) {
     Value session_value;
-    auto &client_config = ClientConfig::GetConfig(context);
-    if (client_config.GetUserVariable(DPLYR_PIPE_SYNTAX_SETTING, session_value)) {
+    if (context.TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, session_value)) {
         if (session_value.IsNull()) {
             return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
         }
@@ -598,17 +595,23 @@ static QueryCompileStatus PipeSyntaxFromTableInput(ClientContext &context, const
     return ParsePipeSyntaxValue(StringValue::Get(input.inputs[1]), pipe_syntax, error_out);
 }
 
-static void SetSessionPipeSyntax(ClientContext &context, uint32_t pipe_syntax) {
-    auto &client_config = ClientConfig::GetConfig(context);
-    client_config.SetUserVariable(DPLYR_PIPE_SYNTAX_SETTING, Value(CanonicalPipeSyntaxName(pipe_syntax)));
-}
-
-static void SetPipeSyntaxGuidanceResult(Vector &result, idx_t count) {
-    result.SetVectorType(VectorType::FLAT_VECTOR);
-    auto output_data = FlatVector::GetData<string_t>(result);
-    for (idx_t i = 0; i < count; i++) {
-        output_data[i] = StringVector::AddString(result, DPLYR_PIPE_SYNTAX_SINGLE_ROW_ERROR);
+static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope scope, Value &parameter) {
+    if (scope == SetScope::GLOBAL) {
+        ThrowInvalidPipeSyntaxError(
+            "dplyr_pipe_syntax is session-only. Use SET dplyr_pipe_syntax = 'native' or "
+            "SET dplyr_pipe_syntax = 'magrittr'.");
     }
+
+    if (parameter.IsNull()) {
+        return;
+    }
+
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (ParsePipeSyntaxValue(parameter.ToString(), pipe_syntax, error) != QueryCompileStatus::Success) {
+        ThrowInvalidPipeSyntaxError(error);
+    }
+    parameter = Value(CanonicalPipeSyntaxName(pipe_syntax));
 }
 
 static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState &state, Vector &result) {
@@ -620,43 +623,6 @@ static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState
         return;
     }
     result.Reference(Value(CanonicalPipeSyntaxName(pipe_syntax)));
-}
-
-static void DplyrPipeSyntaxSetFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &input = args.data[0];
-    if (args.size() != 1 || input.GetVectorType() != VectorType::CONSTANT_VECTOR) {
-        SetPipeSyntaxGuidanceResult(result, args.size());
-        return;
-    }
-
-    UnifiedVectorFormat input_data;
-    input.ToUnifiedFormat(args.size(), input_data);
-
-    result.SetVectorType(VectorType::FLAT_VECTOR);
-    auto output_data = FlatVector::GetData<string_t>(result);
-    auto &output_validity = FlatVector::Validity(result);
-    auto input_values = UnifiedVectorFormat::GetData<string_t>(input_data);
-
-    for (idx_t i = 0; i < args.size(); i++) {
-        const auto input_index = input_data.sel->get_index(i);
-        if (!input_data.validity.RowIsValid(input_index)) {
-            output_validity.SetInvalid(i);
-            continue;
-        }
-
-        string error;
-        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-        if (ParsePipeSyntaxValue(input_values[input_index].GetString(), pipe_syntax, error) != QueryCompileStatus::Success) {
-            output_data[i] = StringVector::AddString(result, error);
-            continue;
-        }
-        SetSessionPipeSyntax(state.GetContext(), pipe_syntax);
-        output_data[i] = StringVector::AddString(result, CanonicalPipeSyntaxName(pipe_syntax));
-    }
-
-    if (input.GetVectorType() == VectorType::CONSTANT_VECTOR && args.size() > 0) {
-        result.SetVectorType(VectorType::CONSTANT_VECTOR);
-    }
 }
 
 static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindExpressionInput &input) {
@@ -1049,6 +1015,13 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
 
     auto& instance = loader.GetDatabaseInstance();
     auto& config = DBConfig::GetConfig(instance);
+    config.AddExtensionOption(
+        DPLYR_PIPE_SYNTAX_SETTING,
+        "The active dplyr pipe syntax for this DuckDB session",
+        LogicalType::VARCHAR,
+        Value(),
+        SetDplyrPipeSyntax,
+        SetScope::SESSION);
 #if defined(__has_include) && __has_include("duckdb/main/extension_callback_manager.hpp")
     ParserExtension::Register(config, DplyrParserExtension());
 #else
@@ -1085,19 +1058,6 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     dplyr_pipe_syntax_current.bind_expression = DplyrPipeSyntaxCurrentBindExpression;
     BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_current);
     loader.RegisterFunction(dplyr_pipe_syntax_current);
-
-    auto dplyr_pipe_syntax_set = ScalarFunction("dplyr_pipe_syntax",
-        {LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        DplyrPipeSyntaxSetFunction,
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr,
-        LogicalType::INVALID,
-        FunctionStability::VOLATILE);
-    BaseScalarFunction::SetReturnsError(dplyr_pipe_syntax_set);
-    loader.RegisterFunction(dplyr_pipe_syntax_set);
 
 }
 

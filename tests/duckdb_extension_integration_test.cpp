@@ -152,6 +152,37 @@ protected:
     std::unique_ptr<duckdb::MaterializedQueryResult> safe_query(const std::string& query) {
         return safe_query(*conn, query);
     }
+
+    std::unique_ptr<duckdb::MaterializedQueryResult> query_no_throw(
+        duckdb::Connection &target_conn,
+        const std::string& query) {
+        std::unique_ptr<duckdb::MaterializedQueryResult> result;
+        EXPECT_NO_THROW({
+            result = target_conn.Query(query);
+        }) << "Query should return an error result without escaping a C++ exception: " << query;
+        return result;
+    }
+
+    void expect_query_error_no_throw(
+        duckdb::Connection &target_conn,
+        const std::string& query,
+        const std::vector<std::string> &expected_fragments) {
+        auto result = query_no_throw(target_conn, query);
+        ASSERT_NE(result, nullptr);
+        ASSERT_TRUE(result->HasError()) << "Query should fail: " << query;
+        const auto error = result->GetError();
+        ASSERT_FALSE(error.empty()) << "Query error should include a message: " << query;
+        EXPECT_EQ(error.find("Unknown C++ exception"), std::string::npos) << error;
+        for (const auto &fragment : expected_fragments) {
+            EXPECT_NE(error.find(fragment), std::string::npos) << error;
+        }
+    }
+
+    void expect_query_error_no_throw(
+        const std::string& query,
+        const std::vector<std::string> &expected_fragments) {
+        expect_query_error_no_throw(*conn, query, expected_fragments);
+    }
     
     std::unique_ptr<duckdb::DuckDB> db;
     std::unique_ptr<duckdb::Connection> conn;
@@ -322,63 +353,59 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarDefaultReflectsCurrentEnvironment) {
     EXPECT_EQ(magrittr_chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarExplicitValuesSetDefaultAndCanonicalizeAliases) {
-    auto native_alias = safe_query("SELECT dplyr_pipe_syntax('|>')");
-    ASSERT_NE(native_alias, nullptr);
-    ASSERT_FALSE(native_alias->HasError())
-        << "native alias setter should succeed: " << native_alias->GetError();
-    auto native_alias_chunk = native_alias->Fetch();
-    ASSERT_TRUE(native_alias_chunk);
-    ASSERT_EQ(native_alias_chunk->size(), 1);
-    EXPECT_EQ(native_alias_chunk->GetValue(0, 0).ToString(), "native");
+TEST_F(DuckDBExtensionTest, PipeSyntaxSettingCanonicalizesAliasesAndAffectsTableFunctionDefault) {
+    auto set_native_alias = safe_query("SET dplyr_pipe_syntax = '|>'");
+    ASSERT_NE(set_native_alias, nullptr);
+    ASSERT_FALSE(set_native_alias->HasError())
+        << "native alias setting should succeed: " << set_native_alias->GetError();
 
-    auto current_native = safe_query("SELECT dplyr_pipe_syntax()");
+    auto current_native = safe_query(
+        "SELECT dplyr_pipe_syntax(), current_setting('dplyr_pipe_syntax')");
     ASSERT_NE(current_native, nullptr);
     ASSERT_FALSE(current_native->HasError())
-        << "current syntax should reflect native setter: " << current_native->GetError();
+        << "current syntax should reflect native setting: " << current_native->GetError();
     auto current_native_chunk = current_native->Fetch();
     ASSERT_TRUE(current_native_chunk);
     ASSERT_EQ(current_native_chunk->size(), 1);
     EXPECT_EQ(current_native_chunk->GetValue(0, 0).ToString(), "native");
+    EXPECT_EQ(current_native_chunk->GetValue(1, 0).ToString(), "native");
 
     auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
     ASSERT_NE(native_default, nullptr);
     ASSERT_FALSE(native_default->HasError())
-        << "table function default should use native setter: " << native_default->GetError();
+        << "table function default should use native setting: " << native_default->GetError();
     EXPECT_EQ(native_default->RowCount(), 3);
     EXPECT_EQ(std::getenv("DPLYR_PIPE_SYNTAX"), nullptr)
-        << "pipe syntax setter must not mutate the process environment";
+        << "pipe syntax setting must not mutate the process environment";
 
-    auto magrittr_alias = safe_query("SELECT dplyr_pipe_syntax('%>%')");
-    ASSERT_NE(magrittr_alias, nullptr);
-    ASSERT_FALSE(magrittr_alias->HasError())
-        << "magrittr alias setter should succeed: " << magrittr_alias->GetError();
-    auto magrittr_alias_chunk = magrittr_alias->Fetch();
-    ASSERT_TRUE(magrittr_alias_chunk);
-    ASSERT_EQ(magrittr_alias_chunk->size(), 1);
-    EXPECT_EQ(magrittr_alias_chunk->GetValue(0, 0).ToString(), "magrittr");
+    auto set_magrittr_alias = safe_query("SET dplyr_pipe_syntax = '%>%'");
+    ASSERT_NE(set_magrittr_alias, nullptr);
+    ASSERT_FALSE(set_magrittr_alias->HasError())
+        << "magrittr alias setting should succeed: " << set_magrittr_alias->GetError();
 
-    auto current_magrittr = safe_query("SELECT dplyr_pipe_syntax()");
+    auto current_magrittr = safe_query(
+        "SELECT dplyr_pipe_syntax(), current_setting('dplyr_pipe_syntax')");
     ASSERT_NE(current_magrittr, nullptr);
     ASSERT_FALSE(current_magrittr->HasError())
-        << "current syntax should reflect magrittr setter: " << current_magrittr->GetError();
+        << "current syntax should reflect magrittr setting: " << current_magrittr->GetError();
     auto current_magrittr_chunk = current_magrittr->Fetch();
     ASSERT_TRUE(current_magrittr_chunk);
     ASSERT_EQ(current_magrittr_chunk->size(), 1);
     EXPECT_EQ(current_magrittr_chunk->GetValue(0, 0).ToString(), "magrittr");
+    EXPECT_EQ(current_magrittr_chunk->GetValue(1, 0).ToString(), "magrittr");
 
     auto magrittr_default = safe_query("SELECT * FROM dplyr('mtcars %>% select(mpg)')");
     ASSERT_NE(magrittr_default, nullptr);
     ASSERT_FALSE(magrittr_default->HasError())
-        << "table function default should use magrittr setter: " << magrittr_default->GetError();
+        << "table function default should use magrittr setting: " << magrittr_default->GetError();
     EXPECT_EQ(magrittr_default->RowCount(), 3);
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterIsSessionLocal) {
-    auto set_native = safe_query("SELECT dplyr_pipe_syntax('native')");
+TEST_F(DuckDBExtensionTest, PipeSyntaxSettingIsSessionLocalAndAffectsImplicitParserPipeline) {
+    auto set_native = safe_query("SET dplyr_pipe_syntax = 'native'");
     ASSERT_NE(set_native, nullptr);
     ASSERT_FALSE(set_native->HasError())
-        << "native setter should succeed: " << set_native->GetError();
+        << "native setting should succeed: " << set_native->GetError();
 
     duckdb::Connection other_conn(*db);
     auto current_other = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
@@ -390,102 +417,191 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterIsSessionLocal) {
     ASSERT_EQ(current_other_chunk->size(), 1);
     EXPECT_EQ(current_other_chunk->GetValue(0, 0).ToString(), "magrittr");
 
-    auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
-    ASSERT_NE(native_default, nullptr);
-    ASSERT_FALSE(native_default->HasError())
-        << "setter should affect the current connection: " << native_default->GetError();
-
-    auto magrittr_on_other = safe_query(other_conn, "SELECT * FROM dplyr('mtcars %>% select(mpg)')");
-    ASSERT_NE(magrittr_on_other, nullptr);
-    ASSERT_FALSE(magrittr_on_other->HasError())
-        << "second connection should keep magrittr table function default: " << magrittr_on_other->GetError();
-}
-
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterAffectsImplicitParserPipeline) {
-    auto set_native = safe_query("SELECT dplyr_pipe_syntax('native')");
-    ASSERT_NE(set_native, nullptr);
-    ASSERT_FALSE(set_native->HasError())
-        << "native setter should succeed: " << set_native->GetError();
-
     auto implicit_native = safe_query("mtcars |> select(mpg)");
     ASSERT_NE(implicit_native, nullptr);
     ASSERT_FALSE(implicit_native->HasError())
         << "implicit parser pipeline should use current connection pipe syntax: " << implicit_native->GetError();
     EXPECT_EQ(implicit_native->RowCount(), 3);
+
+    auto magrittr_on_other = safe_query(other_conn, "SELECT * FROM dplyr('mtcars %>% select(mpg)')");
+    ASSERT_NE(magrittr_on_other, nullptr);
+    ASSERT_FALSE(magrittr_on_other->HasError())
+        << "second connection should keep magrittr table function default: " << magrittr_on_other->GetError();
+
+    auto set_other_native = safe_query(other_conn, "SET dplyr_pipe_syntax = 'native'");
+    ASSERT_NE(set_other_native, nullptr);
+    ASSERT_FALSE(set_other_native->HasError())
+        << "second connection native setting should succeed: " << set_other_native->GetError();
+
+    auto current_conn = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_conn, nullptr);
+    ASSERT_FALSE(current_conn->HasError())
+        << "first connection should stay native after second connection mutation: " << current_conn->GetError();
+    auto current_conn_chunk = current_conn->Fetch();
+    ASSERT_TRUE(current_conn_chunk);
+    ASSERT_EQ(current_conn_chunk->size(), 1);
+    EXPECT_EQ(current_conn_chunk->GetValue(0, 0).ToString(), "native");
+
+    auto reset_other = safe_query(other_conn, "RESET dplyr_pipe_syntax");
+    ASSERT_NE(reset_other, nullptr);
+    ASSERT_FALSE(reset_other->HasError())
+        << "second connection reset should succeed: " << reset_other->GetError();
+
+    auto current_other_after_reset = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_other_after_reset, nullptr);
+    ASSERT_FALSE(current_other_after_reset->HasError())
+        << "second connection should return to default after reset: " << current_other_after_reset->GetError();
+    auto current_other_after_reset_chunk = current_other_after_reset->Fetch();
+    ASSERT_TRUE(current_other_after_reset_chunk);
+    ASSERT_EQ(current_other_after_reset_chunk->size(), 1);
+    EXPECT_EQ(current_other_after_reset_chunk->GetValue(0, 0).ToString(), "magrittr");
+
+    auto current_conn_after_other_reset = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_conn_after_other_reset, nullptr);
+    ASSERT_FALSE(current_conn_after_other_reset->HasError())
+        << "first connection should stay native after second connection reset: "
+        << current_conn_after_other_reset->GetError();
+    auto current_conn_after_other_reset_chunk = current_conn_after_other_reset->Fetch();
+    ASSERT_TRUE(current_conn_after_other_reset_chunk);
+    ASSERT_EQ(current_conn_after_other_reset_chunk->size(), 1);
+    EXPECT_EQ(current_conn_after_other_reset_chunk->GetValue(0, 0).ToString(), "native");
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarNullInputReturnsNull) {
-    auto set_native = safe_query("SELECT dplyr_pipe_syntax('native')");
+TEST_F(DuckDBExtensionTest, PipeSyntaxResetReturnsToEnvironmentFallback) {
+    ScopedEnvironmentVariable pipe_syntax("DPLYR_PIPE_SYNTAX", "native");
+
+    auto set_magrittr = safe_query("SET dplyr_pipe_syntax = 'magrittr'");
+    ASSERT_NE(set_magrittr, nullptr);
+    ASSERT_FALSE(set_magrittr->HasError())
+        << "magrittr setting should override native environment: " << set_magrittr->GetError();
+
+    auto current_magrittr = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_magrittr, nullptr);
+    ASSERT_FALSE(current_magrittr->HasError())
+        << "current syntax should use explicit setting: " << current_magrittr->GetError();
+    auto current_magrittr_chunk = current_magrittr->Fetch();
+    ASSERT_TRUE(current_magrittr_chunk);
+    ASSERT_EQ(current_magrittr_chunk->size(), 1);
+    EXPECT_EQ(current_magrittr_chunk->GetValue(0, 0).ToString(), "magrittr");
+
+    auto reset = safe_query("RESET dplyr_pipe_syntax");
+    ASSERT_NE(reset, nullptr);
+    ASSERT_FALSE(reset->HasError())
+        << "RESET should return to environment/default behavior: " << reset->GetError();
+
+    auto current_native = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_native, nullptr);
+    ASSERT_FALSE(current_native->HasError())
+        << "current syntax should fall back to environment after RESET: " << current_native->GetError();
+    auto current_native_chunk = current_native->Fetch();
+    ASSERT_TRUE(current_native_chunk);
+    ASSERT_EQ(current_native_chunk->size(), 1);
+    EXPECT_EQ(current_native_chunk->GetValue(0, 0).ToString(), "native");
+
+    auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
+    ASSERT_NE(native_default, nullptr);
+    ASSERT_FALSE(native_default->HasError())
+        << "table function default should use environment after RESET: " << native_default->GetError();
+    EXPECT_EQ(native_default->RowCount(), 3);
+
+    SetEnvironmentVariableForTest("DPLYR_PIPE_SYNTAX", "magrittr");
+
+    auto current_magrittr_after_env_change = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_magrittr_after_env_change, nullptr);
+    ASSERT_FALSE(current_magrittr_after_env_change->HasError())
+        << "RESET should clear the override so later env changes are visible: "
+        << current_magrittr_after_env_change->GetError();
+    auto current_magrittr_after_env_change_chunk = current_magrittr_after_env_change->Fetch();
+    ASSERT_TRUE(current_magrittr_after_env_change_chunk);
+    ASSERT_EQ(current_magrittr_after_env_change_chunk->size(), 1);
+    EXPECT_EQ(current_magrittr_after_env_change_chunk->GetValue(0, 0).ToString(), "magrittr");
+}
+
+TEST_F(DuckDBExtensionTest, PipeSyntaxRejectsGlobalSettingAndPreservesSessionState) {
+    auto set_native = safe_query("SET dplyr_pipe_syntax = 'native'");
     ASSERT_NE(set_native, nullptr);
     ASSERT_FALSE(set_native->HasError())
-        << "native setter should succeed before NULL check: " << set_native->GetError();
+        << "native setting should succeed: " << set_native->GetError();
 
-    auto result = safe_query("SELECT dplyr_pipe_syntax(NULL)");
-
-    ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError()) << "NULL pipe syntax should return NULL: " << result->GetError();
-    ASSERT_EQ(result->RowCount(), 1);
-
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 1);
-    EXPECT_TRUE(chunk->GetValue(0, 0).IsNull());
+    duckdb::Connection other_conn(*db);
+    expect_query_error_no_throw(
+        "SET GLOBAL dplyr_pipe_syntax = 'magrittr'",
+        {"dplyr_pipe_syntax", "session-only", "SET dplyr_pipe_syntax = 'native'", "'magrittr'"});
 
     auto current = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current, nullptr);
     ASSERT_FALSE(current->HasError())
-        << "NULL input should not change current pipe syntax: " << current->GetError();
+        << "rejected global SET should preserve current session state: " << current->GetError();
     auto current_chunk = current->Fetch();
     ASSERT_TRUE(current_chunk);
     ASSERT_EQ(current_chunk->size(), 1);
     EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "native");
 
-    auto native_default = safe_query("SELECT * FROM dplyr('mtcars |> select(mpg)')");
-    ASSERT_NE(native_default, nullptr);
-    ASSERT_FALSE(native_default->HasError())
-        << "NULL input should not change default native mode: " << native_default->GetError();
-    EXPECT_EQ(native_default->RowCount(), 3);
+    auto current_other = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current_other, nullptr);
+    ASSERT_FALSE(current_other->HasError())
+        << "rejected global SET should not mutate other connections: " << current_other->GetError();
+    auto current_other_chunk = current_other->Fetch();
+    ASSERT_TRUE(current_other_chunk);
+    ASSERT_EQ(current_other_chunk->size(), 1);
+    EXPECT_EQ(current_other_chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarInvalidValueReturnsGuidance) {
-    auto result = safe_query("SELECT dplyr_pipe_syntax('invalid-pipe-mode')");
+TEST_F(DuckDBExtensionTest, PipeSyntaxSettingInvalidValueErrorsAndPreservesState) {
+    auto set_native = safe_query("SET dplyr_pipe_syntax = 'native'");
+    ASSERT_NE(set_native, nullptr);
+    ASSERT_FALSE(set_native->HasError())
+        << "native setting should succeed: " << set_native->GetError();
 
-    ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError())
-        << "Invalid scalar pipe mode should return guidance without aborting clients: " << result->GetError();
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 1);
-    const auto message = chunk->GetValue(0, 0).ToString();
-    EXPECT_NE(message.find("Expected 'magrittr' or 'native'"), std::string::npos) << message;
-    EXPECT_NE(message.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << message;
-}
-
-TEST_F(DuckDBExtensionTest, PipeSyntaxScalarRejectsMultiRowColumnInput) {
-    auto result = safe_query(
-        "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('magrittr')) modes(mode)");
-
-    ASSERT_NE(result, nullptr);
-    ASSERT_FALSE(result->HasError())
-        << "Column input should return guidance without aborting clients: " << result->GetError();
-    ASSERT_EQ(result->RowCount(), 2);
-
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 2);
-    for (idx_t row = 0; row < chunk->size(); row++) {
-        const auto message = chunk->GetValue(0, row).ToString();
-        EXPECT_NE(message.find("constant single-row"), std::string::npos) << message;
-    }
+    expect_query_error_no_throw(
+        "SET dplyr_pipe_syntax = 'invalid-pipe-mode'",
+        {"Expected 'magrittr' or 'native'", "DPLYR_PIPE_SYNTAX"});
 
     auto current = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current, nullptr);
     ASSERT_FALSE(current->HasError())
-        << "Rejected setter input should not change session pipe syntax: " << current->GetError();
+        << "invalid SET should preserve previous syntax: " << current->GetError();
+    auto current_chunk = current->Fetch();
+    ASSERT_TRUE(current_chunk);
+    ASSERT_EQ(current_chunk->size(), 1);
+    EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "native");
+}
+
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterOverloadIsRemovedAndDoesNotMutateState) {
+    expect_query_error_no_throw(
+        "SELECT dplyr_pipe_syntax('native')",
+        {"dplyr_pipe_syntax"});
+
+    auto current = safe_query("SELECT dplyr_pipe_syntax()");
+    ASSERT_NE(current, nullptr);
+    ASSERT_FALSE(current->HasError())
+        << "removed scalar setter should not change session pipe syntax: " << current->GetError();
     auto current_chunk = current->Fetch();
     ASSERT_TRUE(current_chunk);
     ASSERT_EQ(current_chunk->size(), 1);
     EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "magrittr");
+}
+
+TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterRelationalContextsDoNotMutateState) {
+    const std::vector<std::string> queries = {
+        "SELECT dplyr_pipe_syntax(mode) FROM (VALUES ('native'), ('magrittr')) modes(mode)",
+        "SELECT * FROM (SELECT dplyr_pipe_syntax('native')) setter_result",
+        "SELECT COUNT(dplyr_pipe_syntax('native'))",
+        "SELECT dplyr_pipe_syntax('native') UNION ALL SELECT dplyr_pipe_syntax('magrittr')"};
+
+    for (const auto &query : queries) {
+        expect_query_error_no_throw(query, {"dplyr_pipe_syntax"});
+
+        auto current = safe_query("SELECT dplyr_pipe_syntax()");
+        ASSERT_NE(current, nullptr);
+        ASSERT_FALSE(current->HasError())
+            << "failed scalar setter query should not change session pipe syntax: " << current->GetError();
+        auto current_chunk = current->Fetch();
+        ASSERT_TRUE(current_chunk);
+        ASSERT_EQ(current_chunk->size(), 1);
+        EXPECT_EQ(current_chunk->GetValue(0, 0).ToString(), "magrittr")
+            << "failed scalar setter query should not mutate state: " << query;
+    }
 }
 
 TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {
