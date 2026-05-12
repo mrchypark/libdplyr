@@ -74,7 +74,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          prefix-key: v1-rust
           key: ${{ matrix.target }}
+          cache-bin: false
           cache-on-failure: true
 
       - name: Verify CMake (Linux)
@@ -452,7 +454,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          prefix-key: v1-rust
           key: compat-${{ matrix.target }}
+          cache-bin: false
           cache-on-failure: true
 
       - name: Verify CMake (Linux)
@@ -826,7 +830,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          prefix-key: v1-rust
           key: compat-${{ matrix.target }}
+          cache-bin: false
           cache-on-failure: true
 
       - name: Verify CMake (Linux)
@@ -1164,6 +1170,9 @@ jobs:
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
+        with:
+          prefix-key: v1-rust
+          cache-bin: false
 
       - name: Install additional tools
         run: |
