@@ -173,6 +173,7 @@ protected:
         const auto error = result->GetError();
         ASSERT_FALSE(error.empty()) << "Query error should include a message: " << query;
         EXPECT_EQ(error.find("Unknown C++ exception"), std::string::npos) << error;
+        EXPECT_EQ(error.find("Unknown exception"), std::string::npos) << error;
         EXPECT_EQ(error.find("Unknown exception in ExecutorTask::Execute"), std::string::npos) << error;
         for (const auto &fragment : expected_fragments) {
             EXPECT_NE(error.find(fragment), std::string::npos) << error;
@@ -641,6 +642,15 @@ TEST_F(DuckDBExtensionTest, DisabledPipeSyntaxErrorMentionsDuckDBSetting) {
 
     expect_query_error_no_throw(
         "SELECT * FROM dplyr('mtcars |> select(mpg)')",
+        expected_fragments);
+}
+
+TEST_F(DuckDBExtensionTest, DirectParserDisabledPipeSyntaxReturnsQueryErrorWithoutThrowing) {
+    const std::vector<std::string> expected_fragments = {
+        "Native pipe is not enabled", "SET dplyr_pipe_syntax = 'native'"};
+
+    expect_query_error_no_throw(
+        "mtcars |> select(mpg)",
         expected_fragments);
 }
 

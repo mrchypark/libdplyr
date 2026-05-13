@@ -27,6 +27,7 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/execution/executor.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_config.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -530,6 +531,10 @@ static string SqlStringLiteral(const string &value) {
     return literal;
 }
 
+static string DplyrErrorSql(const string &error) {
+    return "SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error";
+}
+
 [[noreturn]] static void ThrowInvalidPipeSyntaxError(ClientContext &context, const string &error) {
     // DuckDB v1.5 loadable-extension setting callbacks can surface exceptions
     // thrown from extension code as "Unknown exception in ExecutorTask::Execute"
@@ -555,7 +560,7 @@ static string AddDuckDbPipeSyntaxGuidance(const string &error) {
 
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
     Parser parser(options);
-    parser.ParseQuery("SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error");
+    parser.ParseQuery(DplyrErrorSql(error));
     auto select_stmt = unique_ptr_cast<SQLStatement, SelectStatement>(std::move(parser.statements[0]));
     return make_uniq<SubqueryRef>(std::move(select_stmt));
 }
@@ -797,17 +802,15 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
         string error;
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         if (EffectivePipeSyntax(context, pipe_syntax, error) != QueryCompileStatus::Success) {
-            throw InvalidInputException("%s", error.c_str());
-        }
-        auto status = CompileDplyrQueryWithPipeSyntax(dplyr_data->sql, pipe_syntax, sql, error);
-        if (status == QueryCompileStatus::NotHandled) {
-            throw InvalidInputException("DPLYR parser extension requires a configured pipeline expression");
-        }
-        if (status == QueryCompileStatus::Error || !error.empty()) {
-            auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
-            throw InvalidInputException(
-                "DPLYR parser extension transpilation failed: %s",
-                guided_error.c_str());
+            sql = DplyrErrorSql(error);
+        } else {
+            auto status = CompileDplyrQueryWithPipeSyntax(dplyr_data->sql, pipe_syntax, sql, error);
+            if (status == QueryCompileStatus::NotHandled) {
+                sql = DplyrErrorSql("DPLYR parser extension requires a configured pipeline expression");
+            } else if (status == QueryCompileStatus::Error || !error.empty()) {
+                auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
+                sql = DplyrErrorSql("DPLYR parser extension transpilation failed: " + guided_error);
+            }
         }
     }
 
@@ -1014,7 +1017,9 @@ static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &contex
 
     auto result = conn.Query(data.sql);
     if (result->HasError()) {
-        throw InvalidInputException("dplyr() failed to execute: %s", result->GetError().c_str());
+        Executor::Get(context).PushError(result->GetErrorObject());
+        auto collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), data.types);
+        return make_uniq<DplyrTableFunctionState>(std::move(collection));
     }
 
     // Fetch all chunks from the result and build a new collection
