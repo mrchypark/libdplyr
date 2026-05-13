@@ -8,6 +8,7 @@
 - **R4-AC2**: 기본 확장 기능 및 로딩 테스트
 - **R1-AC2**: 최소 연산 집합 지원 (select, filter, mutate, arrange, group_by, summarise)
 - **R5-AC1**: `%>%` 파이프라인 기반 진입점 테스트
+- **Pipe syntax 설정**: `dplyr_pipe_syntax`, `|>` native pipe, 명시적 pipe 인자 테스트
 - **R2-AC1**: 테이블 함수 진입점 테스트
 - **R2-AC2**: 표준 SQL과의 혼용 테스트
 - **R5-AC2**: 파서 충돌/오인식 방지 테스트
@@ -41,6 +42,7 @@
 
 #### 4. Table Function Entry Point (R2-AC1)
 - `SELECT * FROM dplyr('code')` 구문 테스트
+- `SELECT * FROM dplyr('code', 'native')` 명시적 pipe syntax 테스트
 - 서브쿼리 컨텍스트에서 사용 테스트
 
 #### 5. Chained Operations (Pipeline Testing)
@@ -62,7 +64,14 @@
 #### 8. Parser Collision Avoidance (R5-AC2)
 - `%>%` 파이프라인 인식이 일반 SQL을 오인식하지 않음
 
-#### 9. Performance and Stability (R6-AC1)
+#### 9. Pipe Syntax Configuration
+- `SET dplyr_pipe_syntax = 'native'` 세션 설정 테스트
+- 명시적 pipe 인자와 세션 기본값을 통한 native pipe table function 테스트
+- `SET dplyr_pipe_syntax = 'magrittr'` 전환 후 기존 경로 유지 확인
+- magrittr 람다 RHS 변형 테스트: `{ . %>% ... }`, `{ filter(., ...) %>% ... }`, `(. %>% ...)`, RHS dot placeholder
+- native 람다 RHS 변형 테스트: `\(x)` 람다, 명시적 data 인자, 세션 기본 native pipe 설정
+
+#### 10. Performance and Stability (R6-AC1)
 - 중간 복잡도 쿼리 실행
 - 반복 실행 안정성
 - 캐싱 동작 확인

@@ -692,6 +692,33 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         LABELS "smoke;keyword"
     )
 
+    # Pipe syntax setting and native pipe entry point smoke test
+    add_test(
+        NAME smoke_test_pipe_syntax
+        COMMAND ${CMAKE_COMMAND} -E env
+            "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
+                LOAD '${EXTENSION_BINARY_PATH}';
+                CREATE TABLE test_pipe AS SELECT i as id, (i % 5) + 18 as age FROM range(1, 6) as t(i);
+                SELECT COUNT(*) FROM dplyr('test_pipe %>% { . %>% select(id) %>% filter(id <= 3) }') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe %>% { filter(., id <= 4) %>% select(., id) }') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe %>% (. %>% select(id) %>% filter(id <= 2))') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe |> select(id) |> filter(id <= 3)', 'native') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe |> (\(x) x |> select(id) |> filter(id <= 3))()', 'native') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe |> (\(x) filter(x, id <= 4) |> select(x, id))()', 'native') AS t;
+                SET dplyr_pipe_syntax = 'native';
+                SELECT dplyr_pipe_syntax();
+                SELECT COUNT(*) FROM dplyr('test_pipe |> select(id) |> filter(id <= 4)') AS t;
+                SELECT COUNT(*) FROM dplyr('test_pipe |> (\(x) x |> select(id) |> filter(id <= 2))()') AS t;
+                SET dplyr_pipe_syntax = 'magrittr';
+                SELECT COUNT(*) FROM dplyr('test_pipe %>% select(id) %>% filter(id <= 2)') AS t;
+            "
+    )
+    set_tests_properties(smoke_test_pipe_syntax PROPERTIES
+        TIMEOUT 60
+        LABELS "smoke;pipe_syntax"
+    )
+
     message(STATUS "Comprehensive smoke tests configured")
 else()
     message(WARNING "Smoke test file not found at ${CMAKE_SOURCE_DIR}/tests/smoke.sql")
