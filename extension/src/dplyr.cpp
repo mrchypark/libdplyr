@@ -802,7 +802,6 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
 static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output);
 static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types, vector<string> &names);
-static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, TableFunctionBindInput &input);
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
 
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientContext& context,
@@ -974,23 +973,6 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
     names = bind_data->names;
     return_types = bind_data->types;
     return bind_data;
-}
-
-static unique_ptr<TableRef> DplyrSqlTableBindReplace(ClientContext &context, TableFunctionBindInput &input) {
-    if (input.inputs.empty() || input.inputs[0].IsNull()) {
-        return PipeSyntaxErrorTableRef("dplyr_query() requires a non-null SQL string", context.GetParserOptions());
-    }
-
-    string sql = StringValue::Get(input.inputs[0]);
-    sql = StripTrailingSemicolon(std::move(sql));
-    if (sql.empty()) {
-        return PipeSyntaxErrorTableRef("dplyr_query() requires a non-empty SQL string", context.GetParserOptions());
-    }
-
-    return SelectSubqueryTableRef(
-        sql,
-        context.GetParserOptions(),
-        "dplyr_query() SQL must be a single SELECT statement");
 }
 
 static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
