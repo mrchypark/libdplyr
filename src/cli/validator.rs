@@ -2,7 +2,8 @@
 //!
 //! Provides validation-only functionality for dplyr syntax without SQL generation.
 
-use crate::{Lexer, Parser, TranspileError};
+use crate::pipe_syntax::disabled_pipe_suggestion_for_error;
+use crate::{Lexer, Parser, PipeSyntax, TranspileError};
 use std::collections::HashSet;
 
 /// Result type for validation operations
@@ -90,6 +91,9 @@ pub struct ValidationConfig {
 
     /// Maximum complexity score to allow
     pub max_complexity: Option<u8>,
+
+    /// Pipe syntax accepted during validation
+    pub pipe_syntax: PipeSyntax,
 }
 
 impl Default for ValidationConfig {
@@ -99,6 +103,7 @@ impl Default for ValidationConfig {
             check_common_mistakes: true,
             detailed_suggestions: true,
             max_complexity: None,
+            pipe_syntax: PipeSyntax::default(),
         }
     }
 }
@@ -194,7 +199,7 @@ impl DplyrValidator {
 
     /// Parses the syntax without generating SQL
     fn parse_syntax(&self, dplyr_code: &str) -> Result<crate::DplyrNode, TranspileError> {
-        let lexer = Lexer::new(dplyr_code.to_string());
+        let lexer = Lexer::with_pipe_syntax(dplyr_code.to_string(), self.config.pipe_syntax);
         let mut parser = Parser::new(lexer)?;
         Ok(parser.parse()?)
     }
@@ -449,11 +454,19 @@ impl DplyrValidator {
     /// Generates suggestions for fixing errors
     fn generate_error_suggestions(&self, error: &TranspileError, _code: &str) -> Vec<String> {
         match error {
-            TranspileError::LexError(_) => vec![
-                "Check for invalid characters or malformed strings".to_string(),
-                "Ensure proper quoting of string literals".to_string(),
-                "Remove any non-ASCII characters".to_string(),
-            ],
+            TranspileError::LexError(error) => {
+                let mut suggestions = vec![
+                    "Check for invalid characters or malformed strings".to_string(),
+                    "Ensure proper quoting of string literals".to_string(),
+                    "Remove any non-ASCII characters".to_string(),
+                ];
+                if let Some(pipe_suggestion) =
+                    disabled_pipe_suggestion_for_error(&error.to_string())
+                {
+                    suggestions.push(pipe_suggestion);
+                }
+                suggestions
+            }
             TranspileError::ParseError(_) => vec![
                 "Check dplyr function syntax and arguments".to_string(),
                 "Ensure proper use of pipe operator (%>%)".to_string(),
@@ -532,6 +545,7 @@ mod tests {
             check_common_mistakes: false,
             detailed_suggestions: false,
             max_complexity: Some(5),
+            ..Default::default()
         };
         let custom_validator = DplyrValidator::with_config(config);
         assert!(!custom_validator.config.semantic_validation);

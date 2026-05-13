@@ -20,6 +20,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
+# DuckDB's Windows build can include Windows SDK COM headers in translation
+# units that also expose std::byte via C++17. Disable MSVC's std::byte typedef
+# globally before adding DuckDB subdirectories to avoid the SDK byte ambiguity.
+if(MSVC)
+    add_compile_definitions(_HAS_STD_BYTE=0)
+endif()
+
 
 # R4-AC1: Build configuration
 if(NOT CMAKE_BUILD_TYPE)
@@ -615,13 +622,17 @@ enable_testing()
 # This works correctly regardless of build generator (Ninja, MSVC, Makefiles)
 set(EXTENSION_BINARY_PATH "$<TARGET_FILE:${DUCKDB_EXTENSION_TARGET}>")
 set(TEST_TIMEOUT 30) # 30 seconds timeout for tests
+set(DUCKDB_CLI_COMMAND duckdb)
+if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "(^|;)x86_64($|;)")
+    set(DUCKDB_CLI_COMMAND arch -x86_64 duckdb)
+endif()
 
 # R4-AC2: Smoke test - basic extension loading
 add_test(
     NAME smoke_test_load
     COMMAND ${CMAKE_COMMAND} -E env
         "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-        duckdb -unsigned -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
+        ${DUCKDB_CLI_COMMAND} -unsigned -c "LOAD '${EXTENSION_BINARY_PATH}'; SELECT 'Extension loaded successfully' as result;"
 )
 set_tests_properties(smoke_test_load PROPERTIES TIMEOUT ${TEST_TIMEOUT})
 
@@ -632,7 +643,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_comprehensive
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_data AS SELECT i as id, (i % 5) + 18 as age FROM range(1, 6) as t(i);
                 -- Table function entry point (works in CLI scripts reliably)
@@ -649,7 +660,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_minimum_operations
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_ops AS SELECT i as id, 'name_' || i as name, (i % 5) + 18 as age FROM range(1, 6) as t(i);
                 -- Test each minimum operation via table function entry point
@@ -670,7 +681,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tests/smoke.sql")
         NAME smoke_test_dplyr_keyword
         COMMAND ${CMAKE_COMMAND} -E env
             "DUCKDB_EXTENSION_PATH=${CMAKE_BINARY_DIR}"
-            duckdb -unsigned ":memory:" -c "
+            ${DUCKDB_CLI_COMMAND} -unsigned ":memory:" -c "
                 LOAD '${EXTENSION_BINARY_PATH}';
                 CREATE TABLE test_keyword AS SELECT 1 as id, 'test' as name;
                 SELECT COUNT(*) FROM dplyr('test_keyword %>% select(id)') AS t;
@@ -695,6 +706,15 @@ add_test(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 set_tests_properties(rust_unit_tests PROPERTIES TIMEOUT 120)
+
+add_test(
+    NAME rust_root_tests
+    COMMAND ${CMAKE_COMMAND} -E env
+        "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
+        cargo test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_tests_properties(rust_root_tests PROPERTIES TIMEOUT 120)
 
 # R7-AC1, R7-AC3: C++ Integration Tests
 option(BUILD_CPP_TESTS "Build C++ integration tests" ON)
@@ -904,6 +924,7 @@ add_custom_target(dev-clean
 
 add_custom_target(rust-test
     COMMAND cargo test --manifest-path ${CMAKE_CURRENT_SOURCE_DIR}/libdplyr_c/Cargo.toml
+    COMMAND cargo test
     COMMENT "Running Rust unit tests"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )

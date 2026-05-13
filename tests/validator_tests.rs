@@ -18,6 +18,7 @@ fn test_validator_creation() {
         check_common_mistakes: false,
         detailed_suggestions: false,
         max_complexity: Some(5),
+        ..Default::default()
     };
     let custom_validator = DplyrValidator::with_config(config);
     assert!(!custom_validator.config().semantic_validation);
@@ -57,6 +58,7 @@ fn test_validation_config_clone() {
         check_common_mistakes: true,
         detailed_suggestions: false,
         max_complexity: Some(8),
+        ..Default::default()
     };
 
     let config2 = config1.clone();
@@ -421,6 +423,7 @@ fn test_config_updates() {
         check_common_mistakes: false,
         detailed_suggestions: true,
         max_complexity: Some(3),
+        ..Default::default()
     };
 
     validator.set_config(new_config);

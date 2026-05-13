@@ -20,16 +20,32 @@ fn write_to_stdin(child: &mut std::process::Child, input: &[u8]) {
 
 /// Helper function to build the libdplyr binary path
 fn get_libdplyr_path() -> String {
-    let binary_name = if cfg!(windows) {
-        "libdplyr.exe"
-    } else {
-        "libdplyr"
-    };
+    if let Some(path) = option_env!("CARGO_BIN_EXE_libdplyr") {
+        return path.to_string();
+    }
+
+    let binary_name = format!("libdplyr{}", std::env::consts::EXE_SUFFIX);
+
+    if let Ok(mut path) = std::env::current_exe() {
+        path.pop();
+        if path
+            .file_name()
+            .is_some_and(|name| name == std::ffi::OsStr::new("deps"))
+        {
+            path.pop();
+        }
+        path.push(&binary_name);
+        if path.exists() {
+            return path.to_string_lossy().into_owned();
+        }
+    }
 
     // Try different possible paths for the binary
     let possible_paths = [
         format!("./target/debug/{binary_name}"),
         format!("target/debug/{binary_name}"),
+        format!("./target/release/{binary_name}"),
+        format!("target/release/{binary_name}"),
         format!("./target/llvm-cov-target/debug/{binary_name}"),
         format!("target/llvm-cov-target/debug/{binary_name}"),
     ];
@@ -67,6 +83,139 @@ fn test_stdin_stdout_basic_functionality() {
         "Output should contain 'name' column"
     );
     assert!(stdout.contains("age"), "Output should contain 'age' column");
+}
+
+#[test]
+fn test_pipe_syntax_environment_enables_native_pipe() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--text", "data |> select(name)"])
+        .env("DPLYR_PIPE_SYNTAX", "native")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "Native pipe syntax should succeed with DPLYR_PIPE_SYNTAX=native. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert!(stdout.contains("SELECT"), "Output should contain SELECT");
+    assert!(
+        stdout.contains("name"),
+        "Output should contain 'name' column"
+    );
+}
+
+#[test]
+fn test_validate_only_pipe_syntax_environment_enables_native_pipe() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--validate-only", "--text", "data |> select(name)"])
+        .env("DPLYR_PIPE_SYNTAX", "native")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "Native pipe syntax should validate with DPLYR_PIPE_SYNTAX=native. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert!(
+        stdout.contains("Valid") || stdout.contains("유효"),
+        "Should indicate valid syntax"
+    );
+}
+
+#[test]
+fn test_validate_only_pipe_syntax_environment_rejects_disabled_native_pipe() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--validate-only", "--text", "data |> select(name)"])
+        .env("DPLYR_PIPE_SYNTAX", "magrittr")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        !output.status.success(),
+        "Native pipe syntax should fail validation when magrittr mode is configured"
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
+    assert!(stderr.contains("Native pipe is not enabled"));
+    assert!(stderr.contains("DPLYR_PIPE_SYNTAX=native"));
+}
+
+#[test]
+fn test_validate_only_reports_invalid_pipe_syntax_environment() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--validate-only", "--text", "data %>% select(name)"])
+        .env("DPLYR_PIPE_SYNTAX", "invalid-pipe-mode")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        !output.status.success(),
+        "Invalid DPLYR_PIPE_SYNTAX should fail before validation"
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("Invalid UTF-8");
+    assert!(stderr.contains("Invalid pipe syntax 'invalid-pipe-mode'"));
+    assert!(stderr.contains("Expected 'magrittr' or 'native'"));
+}
+
+#[test]
+fn test_dialect_environment_sets_cli_default() {
+    let output = Command::new(get_libdplyr_path())
+        .args(["--text", "data %>% select(name)", "--compact"])
+        .env("DPLYR_DIALECT", "mysql")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "DPLYR_DIALECT=mysql should configure CLI default dialect. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert_eq!(stdout.trim(), "SELECT `name` FROM `data`");
+}
+
+#[test]
+fn test_explicit_dialect_overrides_environment_default() {
+    let output = Command::new(get_libdplyr_path())
+        .args([
+            "--text",
+            "data %>% select(name)",
+            "--dialect",
+            "sqlite",
+            "--compact",
+        ])
+        .env("DPLYR_DIALECT", "mysql")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run libdplyr process");
+
+    assert!(
+        output.status.success(),
+        "Explicit --dialect should override DPLYR_DIALECT. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
+    assert_eq!(stdout.trim(), "SELECT \"name\" FROM \"data\"");
 }
 
 #[test]
@@ -724,7 +873,10 @@ fn test_large_input_processing() {
     );
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8");
     assert!(stdout.contains("SELECT"), "Should contain SELECT");
-    assert!(stdout.contains("GROUP BY"), "Should contain GROUP BY");
+    assert!(
+        !stdout.contains("GROUP BY"),
+        "Grouping metadata without summarise should not emit GROUP BY"
+    );
     assert!(stdout.contains("ORDER BY"), "Should contain ORDER BY");
 }
 

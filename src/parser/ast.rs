@@ -175,6 +175,8 @@ pub enum Expr {
     },
     /// Function call
     Function { name: String, args: Vec<Expr> },
+    /// Named function argument, e.g. `sep = " "`.
+    NamedArg { name: String, value: Box<Expr> },
 }
 
 /// Literal value types

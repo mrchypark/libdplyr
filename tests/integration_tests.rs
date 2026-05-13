@@ -157,6 +157,42 @@ fn test_group_by_and_summarise() {
 }
 
 #[test]
+fn test_group_by_after_summarise_is_metadata_only() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = "data %>% summarise(n = n()) %>% group_by(g)";
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+
+    let sql = result.unwrap();
+
+    assert!(
+        !sql.contains("GROUP BY"),
+        "late group_by should not emit final GROUP BY: {sql}"
+    );
+}
+
+#[test]
+fn test_group_by_after_grouped_summarise_preserves_summarise_grouping() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = "data %>% group_by(g) %>% summarise(n = n()) %>% group_by(h)";
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(result.is_ok(), "Conversion should succeed: {:?}", result);
+
+    let sql = result.unwrap();
+
+    assert!(
+        sql.contains("GROUP BY \"g\""),
+        "summarise grouping should be preserved: {sql}"
+    );
+    assert!(
+        !sql.contains("GROUP BY \"h\""),
+        "late group_by should not replace summarise grouping: {sql}"
+    );
+}
+
+#[test]
 fn test_invalid_syntax() {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let dplyr_code = "invalid_function(test)";
@@ -429,7 +465,11 @@ fn test_mutate_operations() {
         ("mutate(adult = age >= 18)", "(\"AGE\" >= 18) AS \"ADULT\""),
         (
             "mutate(full_name = paste(first_name, last_name))",
-            "PASTE(\"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
+            "CONCAT_WS(' ', \"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
+        ),
+        (
+            "mutate(full_name = paste(first_name, last_name, sep = \"-\"))",
+            "CONCAT_WS('-', \"FIRST_NAME\", \"LAST_NAME\") AS \"FULL_NAME\"",
         ),
     ];
 
@@ -450,6 +490,21 @@ fn test_mutate_operations() {
             sql
         );
     }
+}
+
+#[test]
+fn test_if_else_named_true_false_arguments() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = r#"data %>% mutate(v = if_else(condition = ok, true = "yes", false = "no"))"#;
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(
+        result.is_ok(),
+        "if_else documented named arguments should succeed: {result:?}"
+    );
+
+    let normalized = normalize_sql(&result.unwrap());
+    assert!(normalized.contains(r#"CASE WHEN "OK" THEN 'YES' ELSE 'NO' END AS "V""#));
 }
 
 #[test]
@@ -624,13 +679,13 @@ fn test_chaining_patterns() {
 #[test]
 fn test_dialect_identifier_quoting_comparison() {
     let test_cases = vec![
-        "select(name, age)",
-        "filter(user_id > 100)",
-        "group_by(department_name)",
-        "arrange(created_at)",
+        ("select(name, age)", Some("name")),
+        ("filter(user_id > 100)", Some("user_id")),
+        ("group_by(department_name)", None),
+        ("arrange(created_at)", Some("created_at")),
     ];
 
-    for dplyr_code in test_cases {
+    for (dplyr_code, emitted_identifier) in test_cases {
         let pg_transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
         let mysql_transpiler = Transpiler::new(Box::new(MySqlDialect::new()));
         let sqlite_transpiler = Transpiler::new(Box::new(SqliteDialect::new()));
@@ -663,22 +718,22 @@ fn test_dialect_identifier_quoting_comparison() {
         let sqlite_sql = sqlite_result.unwrap();
         let duckdb_sql = duckdb_result.unwrap();
 
-        // Verify dialect-specific quoting (check for any quoted identifier, not specific case)
-        if dplyr_code.contains("name") {
+        // Verify dialect-specific quoting only for identifiers emitted in final SQL.
+        if let Some(identifier) = emitted_identifier {
             assert!(
-                pg_sql.contains("\"") && pg_sql.to_lowercase().contains("name"),
+                pg_sql.contains(&format!("\"{}\"", identifier)),
                 "PostgreSQL should use double quotes for identifiers"
             );
             assert!(
-                mysql_sql.contains("`") && mysql_sql.to_lowercase().contains("name"),
+                mysql_sql.contains(&format!("`{}`", identifier)),
                 "MySQL should use backticks for identifiers"
             );
             assert!(
-                sqlite_sql.contains("\"") && sqlite_sql.to_lowercase().contains("name"),
+                sqlite_sql.contains(&format!("\"{}\"", identifier)),
                 "SQLite should use double quotes for identifiers"
             );
             assert!(
-                duckdb_sql.contains("\"") && duckdb_sql.to_lowercase().contains("name"),
+                duckdb_sql.contains(&format!("\"{}\"", identifier)),
                 "DuckDB should use double quotes for identifiers"
             );
         }

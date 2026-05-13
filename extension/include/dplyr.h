@@ -62,6 +62,14 @@ typedef enum DplyrDialect {
     DPLYR_DIALECT_SQLITE = 3
 } DplyrDialect;
 
+/**
+ * @brief Supported dplyr pipe syntax modes.
+ */
+typedef enum DplyrPipeSyntax {
+    DPLYR_PIPE_SYNTAX_MAGRITTR = 0, /**< Accept `%>%` only */
+    DPLYR_PIPE_SYNTAX_NATIVE = 1    /**< Accept `|>` only */
+} DplyrPipeSyntax;
+
 /* ========================================================================
  * DATA STRUCTURES
  * ======================================================================== */
@@ -149,6 +157,17 @@ int dplyr_compile(
 );
 
 /**
+ * @brief Convert dplyr pipeline code to SQL with an explicit pipe syntax.
+ */
+int dplyr_compile_with_pipe_syntax(
+    const char* code,
+    const DplyrOptions* options,
+    uint32_t pipe_syntax,
+    char** out_sql,
+    char** out_error
+);
+
+/**
  * @brief Compile a full query, including embedded `(| ... |)` dplyr segments.
  *
  * Returns `DPLYR_QUERY_NOT_HANDLED` when the query does not contain a dplyr
@@ -174,6 +193,17 @@ int dplyr_compile(
 int dplyr_compile_query(
     const char* query,
     const DplyrOptions* options,
+    char** out_sql,
+    char** out_error
+);
+
+/**
+ * @brief Compile a full query with an explicit pipe syntax.
+ */
+int dplyr_compile_query_with_pipe_syntax(
+    const char* query,
+    const DplyrOptions* options,
+    uint32_t pipe_syntax,
     char** out_sql,
     char** out_error
 );

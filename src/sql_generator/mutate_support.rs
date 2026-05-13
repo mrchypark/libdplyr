@@ -114,7 +114,10 @@ impl SqlGenerator {
         }
 
         for assignment in assignments {
-            let expr_sql = self.generate_expression(&assignment.expr)?;
+            let expr_sql = self.generate_expression_with_window_partition(
+                &assignment.expr,
+                &query_parts.group_by,
+            )?;
             query_parts
                 .mutated_columns
                 .insert(assignment.column.clone(), expr_sql.clone());
@@ -144,6 +147,7 @@ impl SqlGenerator {
             Expr::Function { args, .. } => args
                 .iter()
                 .any(|arg| self.expression_references_columns(arg, columns)),
+            Expr::NamedArg { value, .. } => self.expression_references_columns(value, columns),
             Expr::Literal(_) => false,
         }
     }
@@ -169,6 +173,7 @@ impl SqlGenerator {
             Expr::Binary { left, right, .. } => {
                 self.expression_is_complex(left) || self.expression_is_complex(right)
             }
+            Expr::NamedArg { value, .. } => self.expression_is_complex(value),
             _ => false,
         }
     }

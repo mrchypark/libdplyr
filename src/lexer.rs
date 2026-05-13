@@ -3,6 +3,7 @@
 //! Provides functionality to tokenize dplyr code.
 
 use crate::error::{LexError, LexResult};
+use crate::PipeSyntax;
 use std::collections::HashMap;
 
 lazy_static::lazy_static! {
@@ -101,8 +102,11 @@ pub enum Token {
     // Structural tokens
     LeftParen,  // (
     RightParen, // )
+    LeftBrace,  // {
+    RightBrace, // }
     Comma,      // ,
     Dot,        // .
+    Backslash,  // \
 
     // Special tokens
     EOF,        // End of file
@@ -154,8 +158,11 @@ impl std::fmt::Display for Token {
             Self::Null => write!(f, "NULL"),
             Self::LeftParen => write!(f, "("),
             Self::RightParen => write!(f, ")"),
+            Self::LeftBrace => write!(f, "{{"),
+            Self::RightBrace => write!(f, "}}"),
             Self::Comma => write!(f, ","),
             Self::Dot => write!(f, "."),
+            Self::Backslash => write!(f, "\\"),
             Self::EOF => write!(f, "EOF"),
             Self::Newline => write!(f, "\\n"),
             Self::Whitespace => write!(f, " "),
@@ -170,6 +177,7 @@ pub struct Lexer {
     input: Vec<char>,
     position: usize,
     current_char: Option<char>,
+    pipe_syntax: PipeSyntax,
 }
 
 impl Lexer {
@@ -179,6 +187,11 @@ impl Lexer {
     ///
     /// * `input` - The input string to tokenize
     pub fn new(input: String) -> Self {
+        Self::with_pipe_syntax(input, PipeSyntax::default())
+    }
+
+    /// Creates a new lexer instance with an explicit pipe syntax.
+    pub fn with_pipe_syntax(input: String, pipe_syntax: PipeSyntax) -> Self {
         let chars: Vec<char> = input.chars().collect();
         let current_char = chars.first().copied();
 
@@ -186,7 +199,13 @@ impl Lexer {
             input: chars,
             position: 0,
             current_char,
+            pipe_syntax,
         }
+    }
+
+    /// Returns the pipe syntax this lexer recognizes.
+    pub const fn pipe_syntax(&self) -> PipeSyntax {
+        self.pipe_syntax
     }
 
     /// Returns the next token.
@@ -209,6 +228,14 @@ impl Lexer {
                     ')' => {
                         self.advance();
                         Ok(Token::RightParen)
+                    }
+                    '{' => {
+                        self.advance();
+                        Ok(Token::LeftBrace)
+                    }
+                    '}' => {
+                        self.advance();
+                        Ok(Token::RightBrace)
                     }
                     ',' => {
                         self.advance();
@@ -248,6 +275,10 @@ impl Lexer {
                     '/' => {
                         self.advance();
                         Ok(Token::Divide)
+                    }
+                    '\\' => {
+                        self.advance();
+                        Ok(Token::Backslash)
                     }
                     '=' => {
                         self.advance();
@@ -293,6 +324,9 @@ impl Lexer {
                         Ok(Token::And)
                     }
                     '|' => {
+                        if self.input.get(self.position + 1) == Some(&'>') {
+                            return self.read_native_pipe_operator();
+                        }
                         self.advance();
                         Ok(Token::Or)
                     }
@@ -313,6 +347,19 @@ impl Lexer {
         }
     }
 
+    /// Returns the next token without consuming it.
+    pub fn peek_token(&mut self) -> LexResult<Token> {
+        let saved_position = self.position;
+        let saved_current_char = self.current_char;
+
+        let token = self.next_token();
+
+        self.position = saved_position;
+        self.current_char = saved_current_char;
+
+        token
+    }
+
     /// Advances the current position to the next character.
     fn advance(&mut self) {
         self.position += 1;
@@ -330,7 +377,7 @@ impl Lexer {
         }
     }
 
-    /// Reads the pipe operator %>%.
+    /// Reads the magrittr pipe operator %>%.
     fn read_pipe_operator(&mut self) -> LexResult<Token> {
         let start_position = self.position;
         let mut pipe_str = String::new();
@@ -345,7 +392,14 @@ impl Lexer {
             if self.current_char == Some('%') {
                 pipe_str.push('%');
                 self.advance();
-                Ok(Token::Pipe)
+                if self.pipe_syntax == PipeSyntax::Magrittr {
+                    Ok(Token::Pipe)
+                } else {
+                    Err(LexError::InvalidPipeOperator(
+                        PipeSyntax::Magrittr.disabled_error(),
+                        start_position,
+                    ))
+                }
             } else {
                 Err(LexError::InvalidPipeOperator(pipe_str, start_position))
             }
@@ -355,6 +409,22 @@ impl Lexer {
                 pipe_str.push(ch);
             }
             Err(LexError::InvalidPipeOperator(pipe_str, start_position))
+        }
+    }
+
+    /// Reads the base R native pipe operator |>.
+    fn read_native_pipe_operator(&mut self) -> LexResult<Token> {
+        let start_position = self.position;
+        self.advance();
+        self.advance();
+
+        if self.pipe_syntax == PipeSyntax::Native {
+            Ok(Token::Pipe)
+        } else {
+            Err(LexError::InvalidPipeOperator(
+                PipeSyntax::Native.disabled_error(),
+                start_position,
+            ))
         }
     }
 
@@ -473,19 +543,32 @@ mod tests {
         #[test]
         fn test_structural_tokens() {
             assert_tokens("()", vec![Token::LeftParen, Token::RightParen, Token::EOF]);
+            assert_tokens("{}", vec![Token::LeftBrace, Token::RightBrace, Token::EOF]);
             assert_tokens(",", vec![Token::Comma, Token::EOF]);
             assert_tokens(".", vec![Token::Dot, Token::EOF]);
             assert_tokens(
-                "(),.)",
+                "(){},.)",
                 vec![
                     Token::LeftParen,
                     Token::RightParen,
+                    Token::LeftBrace,
+                    Token::RightBrace,
                     Token::Comma,
                     Token::Dot,
                     Token::RightParen,
                     Token::EOF,
                 ],
             );
+        }
+
+        #[test]
+        fn test_peek_token_does_not_consume_input() {
+            let mut lexer = Lexer::new("select(name)".to_string());
+
+            assert_eq!(lexer.peek_token().unwrap(), Token::Select);
+            assert_eq!(lexer.peek_token().unwrap(), Token::Select);
+            assert_eq!(lexer.next_token().unwrap(), Token::Select);
+            assert_eq!(lexer.next_token().unwrap(), Token::LeftParen);
         }
 
         #[test]
@@ -952,7 +1035,7 @@ mod tests {
 
         #[test]
         fn test_unexpected_character_symbols() {
-            let test_cases = vec!['@', '#', '$', '^', '~', '`', '[', ']', '{', '}'];
+            let test_cases = vec!['@', '#', '$', '^', '~', '`', '[', ']'];
 
             for ch in test_cases {
                 let mut lexer = Lexer::new(ch.to_string());

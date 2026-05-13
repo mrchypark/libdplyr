@@ -73,6 +73,18 @@ pub enum GenerationError {
     #[error("Unsupported operation in '{dialect}' dialect: '{operation}'")]
     UnsupportedOperation { operation: String, dialect: String },
 
+    #[error("Unsupported function in '{dialect}' dialect: '{function}'")]
+    UnsupportedFunction { function: String, dialect: String },
+
+    #[error(
+        "Unsupported named argument '{argument}' for function '{function}' in '{dialect}' dialect; named arguments are only supported when explicitly mapped"
+    )]
+    UnsupportedNamedArgument {
+        function: String,
+        argument: String,
+        dialect: String,
+    },
+
     #[error(
         "Invalid column reference: '{column}'{}",
         table

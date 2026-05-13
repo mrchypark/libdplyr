@@ -25,6 +25,137 @@ pub struct SqlGenerator {
     dialect: Box<dyn SqlDialect>,
 }
 
+#[derive(Clone, Copy)]
+struct NamedArgFormal {
+    name: &'static str,
+    default_sql: Option<&'static str>,
+}
+
+const ROUND_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "digits",
+        default_sql: None,
+    },
+];
+const LEAD_LAG_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "n",
+        default_sql: Some("1"),
+    },
+    NamedArgFormal {
+        name: "default",
+        default_sql: Some("NULL"),
+    },
+    NamedArgFormal {
+        name: "order_by",
+        default_sql: None,
+    },
+];
+const STR_DETECT_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "string",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "pattern",
+        default_sql: None,
+    },
+];
+const SUBSTR_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "start",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "stop",
+        default_sql: None,
+    },
+];
+const LOG_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "base",
+        default_sql: None,
+    },
+];
+const UNARY_X_FORMALS: &[NamedArgFormal] = &[NamedArgFormal {
+    name: "x",
+    default_sql: None,
+}];
+const VALUE_ORDER_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "x",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "order_by",
+        default_sql: None,
+    },
+];
+const IFELSE_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "test",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "yes",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "no",
+        default_sql: None,
+    },
+];
+const IF_ELSE_FORMALS: &[NamedArgFormal] = &[
+    NamedArgFormal {
+        name: "condition",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "true",
+        default_sql: None,
+    },
+    NamedArgFormal {
+        name: "false",
+        default_sql: None,
+    },
+];
+
+fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
+    match function.to_ascii_lowercase().as_str() {
+        "round" => Some(ROUND_FORMALS),
+        "lead" | "lag" => Some(LEAD_LAG_FORMALS),
+        "str_detect" => Some(STR_DETECT_FORMALS),
+        "substr" => Some(SUBSTR_FORMALS),
+        "log" => Some(LOG_FORMALS),
+        "abs" | "floor" | "ceiling" | "ceil" | "sqrt" | "sign" | "exp" | "log10" | "sin"
+        | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "str_length"
+        | "str_to_lower" | "str_to_upper" | "str_trim" | "nchar" | "nzchar" | "trimws"
+        | "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" => {
+            Some(UNARY_X_FORMALS)
+        }
+        "first" | "first_value" | "last" | "last_value" => Some(VALUE_ORDER_FORMALS),
+        "ifelse" => Some(IFELSE_FORMALS),
+        "if_else" => Some(IF_ELSE_FORMALS),
+        _ => None,
+    }
+}
+
 impl SqlGenerator {
     /// Creates a new SQL generator instance.
     ///
@@ -74,6 +205,7 @@ impl SqlGenerator {
         }
 
         let mut query_parts = QueryParts::new();
+        let mut aggregation_group_by = None;
 
         // Get the source table name for join operations
         let source_table = source.as_deref().unwrap_or("data");
@@ -81,7 +213,16 @@ impl SqlGenerator {
         // Process each operation in order
         for operation in operations {
             self.process_operation(operation, &mut query_parts, source_table)?;
+            if matches!(operation, DplyrOperation::Summarise { .. }) {
+                aggregation_group_by = if query_parts.group_by.is_empty() {
+                    None
+                } else {
+                    Some(query_parts.group_by.clone())
+                };
+            }
         }
+
+        query_parts.group_by = aggregation_group_by.unwrap_or_default();
 
         // Assemble final SQL query
         self.assemble_query(source, &query_parts)
@@ -127,7 +268,12 @@ impl SqlGenerator {
                     .join(", ");
             }
             DplyrOperation::Summarise { aggregations, .. } => {
-                query_parts.select_columns = self.generate_aggregations(aggregations)?;
+                let mut select_columns = Vec::new();
+                if !query_parts.group_by.is_empty() {
+                    select_columns.push(query_parts.group_by.clone());
+                }
+                select_columns.extend(self.generate_aggregations(aggregations)?);
+                query_parts.select_columns = select_columns;
             }
             DplyrOperation::Join {
                 join_type, spec, ..
@@ -230,9 +376,9 @@ impl SqlGenerator {
                     format!(
                         "{} = {}",
                         self.dialect
-                            .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                            .quote_identifier_path(&[source_table, by_column]),
                         self.dialect
-                            .quote_identifier(&format!("{}.{}", spec.table, by_column))
+                            .quote_identifier_path(&[&spec.table, by_column])
                     )
                 } else if let Some(expr) = &spec.on_expr {
                     self.generate_expression(expr)?
@@ -277,9 +423,9 @@ impl SqlGenerator {
             format!(
                 "{} = {}",
                 self.dialect
-                    .quote_identifier(&format!("{}.{}", source_table, by_column)),
+                    .quote_identifier_path(&[source_table, by_column]),
                 self.dialect
-                    .quote_identifier(&format!("{}.{}", spec.table, by_column))
+                    .quote_identifier_path(&[&spec.table, by_column])
             )
         } else if let Some(expr) = &spec.on_expr {
             // Fallback to expression-based ON clause
@@ -327,18 +473,20 @@ impl SqlGenerator {
         aggregations
             .iter()
             .map(|agg| {
-                let func_name = self.dialect.aggregate_function(&agg.function);
+                let func_name = self
+                    .dialect
+                    .translate_aggregate_function(&agg.function)
+                    .ok_or_else(|| GenerationError::UnsupportedAggregateFunction {
+                        function: agg.function.clone(),
+                        dialect: self.dialect.dialect_name().to_string(),
+                    })?;
                 let column_ref = if agg.function.to_lowercase() == "n" {
-                    String::new() // COUNT(*) is already included in function name
+                    "*".to_string()
                 } else {
                     self.dialect.quote_identifier(&agg.column)
                 };
 
-                let expr = if column_ref.is_empty() {
-                    func_name
-                } else {
-                    format!("{func_name}({column_ref})")
-                };
+                let expr = format!("{func_name}({column_ref})");
 
                 if let Some(alias) = &agg.alias {
                     Ok(format!(
@@ -355,6 +503,14 @@ impl SqlGenerator {
 
     /// Converts expressions to SQL.
     fn generate_expression(&self, expr: &Expr) -> GenerationResult<String> {
+        self.generate_expression_with_window_partition(expr, "")
+    }
+
+    fn generate_expression_with_window_partition(
+        &self,
+        expr: &Expr,
+        partition_by: &str,
+    ) -> GenerationResult<String> {
         match expr {
             Expr::Identifier(name) => Ok(self.dialect.quote_identifier(name)),
             Expr::Literal(literal) => self.generate_literal(literal),
@@ -363,28 +519,187 @@ impl SqlGenerator {
                 operator,
                 right,
             } => {
-                let left_sql = self.generate_expression(left)?;
-                let right_sql = self.generate_expression(right)?;
+                let left_sql =
+                    self.generate_expression_with_window_partition(left, partition_by)?;
+                let right_sql =
+                    self.generate_expression_with_window_partition(right, partition_by)?;
                 let op_sql = self.generate_binary_operator(operator);
                 Ok(format!("({left_sql} {op_sql} {right_sql})"))
             }
             Expr::Function { name, args } => {
-                let args_sql: Result<Vec<_>, _> = args
+                self.generate_function_expression_with_window_partition(name, args, partition_by)
+            }
+            Expr::NamedArg { name, .. } => Err(GenerationError::InvalidAst {
+                reason: format!("named argument '{name}' cannot be used outside a function call"),
+            }),
+        }
+    }
+
+    fn generate_function_expression_with_window_partition(
+        &self,
+        name: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<String> {
+        if name.eq_ignore_ascii_case("paste") {
+            return self.generate_paste_expression_with_window_partition(name, args, partition_by);
+        }
+
+        let args_str =
+            self.generate_function_arguments_with_window_partition(name, args, partition_by)?;
+
+        if let Some(translated) =
+            self.dialect
+                .translate_function_with_window_partition(name, &args_str, partition_by)
+        {
+            return Ok(translated);
+        }
+
+        Err(GenerationError::UnsupportedFunction {
+            function: name.to_string(),
+            dialect: self.dialect.dialect_name().to_string(),
+        })
+    }
+
+    fn generate_function_arguments_with_window_partition(
+        &self,
+        function: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<Vec<String>> {
+        let has_named_args = args.iter().any(|arg| matches!(arg, Expr::NamedArg { .. }));
+        if !has_named_args {
+            return args
+                .iter()
+                .map(|arg| self.generate_expression_with_window_partition(arg, partition_by))
+                .collect();
+        }
+
+        let formals = named_argument_formals(function).ok_or_else(|| {
+            GenerationError::UnsupportedNamedArgument {
+                function: function.to_string(),
+                argument: args
                     .iter()
-                    .map(|arg| self.generate_expression(arg))
-                    .collect();
-                let args_str = args_sql?;
+                    .find_map(|arg| match arg {
+                        Expr::NamedArg { name, .. } => Some(name.to_string()),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+                dialect: self.dialect.dialect_name().to_string(),
+            }
+        })?;
 
-                // Try dialect-specific translation first
-                if let Some(translated) = self.dialect.translate_function(name, &args_str) {
-                    return Ok(translated);
+        let mut slots = vec![None::<String>; formals.len()];
+        let mut overflow = Vec::new();
+        let mut next_positional = 0;
+
+        for arg in args {
+            match arg {
+                Expr::NamedArg { name, value } => {
+                    let Some(index) = formals
+                        .iter()
+                        .position(|formal| formal.name.eq_ignore_ascii_case(name))
+                    else {
+                        return Err(GenerationError::UnsupportedNamedArgument {
+                            function: function.to_string(),
+                            argument: name.to_string(),
+                            dialect: self.dialect.dialect_name().to_string(),
+                        });
+                    };
+
+                    if slots[index].is_some() {
+                        return Err(GenerationError::InvalidAst {
+                            reason: format!(
+                                "duplicate argument '{name}' for function '{function}'"
+                            ),
+                        });
+                    }
+
+                    slots[index] =
+                        Some(self.generate_expression_with_window_partition(value, partition_by)?);
                 }
-
-                // Fall back to uppercase function name
-                let func_name = name.to_uppercase();
-                Ok(format!("{func_name}({})", args_str.join(", ")))
+                _ => {
+                    let sql = self.generate_expression_with_window_partition(arg, partition_by)?;
+                    while next_positional < slots.len() && slots[next_positional].is_some() {
+                        next_positional += 1;
+                    }
+                    if next_positional < slots.len() {
+                        slots[next_positional] = Some(sql);
+                        next_positional += 1;
+                    } else {
+                        overflow.push(sql);
+                    }
+                }
             }
         }
+
+        let last_explicit = slots.iter().rposition(Option::is_some);
+        let mut normalized = Vec::new();
+        if let Some(last_explicit) = last_explicit {
+            for index in 0..=last_explicit {
+                if let Some(sql) = slots[index].take() {
+                    normalized.push(sql);
+                } else if let Some(default_sql) = formals[index].default_sql {
+                    normalized.push(default_sql.to_string());
+                } else {
+                    return Err(GenerationError::InvalidAst {
+                        reason: format!(
+                            "named argument for function '{function}' requires preceding argument '{}'",
+                            formals[index].name
+                        ),
+                    });
+                }
+            }
+        }
+        normalized.extend(overflow);
+
+        Ok(normalized)
+    }
+
+    fn generate_paste_expression_with_window_partition(
+        &self,
+        name: &str,
+        args: &[Expr],
+        partition_by: &str,
+    ) -> GenerationResult<String> {
+        let mut positional_args = Vec::new();
+        let mut separator = self.dialect.quote_string(" ");
+        let mut seen_separator = false;
+
+        for arg in args {
+            match arg {
+                Expr::NamedArg {
+                    name: arg_name,
+                    value,
+                } if arg_name.eq_ignore_ascii_case("sep") => {
+                    if seen_separator {
+                        return Err(GenerationError::UnsupportedFunction {
+                            function: name.to_string(),
+                            dialect: self.dialect.dialect_name().to_string(),
+                        });
+                    }
+                    separator =
+                        self.generate_expression_with_window_partition(value, partition_by)?;
+                    seen_separator = true;
+                }
+                Expr::NamedArg { name: arg_name, .. } => {
+                    return Err(GenerationError::UnsupportedNamedArgument {
+                        function: name.to_string(),
+                        argument: arg_name.to_string(),
+                        dialect: self.dialect.dialect_name().to_string(),
+                    });
+                }
+                _ => positional_args
+                    .push(self.generate_expression_with_window_partition(arg, partition_by)?),
+            }
+        }
+
+        self.dialect
+            .concat_with_separator(&separator, &positional_args)
+            .ok_or_else(|| GenerationError::UnsupportedFunction {
+                function: name.to_string(),
+                dialect: self.dialect.dialect_name().to_string(),
+            })
     }
 
     /// Converts literal values to SQL.

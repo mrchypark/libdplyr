@@ -4,6 +4,7 @@
 
 use crate::error::{ParseError, ParseResult};
 use crate::lexer::{Lexer, Token};
+use crate::PipeSyntax;
 
 pub use super::ast::*;
 
@@ -12,6 +13,9 @@ pub use super::ast::*;
 /// Provides functionality to parse dplyr tokens into an Abstract Syntax Tree (AST).
 pub struct Parser {
     lexer: Lexer,
+    pipe_syntax: PipeSyntax,
+    lazy_input_context: Option<LazyInput>,
+    lazy_input_consumed: bool,
     current_token: Token,
     position: usize,
     line: usize,
@@ -39,9 +43,13 @@ impl Parser {
     /// let parser = Parser::new(lexer).unwrap();
     /// ```
     pub fn new(mut lexer: Lexer) -> ParseResult<Self> {
+        let pipe_syntax = lexer.pipe_syntax();
         let current_token = lexer.next_token()?;
         Ok(Self {
             lexer,
+            pipe_syntax,
+            lazy_input_context: None,
+            lazy_input_consumed: false,
             current_token,
             position: 0,
             line: 1,
@@ -55,7 +63,16 @@ impl Parser {
     ///
     /// Returns DplyrNode on success, ParseError on failure.
     pub fn parse(&mut self) -> ParseResult<DplyrNode> {
-        self.parse_pipeline()
+        let node = self.parse_pipeline()?;
+        self.skip_newlines()?;
+        if self.current_token != Token::EOF {
+            return Err(ParseError::UnexpectedToken {
+                expected: "end of input".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        }
+        Ok(node)
     }
 
     /// Returns the current source location.
@@ -88,6 +105,17 @@ impl Parser {
                 found: format!("{}", self.current_token),
                 position: self.position,
             })
+        }
+    }
+
+    fn expect_identifier_name(&mut self, expected_name: &str) -> ParseResult<()> {
+        match &self.current_token {
+            Token::Identifier(name) if name == expected_name => self.advance(),
+            _ => Err(ParseError::UnexpectedToken {
+                expected: expected_name.to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            }),
         }
     }
 
@@ -147,15 +175,13 @@ impl Parser {
                 self.advance()?; // Skip %>%
                 self.skip_newlines()?; // Skip newlines after pipe
 
-                // Parse the first operation after the data source
-                let first_operation = self.parse_operation()?;
-                operations.push(first_operation);
+                operations.extend(self.parse_pipeline_step()?);
 
                 // Parse additional operations connected by pipe operators
                 while self.current_token == Token::Pipe {
                     self.advance()?; // Skip %>%
                     self.skip_newlines()?; // Skip newlines after pipe
-                    operations.push(self.parse_operation()?);
+                    operations.extend(self.parse_pipeline_step()?);
                 }
 
                 // Skip trailing newlines
@@ -234,15 +260,13 @@ impl Parser {
                             self.advance()?;
                             self.skip_newlines()?;
 
-                            // Parse first operation
-                            let first_op = self.parse_operation()?;
-                            operations.push(first_op);
+                            operations.extend(self.parse_pipeline_step()?);
 
                             // Parse additional operations
                             while self.current_token == Token::Pipe {
                                 self.advance()?;
                                 self.skip_newlines()?;
-                                operations.push(self.parse_operation()?);
+                                operations.extend(self.parse_pipeline_step()?);
                             }
                         }
 
@@ -281,14 +305,13 @@ impl Parser {
         }
 
         // Parse first operation (no data source prefix)
-        let first_operation = self.parse_operation()?;
-        operations.push(first_operation);
+        operations.extend(self.parse_pipeline_step()?);
 
         // Parse additional operations connected by pipe operators
         while self.current_token == Token::Pipe {
             self.advance()?; // Skip %>%
             self.skip_newlines()?; // Skip newlines after pipe
-            operations.push(self.parse_operation()?);
+            operations.extend(self.parse_pipeline_step()?);
         }
 
         // Skip trailing newlines
@@ -326,6 +349,182 @@ impl Parser {
         })
     }
 
+    /// Parses one pipeline step. A native-pipe lambda RHS like
+    /// `(\(x) x |> select(col))()` is normalized to the operations in its body.
+    fn parse_pipeline_step(&mut self) -> ParseResult<Vec<DplyrOperation>> {
+        match (&self.pipe_syntax, &self.current_token) {
+            (PipeSyntax::Native, Token::LeftParen) => {
+                self.parse_native_lambda_pipeline_application()
+            }
+            (PipeSyntax::Magrittr, Token::LeftBrace) => {
+                self.parse_magrittr_lambda_pipeline_application(Token::LeftBrace, Token::RightBrace)
+            }
+            (PipeSyntax::Magrittr, Token::LeftParen) => {
+                self.parse_magrittr_lambda_pipeline_application(Token::LeftParen, Token::RightParen)
+            }
+            (PipeSyntax::Magrittr, _) => {
+                Ok(vec![self.parse_operation_with_lazy_input(
+                    LazyInput::MagrittrDot,
+                    false,
+                )?])
+            }
+            _ => Ok(vec![self.parse_operation()?]),
+        }
+    }
+
+    fn parse_operation_with_lazy_input(
+        &mut self,
+        input: LazyInput,
+        require_input: bool,
+    ) -> ParseResult<DplyrOperation> {
+        let previous_context = self.lazy_input_context.clone();
+        let previous_consumed = self.lazy_input_consumed;
+
+        self.lazy_input_context = Some(input);
+        self.lazy_input_consumed = false;
+
+        let result = self.parse_operation();
+        let consumed = self.lazy_input_consumed;
+
+        self.lazy_input_context = previous_context;
+        self.lazy_input_consumed = previous_consumed;
+
+        let operation = result?;
+        if require_input && !consumed {
+            return Err(ParseError::InvalidOperation {
+                operation: "lambda body must consume the piped data argument".to_string(),
+                position: self.position,
+            });
+        }
+
+        Ok(operation)
+    }
+
+    fn consume_optional_lazy_data_argument(&mut self) -> ParseResult<()> {
+        let should_consume = match &self.lazy_input_context {
+            Some(LazyInput::MagrittrDot) => self.current_token == Token::Dot,
+            Some(LazyInput::NativeParameter(param)) => {
+                if let Token::Identifier(name) = &self.current_token {
+                    name == param && matches!(self.peek_token()?, Token::Comma | Token::RightParen)
+                } else {
+                    false
+                }
+            }
+            None => false,
+        };
+
+        if !should_consume {
+            return Ok(());
+        }
+
+        self.advance()?;
+        self.lazy_input_consumed = true;
+
+        if self.current_token == Token::Comma {
+            self.advance()?;
+        } else if self.current_token != Token::RightParen {
+            return Err(ParseError::UnexpectedToken {
+                expected: "comma or closing parenthesis after lambda data argument".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn peek_token(&mut self) -> ParseResult<Token> {
+        Ok(self.lexer.peek_token()?)
+    }
+
+    fn parse_magrittr_lambda_pipeline_application(
+        &mut self,
+        opening: Token,
+        closing: Token,
+    ) -> ParseResult<Vec<DplyrOperation>> {
+        self.expect_token(opening)?;
+        self.skip_newlines()?;
+
+        let mut operations = if self.current_token == Token::Dot {
+            self.expect_token(Token::Dot)?;
+            self.skip_newlines()?;
+            self.expect_token(Token::Pipe)?;
+            self.skip_newlines()?;
+            vec![self.parse_operation_with_lazy_input(LazyInput::MagrittrDot, false)?]
+        } else {
+            vec![self.parse_operation_with_lazy_input(LazyInput::MagrittrDot, true)?]
+        };
+
+        while self.current_token == Token::Pipe {
+            self.advance()?;
+            self.skip_newlines()?;
+            operations.push(self.parse_operation_with_lazy_input(LazyInput::MagrittrDot, false)?);
+        }
+
+        self.skip_newlines()?;
+        self.expect_token(closing)?;
+
+        Ok(operations)
+    }
+
+    fn parse_native_lambda_pipeline_application(&mut self) -> ParseResult<Vec<DplyrOperation>> {
+        self.expect_token(Token::LeftParen)?;
+        self.expect_token(Token::Backslash)?;
+        self.expect_token(Token::LeftParen)?;
+
+        let param = match &self.current_token {
+            Token::Identifier(name) => {
+                let name = name.clone();
+                self.advance()?;
+                name
+            }
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "lambda parameter name".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
+        };
+
+        self.expect_token(Token::RightParen)?;
+        self.skip_newlines()?;
+
+        let mut operations = if let Token::Identifier(body_source) = &self.current_token {
+            if body_source == &param {
+                self.advance()?;
+                self.skip_newlines()?;
+                self.expect_token(Token::Pipe)?;
+                self.skip_newlines()?;
+                vec![self.parse_operation()?]
+            } else {
+                vec![self.parse_operation_with_lazy_input(
+                    LazyInput::NativeParameter(param.clone()),
+                    true,
+                )?]
+            }
+        } else {
+            vec![self
+                .parse_operation_with_lazy_input(LazyInput::NativeParameter(param.clone()), true)?]
+        };
+
+        while self.current_token == Token::Pipe {
+            self.advance()?;
+            self.skip_newlines()?;
+            operations.push(self.parse_operation_with_lazy_input(
+                LazyInput::NativeParameter(param.clone()),
+                false,
+            )?);
+        }
+
+        self.skip_newlines()?;
+        self.expect_token(Token::RightParen)?;
+        self.expect_token(Token::LeftParen)?;
+        self.expect_token(Token::RightParen)?;
+
+        Ok(operations)
+    }
+
     /// Parses individual dplyr operations.
     fn parse_operation(&mut self) -> ParseResult<DplyrOperation> {
         match &self.current_token {
@@ -358,6 +557,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'select'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut columns = Vec::new();
 
@@ -381,6 +581,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'filter'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let condition = self.parse_expression()?;
 
@@ -396,6 +597,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'mutate'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut assignments = Vec::new();
 
@@ -424,6 +626,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'rename'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut renames = Vec::new();
         if self.current_token != Token::RightParen {
@@ -470,6 +673,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'arrange'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut columns = Vec::new();
 
@@ -493,6 +697,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'group_by'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut columns = Vec::new();
 
@@ -528,6 +733,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip 'summarise'
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         let mut aggregations = Vec::new();
 
@@ -570,6 +776,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip join function name
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         // Parse first argument: table name
         let table_name = match &self.current_token {
@@ -594,7 +801,7 @@ impl Parser {
         }
 
         self.expect_token(Token::Comma)?;
-        self.expect_token(Token::Identifier("by".to_string()))?;
+        self.expect_identifier_name("by")?;
         self.expect_token(Token::Assignment)?;
 
         // Parse by parameter - handle string literal as column name
@@ -638,6 +845,7 @@ impl Parser {
         let location = self.current_location();
         self.advance()?; // Skip function name
         self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
 
         // Parse table name
         let right_table = match &self.current_token {
@@ -687,11 +895,11 @@ impl Parser {
 
                 let mut args = Vec::new();
                 if self.current_token != Token::RightParen {
-                    args.push(self.parse_expression()?);
+                    args.push(self.parse_function_argument()?);
 
                     while self.current_token == Token::Comma {
                         self.advance()?; // Skip ,
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_function_argument()?);
                     }
                 }
 
@@ -1077,11 +1285,11 @@ impl Parser {
 
                     let mut args = Vec::new();
                     if self.current_token != Token::RightParen {
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_function_argument()?);
 
                         while self.current_token == Token::Comma {
                             self.advance()?; // Skip ,
-                            args.push(self.parse_expression()?);
+                            args.push(self.parse_function_argument()?);
                         }
                     }
 
@@ -1123,6 +1331,39 @@ impl Parser {
             }),
         }
     }
+
+    fn parse_function_argument(&mut self) -> ParseResult<Expr> {
+        let expr = self.parse_expression()?;
+        if self.current_token != Token::Assignment {
+            return Ok(expr);
+        }
+
+        let name = match expr {
+            Expr::Identifier(name) => name,
+            Expr::Literal(LiteralValue::Boolean(true)) => "true".to_string(),
+            Expr::Literal(LiteralValue::Boolean(false)) => "false".to_string(),
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "named argument identifier".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
+        };
+
+        self.advance()?; // Skip =
+        let value = self.parse_expression()?;
+        Ok(Expr::NamedArg {
+            name,
+            value: Box::new(value),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LazyInput {
+    MagrittrDot,
+    NativeParameter(String),
 }
 
 #[cfg(test)]

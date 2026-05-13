@@ -246,17 +246,17 @@ pub fn validate_input_structure(input: &str) -> Result<(), TranspileError> {
     let mut string_char = '\0';
 
     for ch in input.chars() {
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
-
-        if ch == '\\' {
-            escape_next = true;
-            continue;
-        }
-
         if in_string {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape_next = true;
+                continue;
+            }
+
             if ch == string_char {
                 in_string = false;
             }
