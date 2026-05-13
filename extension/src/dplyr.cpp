@@ -535,6 +535,21 @@ static string DplyrErrorSql(const string &error) {
     return "SELECT error(" + SqlStringLiteral(error) + ") AS dplyr_error";
 }
 
+static constexpr const char *DPLYR_QUERY_ERROR_PREFIX = "__LIBDPLYR_PARSER_EXTENSION_ERROR__:";
+
+static string DplyrQueryErrorParameter(const string &error) {
+    return string(DPLYR_QUERY_ERROR_PREFIX) + error;
+}
+
+static bool TryGetDplyrQueryError(const string &value, string &error) {
+    const string prefix = DPLYR_QUERY_ERROR_PREFIX;
+    if (value.rfind(prefix, 0) != 0) {
+        return false;
+    }
+    error = value.substr(prefix.size());
+    return true;
+}
+
 [[noreturn]] static void ThrowInvalidPipeSyntaxError(ClientContext &context, const string &error) {
     // DuckDB v1.5 loadable-extension setting callbacks can surface exceptions
     // thrown from extension code as "Unknown exception in ExecutorTask::Execute"
@@ -802,14 +817,14 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
         string error;
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         if (EffectivePipeSyntax(context, pipe_syntax, error) != QueryCompileStatus::Success) {
-            sql = DplyrErrorSql(error);
+            sql = DplyrQueryErrorParameter(error);
         } else {
             auto status = CompileDplyrQueryWithPipeSyntax(dplyr_data->sql, pipe_syntax, sql, error);
             if (status == QueryCompileStatus::NotHandled) {
-                sql = DplyrErrorSql("DPLYR parser extension requires a configured pipeline expression");
+                sql = DplyrQueryErrorParameter("DPLYR parser extension requires a configured pipeline expression");
             } else if (status == QueryCompileStatus::Error || !error.empty()) {
                 auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
-                sql = DplyrErrorSql("DPLYR parser extension transpilation failed: " + guided_error);
+                sql = DplyrQueryErrorParameter("DPLYR parser extension transpilation failed: " + guided_error);
             }
         }
     }
@@ -837,12 +852,14 @@ DplyrParserExtension::DplyrParserExtension() : ParserExtension() { // NOLINT(mod
 
 struct DplyrTableFunctionData : public TableFunctionData {
     string sql;
+    string error;
     vector<string> names;
     vector<LogicalType> types;
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<DplyrTableFunctionData>();
         copy->sql = sql;
+        copy->error = error;
         copy->names = names;
         copy->types = types;
         return copy;
@@ -850,7 +867,7 @@ struct DplyrTableFunctionData : public TableFunctionData {
 
     bool Equals(const FunctionData &other) const override {
         auto &other_data = other.Cast<DplyrTableFunctionData>();
-        return sql == other_data.sql && types == other_data.types;
+        return sql == other_data.sql && error == other_data.error && types == other_data.types;
     }
 
     // Disable statement caching for this table function since results depend on current catalog state.
@@ -986,6 +1003,17 @@ static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableF
     if (sql.empty()) {
         throw InvalidInputException("dplyr_query() requires a non-empty SQL string");
     }
+    string parser_error;
+    if (TryGetDplyrQueryError(sql, parser_error)) {
+        auto bind_data = make_uniq<DplyrTableFunctionData>();
+        bind_data->error = std::move(parser_error);
+        bind_data->names = {"dplyr_error"};
+        bind_data->types = {LogicalType::VARCHAR};
+
+        names = bind_data->names;
+        return_types = bind_data->types;
+        return bind_data;
+    }
 
     auto &db = DatabaseInstance::GetDatabase(context);
     Connection conn(db);
@@ -1012,6 +1040,12 @@ static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableF
 
 static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {
     auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
+    if (!data.error.empty()) {
+        Executor::Get(context).PushError(ErrorData(ExceptionType::INVALID_INPUT, data.error));
+        auto collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), data.types);
+        return make_uniq<DplyrTableFunctionState>(std::move(collection));
+    }
+
     auto &db = DatabaseInstance::GetDatabase(context);
     Connection conn(db);
 
