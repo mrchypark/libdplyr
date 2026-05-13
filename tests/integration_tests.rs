@@ -493,6 +493,21 @@ fn test_mutate_operations() {
 }
 
 #[test]
+fn test_if_else_named_true_false_arguments() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let dplyr_code = r#"data %>% mutate(v = if_else(condition = ok, true = "yes", false = "no"))"#;
+
+    let result = transpiler.transpile(dplyr_code);
+    assert!(
+        result.is_ok(),
+        "if_else documented named arguments should succeed: {result:?}"
+    );
+
+    let normalized = normalize_sql(&result.unwrap());
+    assert!(normalized.contains(r#"CASE WHEN "OK" THEN 'YES' ELSE 'NO' END AS "V""#));
+}
+
+#[test]
 fn test_filter_patterns() {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let test_cases = vec![

@@ -671,6 +671,41 @@ mod select_parsing_tests {
     }
 
     #[test]
+    fn test_function_call_named_argument_boolean_keywords() {
+        let lexer = Lexer::new(
+            r#"mutate(v = if_else(condition = ok, true = "yes", false = "no"))"#.to_string(),
+        );
+        let mut parser = Parser::new(lexer).unwrap();
+
+        let ast = parser.parse().unwrap();
+
+        if let DplyrNode::Pipeline { operations, .. } = ast {
+            assert_eq!(operations.len(), 1);
+            if let DplyrOperation::Mutate { assignments, .. } = &operations[0] {
+                assert_eq!(assignments.len(), 1);
+                if let Expr::Function { name, args } = &assignments[0].expr {
+                    assert_eq!(name, "if_else");
+                    assert_eq!(
+                        args.iter()
+                            .map(|arg| match arg {
+                                Expr::NamedArg { name, .. } => name.as_str(),
+                                _ => panic!("Expected named argument"),
+                            })
+                            .collect::<Vec<_>>(),
+                        vec!["condition", "true", "false"]
+                    );
+                } else {
+                    panic!("Expected if_else function call");
+                }
+            } else {
+                panic!("Expected Mutate operation");
+            }
+        } else {
+            panic!("Expected Pipeline node");
+        }
+    }
+
+    #[test]
     fn test_select_with_function_call_and_alias() {
         let lexer = Lexer::new(
             "select(name_upper = upper(name), desc_len = length(description))".to_string(),

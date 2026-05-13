@@ -1338,12 +1338,17 @@ impl Parser {
             return Ok(expr);
         }
 
-        let Expr::Identifier(name) = expr else {
-            return Err(ParseError::UnexpectedToken {
-                expected: "named argument identifier".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            });
+        let name = match expr {
+            Expr::Identifier(name) => name,
+            Expr::Literal(LiteralValue::Boolean(true)) => "true".to_string(),
+            Expr::Literal(LiteralValue::Boolean(false)) => "false".to_string(),
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "named argument identifier".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
         };
 
         self.advance()?; // Skip =

@@ -823,7 +823,7 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
         DplyrTableFunction,
         DplyrSqlTableBind,
         DplyrTableInit);
-    result.parameters.emplace_back(sql);
+    result.parameters.emplace_back(std::move(sql));
     result.requires_valid_transaction = true;
     result.return_type = StatementReturnType::QUERY_RESULT;
     return result;
@@ -950,7 +950,7 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
     auto &materialized = schema_result->Cast<MaterializedQueryResult>();
 
     auto bind_data = make_uniq<DplyrTableFunctionData>();
-    bind_data->sql = sql;
+    bind_data->sql = std::move(sql);
     bind_data->names = materialized.names;
     bind_data->types = materialized.types;
 
@@ -1001,7 +1001,7 @@ static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableF
     auto &materialized = schema_result->Cast<MaterializedQueryResult>();
 
     auto bind_data = make_uniq<DplyrTableFunctionData>();
-    bind_data->sql = sql;
+    bind_data->sql = std::move(sql);
     bind_data->names = materialized.names;
     bind_data->types = materialized.types;
 
