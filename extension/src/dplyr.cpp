@@ -597,8 +597,16 @@ static QueryCompileStatus ParsePipeSyntaxValue(const string &value, uint32_t &pi
 
 static QueryCompileStatus EffectivePipeSyntax(ClientContext &context, uint32_t &pipe_syntax, string &error_out) {
     Value session_value;
-    if (context.TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, session_value)) {
+    auto lookup = context.TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, session_value);
+    if (lookup) {
         if (session_value.IsNull()) {
+            if (lookup.GetScope() == SettingScope::LOCAL) {
+                Value global_value;
+                if (DBConfig::GetConfig(context).TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, global_value) &&
+                    !global_value.IsNull()) {
+                    return ParsePipeSyntaxValue(global_value.ToString(), pipe_syntax, error_out);
+                }
+            }
             return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
         }
         return ParsePipeSyntaxValue(session_value.ToString(), pipe_syntax, error_out);
@@ -614,14 +622,7 @@ static QueryCompileStatus PipeSyntaxFromTableInput(ClientContext &context, const
     return ParsePipeSyntaxValue(StringValue::Get(input.inputs[1]), pipe_syntax, error_out);
 }
 
-static void SetDplyrPipeSyntax(ClientContext &context, SetScope scope, Value &parameter) {
-    if (scope == SetScope::GLOBAL) {
-        ThrowInvalidPipeSyntaxError(
-            context,
-            "dplyr_pipe_syntax is session-only. Use SET dplyr_pipe_syntax = 'native' or "
-            "SET dplyr_pipe_syntax = 'magrittr'.");
-    }
-
+static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope /*scope*/, Value &parameter) {
     if (parameter.IsNull()) {
         return;
     }
@@ -629,7 +630,7 @@ static void SetDplyrPipeSyntax(ClientContext &context, SetScope scope, Value &pa
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (ParsePipeSyntaxValue(parameter.ToString(), pipe_syntax, error) != QueryCompileStatus::Success) {
-        ThrowInvalidPipeSyntaxError(context, error);
+        return;
     }
     parameter = Value(CanonicalPipeSyntaxName(pipe_syntax));
 }
@@ -1038,6 +1039,16 @@ static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &
     }
 }
 
+static LogicalType DplyrPipeSyntaxSettingType() {
+    static constexpr const char *values[] = {"magrittr", "native", "%>%", "|>"};
+    Vector enum_values(LogicalType::VARCHAR, 4);
+    auto enum_values_ptr = FlatVector::GetData<string_t>(enum_values);
+    for (idx_t i = 0; i < 4; i++) {
+        enum_values_ptr[i] = StringVector::AddStringOrBlob(enum_values, values[i]);
+    }
+    return LogicalType::ENUM(enum_values, 4);
+}
+
 void DplyrExtension::Load(ExtensionLoader& loader) {
     loader.SetDescription("libdplyr transpilation extension");
 
@@ -1046,7 +1057,7 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     config.AddExtensionOption(
         DPLYR_PIPE_SYNTAX_SETTING,
         "The active dplyr pipe syntax for this DuckDB session",
-        LogicalType::VARCHAR,
+        DplyrPipeSyntaxSettingType(),
         Value(),
         SetDplyrPipeSyntax,
         SetScope::SESSION);
