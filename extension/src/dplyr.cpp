@@ -530,8 +530,27 @@ static string SqlStringLiteral(const string &value) {
     return literal;
 }
 
-[[noreturn]] static void ThrowInvalidPipeSyntaxError(const string &error) {
-    ErrorData(ExceptionType::INVALID_INPUT, error).Throw();
+[[noreturn]] static void ThrowInvalidPipeSyntaxError(ClientContext &context, const string &error) {
+    // DuckDB v1.5 loadable-extension setting callbacks can surface exceptions
+    // thrown from extension code as "Unknown exception in ExecutorTask::Execute"
+    // on macOS arm64. Force DuckDB core casting code to raise the query error.
+    (void)Value(error).CastAs(context, LogicalType::INTEGER);
+    throw InternalException("dplyr pipe syntax validation unexpectedly returned");
+}
+
+static string AddDuckDbPipeSyntaxGuidance(const string &error) {
+    string pipe_syntax;
+    if (error.find("Native pipe is not enabled") != string::npos) {
+        pipe_syntax = "native";
+    } else if (error.find("Magrittr pipe is not enabled") != string::npos) {
+        pipe_syntax = "magrittr";
+    }
+
+    if (pipe_syntax.empty() || error.find("SET dplyr_pipe_syntax") != string::npos) {
+        return error;
+    }
+
+    return error + " In DuckDB, run SET dplyr_pipe_syntax = '" + pipe_syntax + "' for this session.";
 }
 
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
@@ -595,9 +614,10 @@ static QueryCompileStatus PipeSyntaxFromTableInput(ClientContext &context, const
     return ParsePipeSyntaxValue(StringValue::Get(input.inputs[1]), pipe_syntax, error_out);
 }
 
-static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope scope, Value &parameter) {
+static void SetDplyrPipeSyntax(ClientContext &context, SetScope scope, Value &parameter) {
     if (scope == SetScope::GLOBAL) {
         ThrowInvalidPipeSyntaxError(
+            context,
             "dplyr_pipe_syntax is session-only. Use SET dplyr_pipe_syntax = 'native' or "
             "SET dplyr_pipe_syntax = 'magrittr'.");
     }
@@ -609,7 +629,7 @@ static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope scope, Valu
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (ParsePipeSyntaxValue(parameter.ToString(), pipe_syntax, error) != QueryCompileStatus::Success) {
-        ThrowInvalidPipeSyntaxError(error);
+        ThrowInvalidPipeSyntaxError(context, error);
     }
     parameter = Value(CanonicalPipeSyntaxName(pipe_syntax));
 }
@@ -783,7 +803,10 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
             throw InvalidInputException("DPLYR parser extension requires a configured pipeline expression");
         }
         if (status == QueryCompileStatus::Error || !error.empty()) {
-            throw InvalidInputException("DPLYR parser extension transpilation failed: %s", error.c_str());
+            auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
+            throw InvalidInputException(
+                "DPLYR parser extension transpilation failed: %s",
+                guided_error.c_str());
         }
     }
 
@@ -857,7 +880,7 @@ static uint32_t GetDplyrPipeSyntax(ClientContext &context, const TableFunctionBi
     string error;
     uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
     if (PipeSyntaxFromTableInput(context, input, pipe_syntax, error) != QueryCompileStatus::Success) {
-        ThrowInvalidPipeSyntaxError(error);
+        ThrowInvalidPipeSyntaxError(context, error);
     }
     return pipe_syntax;
 }
@@ -880,7 +903,9 @@ static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableF
         return PipeSyntaxErrorTableRef("dplyr() requires a configured pipeline expression", context.GetParserOptions());
     }
     if (status == QueryCompileStatus::Error || !error.empty()) {
-        return PipeSyntaxErrorTableRef("dplyr() transpilation failed: " + error, context.GetParserOptions());
+        return PipeSyntaxErrorTableRef(
+            "dplyr() transpilation failed: " + AddDuckDbPipeSyntaxGuidance(error),
+            context.GetParserOptions());
     }
 
     return SelectSubqueryTableRef(
@@ -903,7 +928,10 @@ static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunc
         throw InvalidInputException("dplyr() requires a configured pipeline expression");
     }
     if (status == QueryCompileStatus::Error || !error.empty()) {
-        throw InvalidInputException("dplyr() transpilation failed: %s", error.c_str());
+        auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
+        throw InvalidInputException(
+            "dplyr() transpilation failed: %s",
+            guided_error.c_str());
     }
 
     // Bind should be lightweight: infer schema without materializing rows.

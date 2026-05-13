@@ -154,6 +154,15 @@ enum CompileInputError {
     Transpile(TranspileError),
 }
 
+fn disabled_pipe_syntax_error(disabled_syntax: PipeSyntax, position: usize) -> CompileInputError {
+    CompileInputError::Transpile(TranspileError::syntax_error_with_suggestion(
+        disabled_syntax.disabled_message(),
+        position,
+        None,
+        Some(disabled_syntax.disabled_suggestion()),
+    ))
+}
+
 fn set_compile_error_output(out_error: *mut *mut c_char, error: CompileInputError) -> i32 {
     match error {
         CompileInputError::InputTooLarge(message) => {
@@ -920,6 +929,14 @@ fn replace_embedded_pipelines_with_deadline(
             ));
         }
         if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none() {
+            if let Some(disabled_pos) =
+                find_disabled_pipe_operator_with_config(&embedded, 0, scan_config)
+            {
+                return Err(disabled_pipe_syntax_error(
+                    scan_config.pipe_syntax.opposite(),
+                    content_start + disabled_pos,
+                ));
+            }
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
                     &format!(
@@ -1034,16 +1051,15 @@ fn compile_query_string_with_deadline(
     let trimmed = query.trim();
     let scan_config = scan_config_for_options(opts, pipe_syntax);
 
-    if trimmed.is_empty() || find_pipe_operator_with_config(trimmed, 0, scan_config).is_none() {
+    let has_pipeline = find_pipe_operator_with_config(trimmed, 0, scan_config).is_some();
+    let has_embedded_pipeline =
+        find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some();
+
+    if trimmed.is_empty() || (!has_pipeline && !has_embedded_pipeline) {
         if find_disabled_pipe_operator_with_config(trimmed, 0, scan_config).is_some() {
-            let disabled_syntax = scan_config.pipe_syntax.opposite();
-            return Err(CompileInputError::Transpile(
-                TranspileError::syntax_error_with_suggestion(
-                    disabled_syntax.disabled_message(),
-                    0,
-                    None,
-                    Some(disabled_syntax.disabled_suggestion()),
-                ),
+            return Err(disabled_pipe_syntax_error(
+                scan_config.pipe_syntax.opposite(),
+                0,
             ));
         }
         return Ok(None);
@@ -1110,7 +1126,9 @@ fn finish_compile_query(
     let has_pipeline = find_pipe_operator_with_config(query_str, 0, scan_config).is_some();
     let has_disabled_pipeline =
         find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some();
-    if !has_pipeline && !has_disabled_pipeline {
+    let has_embedded_pipeline =
+        find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some();
+    if !has_pipeline && !has_disabled_pipeline && !has_embedded_pipeline {
         return DPLYR_QUERY_NOT_HANDLED;
     }
 
@@ -1654,6 +1672,103 @@ mod query_rewrite_tests {
                 assert!(error.to_c_string().to_string_lossy().contains("timeout"));
             }
             other => panic!("expected timeout error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compile_query_string_reports_embedded_segment_without_pipeline() {
+        let opts = DplyrOptions::default();
+        let result = compile_query_string_with_deadline(
+            "SELECT * FROM (| mtcars |)",
+            &opts,
+            PipeSyntax::Magrittr,
+            processing_deadline(&opts),
+        );
+
+        match result {
+            Err(CompileInputError::Transpile(error)) => {
+                assert!(error
+                    .to_c_string()
+                    .to_string_lossy()
+                    .contains("Embedded dplyr segment must contain a %>% pipeline"));
+            }
+            other => panic!("expected embedded pipeline syntax error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compile_query_string_reports_disabled_pipe_inside_embedded_segment() {
+        let opts = DplyrOptions::default();
+        let result = compile_query_string_with_deadline(
+            "SELECT * FROM (| mtcars |> select(mpg) |)",
+            &opts,
+            PipeSyntax::Magrittr,
+            processing_deadline(&opts),
+        );
+
+        match result {
+            Err(CompileInputError::Transpile(error)) => {
+                let error = error.to_c_string().to_string_lossy().into_owned();
+                assert!(error.contains("Native pipe is not enabled"));
+                assert!(error.contains("DPLYR_PIPE_SYNTAX=native"));
+            }
+            other => panic!("expected disabled native pipe error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_query_compile_reports_embedded_segment_without_pipeline() {
+        let query = std::ffi::CString::new("SELECT * FROM (| mtcars |)").expect("valid query");
+        let opts = DplyrOptions::default();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query_with_pipe_syntax(
+                query.as_ptr(),
+                &opts,
+                DplyrPipeSyntax::Magrittr as u32,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+        unsafe {
+            let error = CStr::from_ptr(out_error).to_string_lossy();
+            assert!(error.contains("Embedded dplyr segment must contain a %>% pipeline"));
+            crate::memory::dplyr_free_string(out_error);
+        }
+    }
+
+    #[test]
+    fn explicit_query_compile_reports_disabled_pipe_inside_embedded_segment() {
+        let query = std::ffi::CString::new("SELECT * FROM (| mtcars |> select(mpg) |)")
+            .expect("valid query");
+        let opts = DplyrOptions::default();
+        let mut out_sql: *mut c_char = std::ptr::null_mut();
+        let mut out_error: *mut c_char = std::ptr::null_mut();
+
+        let result = unsafe {
+            dplyr_compile_query_with_pipe_syntax(
+                query.as_ptr(),
+                &opts,
+                DplyrPipeSyntax::Magrittr as u32,
+                &mut out_sql,
+                &mut out_error,
+            )
+        };
+
+        assert_ne!(result, DPLYR_QUERY_NOT_HANDLED);
+        assert!(out_sql.is_null());
+        assert!(!out_error.is_null());
+        unsafe {
+            let error = CStr::from_ptr(out_error).to_string_lossy();
+            assert!(error.contains("Native pipe is not enabled"));
+            assert!(error.contains("DPLYR_PIPE_SYNTAX=native"));
+            crate::memory::dplyr_free_string(out_error);
         }
     }
 }

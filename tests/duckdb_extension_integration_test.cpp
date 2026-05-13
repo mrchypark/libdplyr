@@ -173,6 +173,7 @@ protected:
         const auto error = result->GetError();
         ASSERT_FALSE(error.empty()) << "Query error should include a message: " << query;
         EXPECT_EQ(error.find("Unknown C++ exception"), std::string::npos) << error;
+        EXPECT_EQ(error.find("Unknown exception in ExecutorTask::Execute"), std::string::npos) << error;
         for (const auto &fragment : expected_fragments) {
             EXPECT_NE(error.find(fragment), std::string::npos) << error;
         }
@@ -613,6 +614,31 @@ TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {
     ASSERT_FALSE(error.empty()) << "Invalid explicit pipe mode should report an error message";
     EXPECT_NE(error.find("Expected 'magrittr' or 'native'"), std::string::npos) << error;
     EXPECT_NE(error.find("DPLYR_PIPE_SYNTAX"), std::string::npos) << error;
+}
+
+TEST_F(DuckDBExtensionTest, DisabledPipeSyntaxErrorMentionsDuckDBSetting) {
+    const std::vector<std::string> expected_fragments = {
+        "Native pipe is not enabled", "DPLYR_PIPE_SYNTAX=native", "SET dplyr_pipe_syntax = 'native'"};
+
+    expect_query_error_no_throw(
+        "SELECT * FROM dplyr('mtcars |> select(mpg)')",
+        expected_fragments);
+
+    auto embedded_result = safe_query("SELECT * FROM (| mtcars |> select(mpg) |)");
+    ASSERT_NE(embedded_result, nullptr);
+    ASSERT_TRUE(embedded_result->HasError());
+    const auto embedded_error = embedded_result->GetError();
+    for (const auto &fragment : expected_fragments) {
+        EXPECT_NE(embedded_error.find(fragment), std::string::npos) << embedded_error;
+    }
+
+    auto parser_result = safe_query("mtcars |> select(mpg)");
+    ASSERT_NE(parser_result, nullptr);
+    ASSERT_TRUE(parser_result->HasError());
+    const auto parser_error = parser_result->GetError();
+    for (const auto &fragment : expected_fragments) {
+        EXPECT_NE(parser_error.find(fragment), std::string::npos) << parser_error;
+    }
 }
 
 TEST_F(DuckDBExtensionTest, NativePipeLambdaRhs) {
