@@ -1259,6 +1259,17 @@ pub unsafe extern "C" fn dplyr_compile(
 }
 
 #[no_mangle]
+/// Compile dplyr code using an explicit pipe syntax mode.
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `code` is a valid null-terminated C string.
+/// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()`.
+/// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char`.
+/// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
+///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
+/// - Any returned string pointer is freed with `dplyr_free_string`.
+/// - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `*out_error` was populated.
 pub unsafe extern "C" fn dplyr_compile_with_pipe_syntax(
     code: *const c_char,
     options: *const DplyrOptions,
@@ -1393,6 +1404,17 @@ pub unsafe extern "C" fn dplyr_compile_query(
 }
 
 #[no_mangle]
+/// Compile a DuckDB query string using an explicit pipe syntax mode.
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `query` is a valid null-terminated C string.
+/// - `options` is a valid pointer to a `DplyrOptions` struct, or `std::ptr::null()`.
+/// - `out_sql` and `out_error` are valid mutable pointers to `*mut c_char`.
+/// - On entry, `*out_sql` and `*out_error` must be either null or pointers previously allocated by libdplyr.
+///   Ownership of any non-null incoming libdplyr pointer is transferred back to this function.
+/// - Any returned string pointer is freed with `dplyr_free_string`.
+/// - If the function returns `DPLYR_ERROR_PANIC`, callers must not assume `*out_error` was populated.
 pub unsafe extern "C" fn dplyr_compile_query_with_pipe_syntax(
     query: *const c_char,
     options: *const DplyrOptions,

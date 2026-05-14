@@ -58,10 +58,8 @@ pub fn calculate_nesting_depth(input: &str) -> usize {
                 current_depth += 1;
                 max_depth = max_depth.max(current_depth);
             }
-            ')' | ']' | '}' => {
-                if current_depth > 0 {
-                    current_depth -= 1;
-                }
+            ')' | ']' | '}' if current_depth > 0 => {
+                current_depth -= 1;
             }
             _ => {}
         }
