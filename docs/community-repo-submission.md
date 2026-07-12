@@ -5,13 +5,13 @@
 - 제출 대상 저장소: `duckdb/community-extensions`
 - 제출 파일: `extensions/dplyr/description.yml` 하나
 - 현재 준비 파일: [community-pr/description.yml](../community-pr/description.yml)
-- 현재 최신 stable DuckDB: `1.5.2`
+- 현재 최신 stable DuckDB: `1.5.4`
 
 ## libdplyr에 중요한 해석
 
 `libdplyr`는 DuckDB C++ extension API를 직접 쓰는 확장입니다. 이 경로는 DuckDB 공식 문서 기준으로 **unstable API extension** 범주에 가깝습니다. 따라서:
 
-- 저장소 차원에서 `1.4.0`과 `1.5.2`를 둘 다 CI로 검증하는 것은 가능
+- 저장소 차원에서 `1.4.0`과 `1.5.4`를 둘 다 CI로 검증하는 것은 가능
 - 하지만 community-extensions 배포 모델에서 "하나의 바이너리로 1.4.x와 1.5.x 동시 지원"을 주장하는 것은 부정확
 - community-extensions 제출은 **현재 최신 stable 기준 배포**로 이해하는 것이 맞음
 - `1.4.0` 지원은 배포 보장이라기보다 **repo-level source compatibility check**로 표현하는 편이 정확
@@ -43,7 +43,7 @@
 - `requires_toolchains: rust`
 - `excluded_platforms: windows_amd64_rtools`
 
-`repo.ref`는 **community-extensions CI가 실제로 빌드할 커밋 해시**여야 합니다. 보통은:
+준비 중인 descriptor는 병합 후에도 유효한 `main`을 가리킵니다. 실제 제출 직전에는 `repo.ref`를 **community-extensions CI가 빌드할 커밋 해시**로 고정해야 합니다. 보통은:
 
 1. 저장소 PR CI가 green인 커밋
 2. 가능하면 `main`에 머지된 커밋 또는 릴리스 태그가 가리키는 커밋
@@ -59,7 +59,7 @@
 
 제출 설명과 PR 본문에서는 이렇게 쓰는 편이 맞습니다.
 
-- `DuckDB 1.5.2`를 현재 community submission target으로 사용
+- `DuckDB 1.5.4`를 현재 community submission target으로 사용
 - 저장소 CI에서 `DuckDB 1.4.0`을 별도 compatibility lane으로 계속 검증
 - `libdplyr`는 C++/unstable API extension이므로 배포 모델상 최신 stable 대상 제출이 기준
 
@@ -80,7 +80,7 @@
 
 DuckDB 다음 minor 릴리스 전환기에는 `ref_next`가 필요할 수 있습니다. 공식 문서 기준으로 release-near 시점엔 latest stable과 DuckDB `main`을 함께 시험하는 흐름이 생깁니다.
 
-지금처럼 `1.5.2` latest stable 기준 제출을 준비하는 단계에선 필수는 아닙니다. 다만 새 DuckDB minor 릴리스가 임박하면:
+지금처럼 `1.5.4` latest stable 기준 제출을 준비하는 단계에선 필수는 아닙니다. 다만 새 DuckDB minor 릴리스가 임박하면:
 
 - `ref`: latest stable 대응 커밋
 - `ref_next`: DuckDB `main` 대응 커밋
@@ -89,7 +89,7 @@ DuckDB 다음 minor 릴리스 전환기에는 `ref_next`가 필요할 수 있습
 
 ## 제출 전 체크
 
-- [ ] PR CI에서 `ubuntu/macos/windows` `DuckDB 1.5.2`가 통과
+- [ ] PR CI에서 `ubuntu/macos/windows` `DuckDB 1.5.4`가 통과
 - [ ] `DuckDB 1.4.0` compatibility lane 통과
 - [ ] `community-pr/description.yml` 필드 최신화
 - [ ] `repo.ref`를 실제 제출 커밋으로 고정

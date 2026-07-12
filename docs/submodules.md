@@ -11,14 +11,14 @@
 
 ## 현재 고정 상태
 
-- `duckdb`: `6ddac802ffa9bcfbcc3f5f0d71de5dff9b0bc250` (`v1.4.4`)
-- `extension-ci-tools`: `00a4d1a464a0ebd30c7427396c0271105592d63b`
+- `duckdb`: `08e34c447bae34eaee3723cac61f2878b6bdf787` (`v1.5.4`)
+- `extension-ci-tools`: `72e76e99cd7fee45a99739cd118ec2db64e034ec` (`v1.5-variegata`)
 
 ## Compatibility Matrix
 
 - 최소 지원 DuckDB 버전: `v1.4.0`
-- 주 지원 DuckDB 버전: `v1.5.2`
+- 주 지원 DuckDB 버전: `v1.5.4`
 - 최소 호환성 검사 버전: `v1.4.0`
-- CI는 현재 `v1.5.2`를 멀티플랫폼 주 검증선으로, `v1.4.0`을 Linux 호환성 검증선으로 사용합니다.
-- 릴리스 바이너리는 현재 `v1.4.0`과 `v1.5.2`를 대상으로 생성합니다.
-- 위 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개입니다. submodule 핀 상향은 별도 PR에서 갱신합니다.
+- CI는 현재 `v1.5.4`를 멀티플랫폼 주 검증선으로, `v1.4.0`을 Windows를 제외한 Linux/macOS 호환성 검증선으로 사용합니다. Windows의 `v1.4.0` 검증은 VS2026과의 upstream 비호환성으로 제외합니다.
+- 릴리스 바이너리는 현재 `v1.4.0`과 `v1.5.4`를 대상으로 생성합니다.
+- 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개로 관리하되, 현재 DuckDB 핀은 주 지원 버전 `v1.5.4`와 일치합니다.

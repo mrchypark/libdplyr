@@ -30,9 +30,9 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 # - 1.4.0 remains the minimum supported compatibility target
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "PRIMARY_CURRENT_PLUS_MINIMUM_COMPAT")
 set(DUCKDB_EXTENSION_PRIMARY_SERIES "1.5.x")
-set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.2")
+set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.4")
 set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.0")
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.0;1.5.2")
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.0;1.5.4")
 
 # R8-AC1: Extension compatibility strategy
 # - Keep the current CI gate on the primary 1.5.x line across platforms
@@ -233,22 +233,23 @@ endif()
 
 # R8-AC1: Flexible DuckDB compatibility check function
 function(check_duckdb_version DUCKDB_VERSION)
+    string(REGEX REPLACE "^v" "" DUCKDB_VERSION_NORMALIZED "${DUCKDB_VERSION}")
     message(STATUS "Checking DuckDB version compatibility...")
     message(STATUS "  DuckDB version: ${DUCKDB_VERSION}")
     message(STATUS "  Compatibility approach: ${DUCKDB_EXTENSION_COMPATIBILITY_APPROACH}")
     message(STATUS "  Primary supported series: ${DUCKDB_EXTENSION_PRIMARY_SERIES}")
     message(STATUS "  Primary supported version: ${DUCKDB_EXTENSION_PRIMARY_VERSION}")
 
-    if(DUCKDB_VERSION VERSION_LESS ${DUCKDB_EXTENSION_MIN_SUPPORTED})
+    if(DUCKDB_VERSION_NORMALIZED VERSION_LESS ${DUCKDB_EXTENSION_MIN_SUPPORTED})
         message(WARNING
             "DuckDB version ${DUCKDB_VERSION} is below the minimum supported version "
             "${DUCKDB_EXTENSION_MIN_SUPPORTED}. Extension compatibility is not guaranteed.")
     endif()
 
-    list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS ${DUCKDB_VERSION} VERSION_INDEX)
+    list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS ${DUCKDB_VERSION_NORMALIZED} VERSION_INDEX)
     if(VERSION_INDEX GREATER -1)
         message(STATUS "  ✓ DuckDB version ${DUCKDB_VERSION} is fully tested and supported")
-    elseif(DUCKDB_VERSION VERSION_LESS ${DUCKDB_EXTENSION_PRIMARY_VERSION})
+    elseif(DUCKDB_VERSION_NORMALIZED VERSION_LESS ${DUCKDB_EXTENSION_PRIMARY_VERSION})
         message(STATUS
             "  ℹ DuckDB version ${DUCKDB_VERSION} is within the supported range but outside the "
             "current explicit compatibility lane")

@@ -604,7 +604,7 @@ bool dplyr_is_recoverable_error(int error_code);
 /**
  * @brief Maximum supported DuckDB version
  */
-#define DPLYR_MAX_DUCKDB_VERSION "1.5.2"
+#define DPLYR_MAX_DUCKDB_VERSION "1.5.4"
 
 /**
  * @brief API version for compatibility checking

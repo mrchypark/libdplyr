@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  DUCKDB_PRIMARY_VERSION: v1.5.2
+  DUCKDB_PRIMARY_VERSION: v1.5.4
   DUCKDB_COMPAT_VERSION: v1.4.0
 
 jobs:
@@ -25,30 +25,30 @@ jobs:
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.5.2
-            artifact-name: dplyr-v1.5.2-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip"
+            duckdb_version: v1.5.4
+            artifact-name: dplyr-v1.5.4-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.5.2
-            artifact-name: dplyr-v1.5.2-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.4
+            artifact-name: dplyr-v1.5.4-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
             cmake-generator: "Unix Makefiles"
-            duckdb_version: v1.5.2
-            artifact-name: dplyr-v1.5.2-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.4
+            artifact-name: dplyr-v1.5.4-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
             cmake-generator: "Ninja"
-            duckdb_version: v1.5.2
-            artifact-name: dplyr-v1.5.2-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-windows-amd64.zip"
+            duckdb_version: v1.5.4
+            artifact-name: dplyr-v1.5.4-windows-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-windows-amd64.zip"
 
     steps:
       - name: Checkout code
@@ -155,12 +155,16 @@ jobs:
           cd duckdb-cli
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             unzip -o duckdb.zip
             chmod +x duckdb.exe
             echo "$(pwd)" >> $GITHUB_PATH
           else
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             rm -rf duckdb-bin
             mkdir -p duckdb-bin
             unzip -o duckdb.zip -d duckdb-bin
@@ -424,12 +428,6 @@ jobs:
             cmake-generator: "Unix Makefiles"
             artifact-name: dplyr-v1.4.0-compat-macos-arm64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            cmake-generator: "Ninja"
-            artifact-name: dplyr-v1.4.0-compat-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -535,12 +533,16 @@ jobs:
           cd duckdb-cli
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             unzip -o duckdb.zip
             chmod +x duckdb.exe
             echo "$(pwd)" >> $GITHUB_PATH
           else
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             rm -rf duckdb-bin
             mkdir -p duckdb-bin
             unzip -o duckdb.zip -d duckdb-bin
@@ -800,12 +802,6 @@ jobs:
             cmake-generator: "Unix Makefiles"
             artifact-name: dplyr-v1.4.0-compat-macos-arm64
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            cmake-generator: "Ninja"
-            artifact-name: dplyr-v1.4.0-compat-windows-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -911,12 +907,16 @@ jobs:
           cd duckdb-cli
 
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             unzip -o duckdb.zip
             chmod +x duckdb.exe
             echo "$(pwd)" >> $GITHUB_PATH
           else
-            curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+            curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              --output duckdb.zip "${{ matrix.duckdb-url }}"
             rm -rf duckdb-bin
             mkdir -p duckdb-bin
             unzip -o duckdb.zip -d duckdb-bin
