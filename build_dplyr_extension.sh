@@ -1,10 +1,16 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "Building dplyr extension..."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DUCKDB_VERSION="$(git -C "${ROOT_DIR}/duckdb" describe --tags --exact-match --match 'v[0-9]*' HEAD)" || {
+  echo "Error: duckdb submodule HEAD must point to an exact release tag" >&2
+  exit 1
+}
+
+echo "Building dplyr extension for DuckDB ${DUCKDB_VERSION}..."
 
 # Build C++ extension
-cd build/cmake
+cd "${ROOT_DIR}/build/cmake"
 make dplyr
 
 # Append metadata
@@ -12,12 +18,12 @@ python3 ../../extension-ci-tools/scripts/append_extension_metadata.py \
   -l dplyr.duckdb_extension \
   -o ../../dplyr.duckdb_extension \
   -n dplyr \
-  -dv v1.4.4 \
+  -dv "${DUCKDB_VERSION}" \
   -ev 0.4.0 \
   -p osx_arm64 \
   --abi-type CPP
 
-cd ../..
+cd "${ROOT_DIR}"
 
 echo ""
 echo "✅ Build complete!"
