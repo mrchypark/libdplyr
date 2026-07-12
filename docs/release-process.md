@@ -140,7 +140,7 @@ gh pr create --title "Add dplyr extension v1.0.0" \
 
 - community-extensions 제출은 현재 `extension.json`이 아니라 `description.yml` 한 파일 제출입니다.
 - `repo.ref`는 실제로 빌드할 커밋 해시여야 합니다.
-- community-extensions 배포는 최신 stable DuckDB 기준으로 이해하는 것이 맞고, `1.4.x` 검사는 저장소 내부 compatibility lane으로 유지합니다.
+- community-extensions 배포는 최신 stable DuckDB 기준으로 이해하는 것이 맞고, `1.5.0` 검사는 저장소 내부 compatibility lane으로 유지합니다.
 
 #### 4.2 모니터링 및 지원
 - [ ] GitHub Issues 모니터링

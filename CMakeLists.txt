@@ -13,7 +13,7 @@ project(dplyr VERSION 0.4.0)
 
 # R8-AC1: DuckDB extension configuration
 set(DUCKDB_EXTENSION_NAME "dplyr")
-# Note: No strict version requirements - extension uses runtime feature detection
+# Parser override support requires DuckDB 1.5.x.
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -66,7 +66,7 @@ if(STANDALONE_BUILD)
         FetchContent_Declare(
             duckdb
             GIT_REPOSITORY https://github.com/duckdb/duckdb.git
-            GIT_TAG v1.4.0
+            GIT_TAG v1.5.0
             GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(duckdb)
@@ -160,7 +160,7 @@ if(DUCKDB_VERSION_CHECK AND NOT DUCKDB_VERSION STREQUAL "unknown")
     check_duckdb_version(${DUCKDB_VERSION})
 else()
     message(STATUS "DuckDB version checking disabled or version unknown")
-    message(STATUS "Extension will use runtime feature detection for compatibility")
+    message(STATUS "DuckDB 1.5.x compatibility is not being checked")
 endif()
 
 # Ensure a normalized DuckDB version is available for extension metadata.
@@ -341,31 +341,10 @@ set(LIBDPLYR_WINDOWS_STATIC_CRT ON)
 set(LIBDPLYR_WINDOWS_CRT_PROFILE "static")
 
 if(WIN32 AND NOT MINGW)
-    set(LIBDPLYR_DUCKDB_TAG "")
-    execute_process(
-        COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR}/duckdb describe --tags --abbrev=0
-        OUTPUT_VARIABLE LIBDPLYR_DUCKDB_TAG
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
+    set(LIBDPLYR_WINDOWS_RUST_CRT_FLAG "+crt-static")
+    set(LIBDPLYR_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-    # DuckDB 1.4.x Windows static libraries are built with the dynamic CRT (/MD),
-    # while the 1.5.x line uses the static CRT (/MT). Match the checked-out DuckDB
-    # line so the compatibility lane and primary lane can both link successfully.
-    if(LIBDPLYR_DUCKDB_TAG MATCHES "^v1\\.4\\.")
-        set(LIBDPLYR_WINDOWS_STATIC_CRT OFF)
-        set(LIBDPLYR_WINDOWS_CRT_PROFILE "dynamic")
-    endif()
-
-    if(LIBDPLYR_WINDOWS_STATIC_CRT)
-        set(LIBDPLYR_WINDOWS_RUST_CRT_FLAG "+crt-static")
-        set(LIBDPLYR_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    else()
-        set(LIBDPLYR_WINDOWS_RUST_CRT_FLAG "-crt-static")
-        set(LIBDPLYR_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL$<$<CONFIG:Debug>:Debug>")
-    endif()
-
-    message(STATUS "Windows CRT profile for DuckDB ${LIBDPLYR_DUCKDB_TAG}: ${LIBDPLYR_WINDOWS_CRT_PROFILE}")
+    message(STATUS "Windows CRT profile for DuckDB 1.5.x: ${LIBDPLYR_WINDOWS_CRT_PROFILE}")
 
     string(APPEND CARGO_CONFIG_CONTENT "[target.x86_64-pc-windows-msvc]\n")
     string(APPEND CARGO_CONFIG_CONTENT "rustflags = [\"-C\", \"target-feature=${LIBDPLYR_WINDOWS_RUST_CRT_FLAG}\"]\n\n")
@@ -1021,7 +1000,7 @@ add_dependencies(quality-check smoke-test-quick)
 message(STATUS "DuckDB dplyr Extension Configuration:")
 message(STATUS "  Extension Name: ${DUCKDB_EXTENSION_NAME}")
 message(STATUS "  Version: ${PROJECT_VERSION}")
-message(STATUS "  DuckDB Version: ${DUCKDB_VERSION} (version-agnostic design)")
+message(STATUS "  DuckDB Version: ${DUCKDB_VERSION} (DuckDB 1.5.x)")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")

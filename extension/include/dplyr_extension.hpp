@@ -32,6 +32,11 @@ struct DplyrParseData : duckdb::ParserExtensionParseData {
 };
 
 duckdb::ParserExtensionParseResult dplyr_parse(duckdb::ParserExtensionInfo *info, const std::string &query);
+duckdb::ParserOverrideResult dplyr_parser_override(
+    duckdb::ParserExtensionInfo *info,
+    const std::string &query,
+    duckdb::ParserOptions &options
+);
 duckdb::ParserExtensionPlanResult dplyr_plan(
     duckdb::ParserExtensionInfo *info,
     duckdb::ClientContext &context,

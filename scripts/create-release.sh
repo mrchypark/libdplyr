@@ -198,7 +198,8 @@ cd combined && ./install.sh
 3. Load in DuckDB: \`LOAD '/path/to/extension';\`
 
 ## 🔧 Requirements
-- DuckDB 0.9.0 or later
+- Manual packaging requires DUCKDB_VERSION; each C++ extension binary requires that exact recorded DuckDB build version
+- Source-tested DuckDB versions: 1.5.0 and 1.5.4
 - Compatible operating system (Linux, macOS, Windows)
 
 ## 📊 Usage Example

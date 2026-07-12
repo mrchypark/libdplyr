@@ -1,7 +1,7 @@
 #
 # Primary binary distribution pipeline.
 # The current DuckDB line is built here against v1.5.4.
-# Minimum-version compatibility for v1.4.0 is validated in CI and packaged in release.yml.
+# Minimum-version compatibility for v1.5.0 is validated in CI and packaged in release.yml.
 #
 name: Main Extension Distribution Pipeline
 on:

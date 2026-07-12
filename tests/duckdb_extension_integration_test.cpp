@@ -255,6 +255,74 @@ TEST_F(DuckDBExtensionTest, DplyrImplicitPipelineWithoutKeyword) {
     EXPECT_EQ(result->RowCount(), 2);
 }
 
+TEST_F(DuckDBExtensionTest, ParserOverrideDefaultKeepsExtensionStatementPath) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars %>% select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::EXTENSION_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideFallbackExtractsNativeSelectStatement) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars %>% select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideStrictExtractsNativeSelectStatement) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars %>% select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideStrictReportsDplyrError) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+
+    expect_query_error_no_throw(
+        "mtcars %>% no_such_verb(mpg)",
+        {"no_such_verb"});
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideFallsBackForStandardSql) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+
+    auto statements = conn->ExtractStatements("SELECT mpg FROM mtcars");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideUsesLegacyPathForSessionOnlyPipeSyntax) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET dplyr_pipe_syntax = 'native'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars |> select(mpg)");
+    auto result = safe_query("mtcars |> select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::EXTENSION_STATEMENT);
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideUsesEnvironmentPipeSyntax) {
+    ScopedEnvironmentVariable pipe_syntax("DPLYR_PIPE_SYNTAX", "native");
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars |> select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
 TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
     // R2-AC1: Test alternative table function entry point
     auto result = safe_query("SELECT * FROM dplyr('mtcars %>% select(mpg)')");

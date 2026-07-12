@@ -795,6 +795,35 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
     }
 }
 
+ParserOverrideResult dplyr_parser_override(ParserExtensionInfo * /*info*/, const string &query,
+                                           ParserOptions &options) {
+    try {
+        string sql;
+        string error;
+        auto status = CompileDplyrQuery(query, sql, error);
+        if (status == QueryCompileStatus::NotHandled) {
+            return ParserOverrideResult();
+        }
+        if (status == QueryCompileStatus::Error || !error.empty()) {
+            // Parser overrides do not receive a ClientContext, so a session-only
+            // dplyr_pipe_syntax setting must stay on the context-aware legacy path.
+            if (CanCompileDplyrQueryWithAnyPipeSyntax(query)) {
+                return ParserOverrideResult();
+            }
+            ParserException exception(error);
+            return ParserOverrideResult(exception);
+        }
+
+        auto native_options = options;
+        native_options.parser_override_setting = AllowParserOverride::DEFAULT_OVERRIDE;
+        Parser parser(native_options);
+        parser.ParseQuery(sql);
+        return ParserOverrideResult(std::move(parser.statements));
+    } catch (std::exception &ex) {
+        return ParserOverrideResult(ex);
+    }
+}
+
 // ...
 
 // (Removed duplicate Load implementation)
@@ -829,9 +858,8 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
     }
 
     ParserExtensionPlanResult result;
-    // DuckDB v1.4 binds ParserExtension results as LogicalGet and cannot accept
-    // bind_replace output here. Keep bind_replace for dplyr() in FROM clauses,
-    // but use a regular table function for parser-extension statements.
+    // Keep bind_replace for dplyr() in FROM clauses, but use a regular table
+    // function for parser-extension statements.
     result.function = TableFunction("dplyr_query",
         {LogicalType::VARCHAR},
         DplyrTableFunction,
@@ -847,6 +875,7 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
 DplyrParserExtension::DplyrParserExtension() : ParserExtension() { // NOLINT(modernize-use-equals-default)
     parse_function = dplyr_parse;
     plan_function = dplyr_plan;
+    parser_override = dplyr_parser_override;
 }
 
 struct DplyrTableFunctionData : public TableFunctionData {
@@ -1082,11 +1111,7 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
         Value(),
         SetDplyrPipeSyntax,
         SetScope::SESSION);
-#if defined(__has_include) && __has_include("duckdb/main/extension_callback_manager.hpp")
     ParserExtension::Register(config, DplyrParserExtension());
-#else
-    config.parser_extensions.push_back(DplyrParserExtension());
-#endif
     
     TableFunction dplyr_function("dplyr",
         {LogicalType::VARCHAR},

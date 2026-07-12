@@ -27,16 +27,16 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 
 # R8-AC1: DuckDB compatibility policy
 # - 1.5.x is the primary supported current line
-# - 1.4.0 remains the minimum supported compatibility target
+# - 1.5.0 is the minimum supported compatibility target
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "PRIMARY_CURRENT_PLUS_MINIMUM_COMPAT")
 set(DUCKDB_EXTENSION_PRIMARY_SERIES "1.5.x")
 set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.4")
-set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.4.0")
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.4.0;1.5.4")
+set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.5.0")
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0;1.5.4")
 
 # R8-AC1: Extension compatibility strategy
 # - Keep the current CI gate on the primary 1.5.x line across platforms
-# - Run the minimum supported 1.4.0 line as an explicit compatibility lane
+# - Run the minimum supported 1.5.0 line as an explicit compatibility lane
 # - Keep implementation on stable APIs where possible
 set(EXTENSION_COMPATIBILITY_STRATEGY "PRIMARY_SUPPORT_PLUS_COMPATIBILITY_CHECK")
 
@@ -44,7 +44,7 @@ set(EXTENSION_COMPATIBILITY_STRATEGY "PRIMARY_SUPPORT_PLUS_COMPATIBILITY_CHECK")
 # Breaking changes require 1 minor version advance notice
 set(EXTENSION_DEPRECATION_POLICY "1_MINOR_VERSION_NOTICE")
 set(EXTENSION_BREAKING_CHANGE_NOTICE "CHANGELOG.md and GitHub Release Notes")
-set(EXTENSION_SUPPORT_LIFECYCLE "Current + 2 previous minor versions")
+set(EXTENSION_SUPPORT_LIFECYCLE "DuckDB 1.5.x only (1.5.0 minimum; tested through 1.5.4)")
 
 # R8-AC1: Extension metadata and contact information
 set(EXTENSION_AUTHOR "libdplyr contributors")
@@ -158,8 +158,6 @@ set(EXTENSION_FEATURE_DEFINITIONS
     DPLYR_VERSION_MINOR=${EXTENSION_VERSION_MINOR}
     DPLYR_VERSION_PATCH=${EXTENSION_VERSION_PATCH}
     DPLYR_API_VERSION=${EXTENSION_API_VERSION}
-    DPLYR_VERSION_AGNOSTIC=1
-    DPLYR_RUNTIME_FEATURE_DETECTION=1
 )
 
 # R4-AC1: Security hardening options
@@ -191,7 +189,7 @@ set(EXTENSION_FEATURES
     "performance_metrics"  # Performance monitoring
     "cross_version_source" # Same source targets multiple DuckDB versions
     "primary_support_line" # Primary CI and release focus on 1.5.x
-    "compatibility_check"  # Minimum supported 1.4.0 is explicitly tested
+    "compatibility_check"  # Minimum supported 1.5.0 is explicitly tested
 )
 
 # R8-AC1: Supported dplyr operations (minimum operation set from R1-AC2)
@@ -256,7 +254,7 @@ function(check_duckdb_version DUCKDB_VERSION)
     else()
         message(STATUS
             "  ℹ DuckDB version ${DUCKDB_VERSION} is newer than the current tested set. "
-            "Compatibility depends on the stable API surface used by the extension.")
+            "Only the DuckDB 1.5.x line is supported.")
     endif()
 
     message(STATUS "  Strategy: ${EXTENSION_COMPATIBILITY_STRATEGY}")
@@ -365,7 +363,7 @@ message(STATUS "  Homepage: ${EXTENSION_HOMEPAGE}")
 message(STATUS "Compatibility:")
 message(STATUS "  Approach: ${DUCKDB_EXTENSION_COMPATIBILITY_APPROACH}")
 message(STATUS "  Strategy: ${EXTENSION_COMPATIBILITY_STRATEGY}")
-message(STATUS "  Min Supported: ${DUCKDB_EXTENSION_MIN_SUPPORTED}+")
+message(STATUS "  Supported Line: ${EXTENSION_SUPPORT_LIFECYCLE}")
 message(STATUS "  Tested Versions: ${DUCKDB_EXTENSION_TESTED_VERSIONS}")
 message(STATUS "  Semver Policy: ${EXTENSION_SEMVER_POLICY}")
 message(STATUS "  Deprecation Policy: ${EXTENSION_DEPRECATION_POLICY}")
