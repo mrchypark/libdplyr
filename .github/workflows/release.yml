@@ -62,14 +62,6 @@ jobs:
             artifact-name: dplyr-v1.4.0-macos-arm64
             extension-name: dplyr-v1.4.0-macos-arm64.duckdb_extension
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            rust-toolchain: stable
-            duckdb_version: v1.4.0
-            artifact-name: dplyr-v1.4.0-windows-x86_64
-            extension-name: dplyr-v1.4.0-windows-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-windows-amd64.zip"
-
           # DuckDB v1.5.4 primary support artifacts
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -256,7 +248,9 @@ jobs:
           mkdir -p duckdb-cli
           cd duckdb-cli
 
-          curl -L "${{ matrix.duckdb-url }}" -o duckdb.zip
+          curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output duckdb.zip "${{ matrix.duckdb-url }}"
           rm -rf duckdb-bin
           unzip -o duckdb.zip -d duckdb-bin
 
@@ -535,7 +529,6 @@ jobs:
             - \`dplyr-v1.4.0-linux-x86_64.duckdb_extension\`
             - \`dplyr-v1.4.0-macos-x86_64.duckdb_extension\`
             - \`dplyr-v1.4.0-macos-arm64.duckdb_extension\`
-            - \`dplyr-v1.4.0-windows-x86_64.duckdb_extension\`
           - **DuckDB v1.5.4**
             - \`dplyr-v1.5.4-linux-x86_64.duckdb_extension\`
             - \`dplyr-v1.5.4-macos-x86_64.duckdb_extension\`
@@ -594,7 +587,7 @@ jobs:
 
       - name: Create or update release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             final-release/*.duckdb_extension
@@ -610,7 +603,7 @@ jobs:
 
       - name: Create manual release
         if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}

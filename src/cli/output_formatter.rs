@@ -188,8 +188,8 @@ impl OutputFormatter {
         formatted = formatted.replace(" OFFSET ", "\nOFFSET ");
 
         // Logical operators with proper indentation
-        formatted = formatted.replace(" AND ", &format!("\n{}AND ", &self.config.indent));
-        formatted = formatted.replace(" OR ", &format!("\n{}OR ", &self.config.indent));
+        formatted = formatted.replace(" AND ", &format!("\n{}AND ", self.config.indent));
+        formatted = formatted.replace(" OR ", &format!("\n{}OR ", self.config.indent));
 
         // Subquery formatting
         formatted = formatted.replace(" UNION ", "\nUNION ");
