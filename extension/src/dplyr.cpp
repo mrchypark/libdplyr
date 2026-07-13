@@ -793,6 +793,9 @@ static bool IsDisabledPipeSyntaxError(const string &error) {
 
 ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *info, const string& query) {
     try {
+        if (info == nullptr) {
+            return ParserExtensionParseResult("DPLYR parser extension info is unavailable");
+        }
         auto &dplyr_info = *static_cast<DplyrParserExtensionInfo *>(info);
         uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         string error;
@@ -824,6 +827,10 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *info, const string& 
 ParserOverrideResult dplyr_parser_override(ParserExtensionInfo *info, const string &query,
                                            ParserOptions &options) {
     try {
+        if (info == nullptr) {
+            ParserException error("DPLYR parser extension info is unavailable");
+            return ParserOverrideResult(error);
+        }
         auto &dplyr_info = *static_cast<DplyrParserExtensionInfo *>(info);
         auto native_options = options;
         native_options.extensions = nullptr;

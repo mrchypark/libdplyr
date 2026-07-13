@@ -22,6 +22,7 @@
 
 // duckdb::DuckDB includes
 #include "duckdb.hpp"
+#include "duckdb/main/extension_callback_manager.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 #include "dplyr.h"
 
@@ -307,6 +308,21 @@ TEST_F(DuckDBExtensionTest, ParserOverrideStrictReportsDplyrError) {
     expect_query_error_no_throw(
         "mtcars %>% no_such_verb(mpg)",
         {"no_such_verb"});
+}
+
+TEST_F(DuckDBExtensionTest, ParserCallbacksReturnExtensionErrorWhenInfoIsMissing) {
+    auto extensions = duckdb::ExtensionCallbackManager::Get(*conn->context).ParserExtensions();
+    auto extension = std::find_if(extensions.begin(), extensions.end(), [](const auto &candidate) {
+        return candidate.parse_function != nullptr && candidate.parser_override != nullptr;
+    });
+    ASSERT_NE(extension, extensions.end());
+
+    auto parse_result = extension->parse_function(nullptr, "mtcars %>% select(mpg)");
+    EXPECT_EQ(parse_result.type, duckdb::ParserExtensionResultType::DISPLAY_EXTENSION_ERROR);
+
+    duckdb::ParserOptions options;
+    auto override_result = extension->parser_override(nullptr, "mtcars %>% select(mpg)", options);
+    EXPECT_EQ(override_result.type, duckdb::ParserExtensionResultType::DISPLAY_EXTENSION_ERROR);
 }
 
 TEST_F(DuckDBExtensionTest, ParserOverrideStrictPreservesResourceLimitErrorCode) {
