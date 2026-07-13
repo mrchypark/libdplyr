@@ -6,6 +6,8 @@
 
 namespace dplyr {
 
+struct DplyrParserExtensionInfo;
+
 class DplyrExtension : public duckdb::Extension {
 public:
     void Load(duckdb::ExtensionLoader &loader) override;
@@ -14,7 +16,7 @@ public:
 };
 
 struct DplyrParserExtension : public duckdb::ParserExtension {
-    DplyrParserExtension();
+    explicit DplyrParserExtension(duckdb::shared_ptr<DplyrParserExtensionInfo> parser_info);
 };
 
 struct DplyrParseData : duckdb::ParserExtensionParseData {

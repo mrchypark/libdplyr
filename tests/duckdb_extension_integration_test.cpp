@@ -23,8 +23,27 @@
 // duckdb::DuckDB includes
 #include "duckdb.hpp"
 #include "duckdb/parser/parser_extension.hpp"
+#include "dplyr.h"
 
 namespace {
+
+constexpr const char *LEGACY_GENERATED_SQL_SENTINEL =
+    "legacy parser extension claimed generated dplyr SQL";
+
+duckdb::ParserExtensionParseResult ClaimInvalidGeneratedDplyrSql(
+    duckdb::ParserExtensionInfo * /*info*/,
+    const std::string &query) {
+    const bool is_generated_set_query =
+        query.find("SELECT *") != std::string::npos &&
+        query.find("FROM \"mtcars\"") != std::string::npos &&
+        query.find("ORDER BY \"mpg\" ASC") != std::string::npos &&
+        query.find("UNION SELECT * FROM \"mtcars\"") != std::string::npos &&
+        query.find("%>%") == std::string::npos;
+    if (!is_generated_set_query) {
+        return duckdb::ParserExtensionParseResult();
+    }
+    return duckdb::ParserExtensionParseResult(LEGACY_GENERATED_SQL_SENTINEL);
+}
 
 void SetEnvironmentVariableForTest(const char *key, const std::string &value) {
 #ifdef _WIN32
@@ -290,6 +309,26 @@ TEST_F(DuckDBExtensionTest, ParserOverrideStrictReportsDplyrError) {
         {"no_such_verb"});
 }
 
+TEST_F(DuckDBExtensionTest, ParserOverrideStrictPreservesResourceLimitErrorCode) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+    const auto oversized_query = std::string("mtcars %>% select(") +
+                                 std::string(static_cast<size_t>(dplyr_max_input_length()) + 1, 'x') + ")";
+
+    expect_query_error_no_throw(
+        oversized_query,
+        {"E-INPUT-TOO-LARGE", "Resource limit exceeded"});
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideFallbackPreservesResourceLimitErrorWithoutLegacyRetry) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    const auto oversized_query = std::string("mtcars %>% select(") +
+                                 std::string(static_cast<size_t>(dplyr_max_input_length()) + 1, 'x') + ")";
+
+    expect_query_error_no_throw(
+        oversized_query,
+        {"E-INPUT-TOO-LARGE", "Resource limit exceeded"});
+}
+
 TEST_F(DuckDBExtensionTest, ParserOverrideFallsBackForStandardSql) {
     ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
 
@@ -299,18 +338,95 @@ TEST_F(DuckDBExtensionTest, ParserOverrideFallsBackForStandardSql) {
     EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
 }
 
-TEST_F(DuckDBExtensionTest, ParserOverrideUsesLegacyPathForSessionOnlyPipeSyntax) {
-    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
-    ASSERT_FALSE(safe_query("SET dplyr_pipe_syntax = 'native'")->HasError());
+TEST_F(DuckDBExtensionTest, ParserOverrideStrictKeepsStandardSqlNative) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
 
-    auto statements = conn->ExtractStatements("mtcars |> select(mpg)");
-    auto result = safe_query("mtcars |> select(mpg)");
+    auto result = safe_query("SELECT mpg FROM mtcars ORDER BY mpg");
 
-    ASSERT_EQ(statements.size(), 1);
-    EXPECT_EQ(statements[0]->type, duckdb::StatementType::EXTENSION_STATEMENT);
     ASSERT_NE(result, nullptr);
     ASSERT_FALSE(result->HasError()) << result->GetError();
     EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideStrictKeepsDollarQuotedSqlNative) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+
+    auto result = safe_query("SELECT $$x %>% y$$ AS text");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 1);
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "x %>% y");
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideRejectsMultipleGeneratedStatementsAtomically) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+
+    auto result = safe_query("SELECT * FROM (| mtcars %>% select(mpg) |); DROP TABLE mtcars");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_TRUE(result->HasError()) << "Multiple generated statements must be rejected";
+    auto table_result = safe_query("SELECT COUNT(*) FROM mtcars");
+    ASSERT_NE(table_result, nullptr);
+    ASSERT_FALSE(table_result->HasError()) << table_result->GetError();
+    EXPECT_EQ(table_result->RowCount(), 1);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideGeneratedSqlCannotBeClaimedByLegacyParserExtension) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+    duckdb::ParserExtension legacy_extension;
+    legacy_extension.parse_function = ClaimInvalidGeneratedDplyrSql;
+    duckdb::ParserExtension::Register(
+        duckdb::DBConfig::GetConfig(*db->instance),
+        std::move(legacy_extension));
+
+    auto result = safe_query("mtcars %>% arrange(mpg) %>% union(mtcars)");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_TRUE(result->HasError()) << "ORDER BY before UNION should remain a native parser error";
+    const auto error = result->GetError();
+    EXPECT_EQ(error.find(LEGACY_GENERATED_SQL_SENTINEL), std::string::npos) << error;
+    EXPECT_NE(error.find("syntax error"), std::string::npos) << error;
+    EXPECT_NE(error.find("UNION"), std::string::npos) << error;
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideUsesCallerContextForTempTables) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'magrittr'")->HasError());
+    ASSERT_FALSE(conn->Query("CREATE TEMP TABLE override_temp_visible(x INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO override_temp_visible VALUES (11), (12)")->HasError());
+
+    auto statements = conn->ExtractStatements("override_temp_visible %>% select(x)");
+    auto result = safe_query("override_temp_visible %>% select(x)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "Parser override should bind against caller-visible temp tables: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 2);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideUsesCallerTransactionForUncommittedRows) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'magrittr'")->HasError());
+    ASSERT_FALSE(conn->Query("CREATE TABLE override_tx_visible(x INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO override_tx_visible VALUES (1)")->HasError());
+    ASSERT_FALSE(conn->Query("BEGIN TRANSACTION")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO override_tx_visible VALUES (2)")->HasError());
+
+    auto statements = conn->ExtractStatements("override_tx_visible %>% select(x)");
+    auto result = safe_query("override_tx_visible %>% select(x)");
+
+    ASSERT_FALSE(conn->Query("ROLLBACK")->HasError());
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "Parser override should execute inside the caller transaction: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 2);
 }
 
 TEST_F(DuckDBExtensionTest, ParserOverrideUsesEnvironmentPipeSyntax) {
@@ -321,6 +437,55 @@ TEST_F(DuckDBExtensionTest, ParserOverrideUsesEnvironmentPipeSyntax) {
 
     ASSERT_EQ(statements.size(), 1);
     EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverrideUsesDatabaseGlobalPipeSyntax) {
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'native'")->HasError());
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars |> select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
+}
+
+TEST_F(DuckDBExtensionTest, SessionPipeSyntaxDoesNotAffectImplicitParserOverride) {
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'magrittr'")->HasError());
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET SESSION dplyr_pipe_syntax = 'native'")->HasError());
+
+    auto magrittr = safe_query("mtcars %>% select(mpg)");
+    ASSERT_NE(magrittr, nullptr);
+    ASSERT_FALSE(magrittr->HasError()) << magrittr->GetError();
+    EXPECT_EQ(magrittr->RowCount(), 3);
+
+    expect_query_error_no_throw(
+        "mtcars |> select(mpg)",
+        {"Native pipe is not enabled", "SET GLOBAL dplyr_pipe_syntax = 'native'"});
+}
+
+TEST_F(DuckDBExtensionTest, SessionParserOverrideDoesNotReenterLegacyExecutor) {
+    ASSERT_FALSE(safe_query("SET GLOBAL allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("SET SESSION allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'magrittr'")->HasError());
+
+    expect_query_error_no_throw(
+        "mtcars |> select(mpg)",
+        {"Native pipe is not enabled", "SET GLOBAL dplyr_pipe_syntax = 'native'"});
+}
+
+TEST_F(DuckDBExtensionTest, SessionDefaultCanDisableGlobalParserOverride) {
+    ASSERT_FALSE(safe_query("SET GLOBAL allow_parser_override_extension = 'fallback'")->HasError());
+    ASSERT_FALSE(safe_query("SET SESSION allow_parser_override_extension = 'default'")->HasError());
+
+    auto statements = conn->ExtractStatements("mtcars %>% select(mpg)");
+    auto result = safe_query("mtcars %>% select(mpg)");
+
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::EXTENSION_STATEMENT);
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
 }
 
 TEST_F(DuckDBExtensionTest, TableFunctionEntryPoint) {
@@ -471,70 +636,32 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxSettingCanonicalizesAliasesAndAffectsTable
     EXPECT_EQ(magrittr_default->RowCount(), 3);
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxSettingIsSessionLocalAndAffectsImplicitParserPipeline) {
+TEST_F(DuckDBExtensionTest, PipeSyntaxSettingIsDatabaseGlobalAndAffectsParserOverride) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
     auto set_native = safe_query("SET dplyr_pipe_syntax = 'native'");
     ASSERT_NE(set_native, nullptr);
     ASSERT_FALSE(set_native->HasError())
         << "native setting should succeed: " << set_native->GetError();
 
     duckdb::Connection other_conn(*db);
+    ASSERT_FALSE(safe_query(other_conn, "SET allow_parser_override_extension = 'fallback'")->HasError());
     auto current_other = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current_other, nullptr);
     ASSERT_FALSE(current_other->HasError())
-        << "second connection should keep default pipe syntax: " << current_other->GetError();
+        << "second connection should see database-global pipe syntax: " << current_other->GetError();
     auto current_other_chunk = current_other->Fetch();
     ASSERT_TRUE(current_other_chunk);
     ASSERT_EQ(current_other_chunk->size(), 1);
-    EXPECT_EQ(current_other_chunk->GetValue(0, 0).ToString(), "magrittr");
+    EXPECT_EQ(current_other_chunk->GetValue(0, 0).ToString(), "native");
 
+    auto statements = other_conn.ExtractStatements("mtcars |> select(mpg)");
     auto implicit_native = safe_query("mtcars |> select(mpg)");
+    ASSERT_EQ(statements.size(), 1);
+    EXPECT_EQ(statements[0]->type, duckdb::StatementType::SELECT_STATEMENT);
     ASSERT_NE(implicit_native, nullptr);
     ASSERT_FALSE(implicit_native->HasError())
-        << "implicit parser pipeline should use current connection pipe syntax: " << implicit_native->GetError();
+        << "parser override should use database-global pipe syntax: " << implicit_native->GetError();
     EXPECT_EQ(implicit_native->RowCount(), 3);
-
-    auto magrittr_on_other = safe_query(other_conn, "SELECT * FROM dplyr('mtcars %>% select(mpg)')");
-    ASSERT_NE(magrittr_on_other, nullptr);
-    ASSERT_FALSE(magrittr_on_other->HasError())
-        << "second connection should keep magrittr table function default: " << magrittr_on_other->GetError();
-
-    auto set_other_native = safe_query(other_conn, "SET dplyr_pipe_syntax = 'native'");
-    ASSERT_NE(set_other_native, nullptr);
-    ASSERT_FALSE(set_other_native->HasError())
-        << "second connection native setting should succeed: " << set_other_native->GetError();
-
-    auto current_conn = safe_query("SELECT dplyr_pipe_syntax()");
-    ASSERT_NE(current_conn, nullptr);
-    ASSERT_FALSE(current_conn->HasError())
-        << "first connection should stay native after second connection mutation: " << current_conn->GetError();
-    auto current_conn_chunk = current_conn->Fetch();
-    ASSERT_TRUE(current_conn_chunk);
-    ASSERT_EQ(current_conn_chunk->size(), 1);
-    EXPECT_EQ(current_conn_chunk->GetValue(0, 0).ToString(), "native");
-
-    auto reset_other = safe_query(other_conn, "RESET dplyr_pipe_syntax");
-    ASSERT_NE(reset_other, nullptr);
-    ASSERT_FALSE(reset_other->HasError())
-        << "second connection reset should succeed: " << reset_other->GetError();
-
-    auto current_other_after_reset = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
-    ASSERT_NE(current_other_after_reset, nullptr);
-    ASSERT_FALSE(current_other_after_reset->HasError())
-        << "second connection should return to default after reset: " << current_other_after_reset->GetError();
-    auto current_other_after_reset_chunk = current_other_after_reset->Fetch();
-    ASSERT_TRUE(current_other_after_reset_chunk);
-    ASSERT_EQ(current_other_after_reset_chunk->size(), 1);
-    EXPECT_EQ(current_other_after_reset_chunk->GetValue(0, 0).ToString(), "magrittr");
-
-    auto current_conn_after_other_reset = safe_query("SELECT dplyr_pipe_syntax()");
-    ASSERT_NE(current_conn_after_other_reset, nullptr);
-    ASSERT_FALSE(current_conn_after_other_reset->HasError())
-        << "first connection should stay native after second connection reset: "
-        << current_conn_after_other_reset->GetError();
-    auto current_conn_after_other_reset_chunk = current_conn_after_other_reset->Fetch();
-    ASSERT_TRUE(current_conn_after_other_reset_chunk);
-    ASSERT_EQ(current_conn_after_other_reset_chunk->size(), 1);
-    EXPECT_EQ(current_conn_after_other_reset_chunk->GetValue(0, 0).ToString(), "native");
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxResetReturnsToEnvironmentFallback) {
@@ -558,6 +685,17 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxResetReturnsToEnvironmentFallback) {
     ASSERT_NE(reset, nullptr);
     ASSERT_FALSE(reset->HasError())
         << "RESET should return to environment/default behavior: " << reset->GetError();
+
+    duckdb::Connection other_conn(*db);
+    auto core_setting = safe_query(
+        other_conn,
+        "SELECT COUNT(*) FROM duckdb_settings() "
+        "WHERE name = 'dplyr_pipe_syntax' AND value = 'native'");
+    ASSERT_NE(core_setting, nullptr);
+    ASSERT_FALSE(core_setting->HasError()) << core_setting->GetError();
+    auto core_setting_chunk = core_setting->Fetch();
+    ASSERT_TRUE(core_setting_chunk);
+    EXPECT_EQ(core_setting_chunk->GetValue(0, 0).GetValue<int64_t>(), 0);
 
     auto current_native = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current_native, nullptr);
@@ -587,7 +725,7 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxResetReturnsToEnvironmentFallback) {
     EXPECT_EQ(current_magrittr_after_env_change_chunk->GetValue(0, 0).ToString(), "magrittr");
 }
 
-TEST_F(DuckDBExtensionTest, PipeSyntaxGlobalDefaultAllowsSessionOverride) {
+TEST_F(DuckDBExtensionTest, PipeSyntaxGlobalSettingIsVisibleToEveryConnection) {
     duckdb::Connection other_conn(*db);
     auto set_global_native = safe_query("SET GLOBAL dplyr_pipe_syntax = 'native'");
     ASSERT_NE(set_global_native, nullptr);
@@ -597,7 +735,7 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxGlobalDefaultAllowsSessionOverride) {
     auto current = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current, nullptr);
     ASSERT_FALSE(current->HasError())
-        << "current session should read global pipe syntax default: " << current->GetError();
+        << "current connection should read global pipe syntax: " << current->GetError();
     auto current_chunk = current->Fetch();
     ASSERT_TRUE(current_chunk);
     ASSERT_EQ(current_chunk->size(), 1);
@@ -606,34 +744,12 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxGlobalDefaultAllowsSessionOverride) {
     auto current_other = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current_other, nullptr);
     ASSERT_FALSE(current_other->HasError())
-        << "other connection should read global pipe syntax default: " << current_other->GetError();
+        << "other connection should read global pipe syntax: " << current_other->GetError();
     auto current_other_chunk = current_other->Fetch();
     ASSERT_TRUE(current_other_chunk);
     ASSERT_EQ(current_other_chunk->size(), 1);
     EXPECT_EQ(current_other_chunk->GetValue(0, 0).ToString(), "native");
 
-    auto set_session_magrittr = safe_query("SET dplyr_pipe_syntax = 'magrittr'");
-    ASSERT_NE(set_session_magrittr, nullptr);
-    ASSERT_FALSE(set_session_magrittr->HasError())
-        << "session magrittr setting should succeed: " << set_session_magrittr->GetError();
-
-    auto session_current = safe_query("SELECT dplyr_pipe_syntax()");
-    ASSERT_NE(session_current, nullptr);
-    ASSERT_FALSE(session_current->HasError())
-        << "session setting should override global default: " << session_current->GetError();
-    auto session_current_chunk = session_current->Fetch();
-    ASSERT_TRUE(session_current_chunk);
-    ASSERT_EQ(session_current_chunk->size(), 1);
-    EXPECT_EQ(session_current_chunk->GetValue(0, 0).ToString(), "magrittr");
-
-    auto other_after_override = safe_query(other_conn, "SELECT dplyr_pipe_syntax()");
-    ASSERT_NE(other_after_override, nullptr);
-    ASSERT_FALSE(other_after_override->HasError())
-        << "session override should not mutate global default: " << other_after_override->GetError();
-    auto other_after_override_chunk = other_after_override->Fetch();
-    ASSERT_TRUE(other_after_override_chunk);
-    ASSERT_EQ(other_after_override_chunk->size(), 1);
-    EXPECT_EQ(other_after_override_chunk->GetValue(0, 0).ToString(), "native");
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxSettingInvalidValueErrorsAndPreservesState) {
@@ -664,7 +780,7 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterOverloadIsRemovedAndDoesNotMut
     auto current = safe_query("SELECT dplyr_pipe_syntax()");
     ASSERT_NE(current, nullptr);
     ASSERT_FALSE(current->HasError())
-        << "removed scalar setter should not change session pipe syntax: " << current->GetError();
+        << "removed scalar setter should not change global pipe syntax: " << current->GetError();
     auto current_chunk = current->Fetch();
     ASSERT_TRUE(current_chunk);
     ASSERT_EQ(current_chunk->size(), 1);
@@ -684,7 +800,7 @@ TEST_F(DuckDBExtensionTest, PipeSyntaxScalarSetterRelationalContextsDoNotMutateS
         auto current = safe_query("SELECT dplyr_pipe_syntax()");
         ASSERT_NE(current, nullptr);
         ASSERT_FALSE(current->HasError())
-            << "failed scalar setter query should not change session pipe syntax: " << current->GetError();
+            << "failed scalar setter query should not change global pipe syntax: " << current->GetError();
         auto current_chunk = current->Fetch();
         ASSERT_TRUE(current_chunk);
         ASSERT_EQ(current_chunk->size(), 1);
@@ -706,7 +822,7 @@ TEST_F(DuckDBExtensionTest, TableFunctionInvalidPipeSyntaxErrorsWithGuidance) {
 
 TEST_F(DuckDBExtensionTest, DisabledPipeSyntaxErrorMentionsDuckDBSetting) {
     const std::vector<std::string> expected_fragments = {
-        "Native pipe is not enabled", "DPLYR_PIPE_SYNTAX=native", "SET dplyr_pipe_syntax = 'native'"};
+        "Native pipe is not enabled", "DPLYR_PIPE_SYNTAX=native", "SET GLOBAL dplyr_pipe_syntax = 'native'"};
 
     expect_query_error_no_throw(
         "SELECT * FROM dplyr('mtcars |> select(mpg)')",
@@ -715,7 +831,7 @@ TEST_F(DuckDBExtensionTest, DisabledPipeSyntaxErrorMentionsDuckDBSetting) {
 
 TEST_F(DuckDBExtensionTest, DirectParserDisabledPipeSyntaxReturnsQueryErrorWithoutThrowing) {
     const std::vector<std::string> expected_fragments = {
-        "Native pipe is not enabled", "SET dplyr_pipe_syntax = 'native'"};
+        "Native pipe is not enabled", "SET GLOBAL dplyr_pipe_syntax = 'native'"};
 
     expect_query_error_no_throw(
         "mtcars |> select(mpg)",
@@ -804,6 +920,18 @@ TEST_F(DuckDBExtensionTest, InvalidPipeEnvironmentPreservesPlainSqlPassthrough) 
     ASSERT_TRUE(chunk);
     ASSERT_EQ(chunk->size(), 1);
     EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 42);
+}
+
+TEST_F(DuckDBExtensionTest, ParserOverridePreservesPlainSqlAndReportsInvalidPipeEnvironment) {
+    ScopedEnvironmentVariable pipe_syntax("DPLYR_PIPE_SYNTAX", "invalid-pipe-mode");
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
+
+    auto plain_sql = safe_query("SELECT 42 AS answer");
+    ASSERT_NE(plain_sql, nullptr);
+    ASSERT_FALSE(plain_sql->HasError()) << plain_sql->GetError();
+
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
+    expect_query_error_no_throw("mtcars %>% select(mpg)", {"invalid-pipe-mode"});
 }
 
 TEST_F(DuckDBExtensionTest, SubqueryIntegration) {

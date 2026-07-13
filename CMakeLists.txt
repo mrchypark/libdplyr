@@ -40,7 +40,6 @@ include(extension_config.cmake)
 validate_extension_compatibility()
 
 option(DUCKDB_VERSION_CHECK "Enable DuckDB version compatibility checking" ON)
-option(DUCKDB_STRICT_VERSION_CHECK "Enable strict DuckDB version checking" OFF)
 
 # Detect standalone configuration to optionally fetch DuckDB ourselves.
 set(STANDALONE_BUILD FALSE)

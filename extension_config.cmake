@@ -239,9 +239,9 @@ function(check_duckdb_version DUCKDB_VERSION)
     message(STATUS "  Primary supported version: ${DUCKDB_EXTENSION_PRIMARY_VERSION}")
 
     if(DUCKDB_VERSION_NORMALIZED VERSION_LESS ${DUCKDB_EXTENSION_MIN_SUPPORTED})
-        message(WARNING
+        message(FATAL_ERROR
             "DuckDB version ${DUCKDB_VERSION} is below the minimum supported version "
-            "${DUCKDB_EXTENSION_MIN_SUPPORTED}. Extension compatibility is not guaranteed.")
+            "${DUCKDB_EXTENSION_MIN_SUPPORTED}.")
     endif()
 
     list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS ${DUCKDB_VERSION_NORMALIZED} VERSION_INDEX)

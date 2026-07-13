@@ -19,11 +19,7 @@
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#if defined(__has_include)
-#if __has_include("duckdb/main/extension_callback_manager.hpp")
 #include "duckdb/main/extension_callback_manager.hpp"
-#endif
-#endif
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -45,6 +41,7 @@
 #include <chrono> // for timestamps
 #include <ctime> // for localtime_r/localtime_s
 #include <iomanip> // for std::put_time
+#include <mutex>
 // #include <optional> - removed unused header
 
 using namespace duckdb;
@@ -69,40 +66,31 @@ public:
      */
     static void handle_error(int error_code, const string& error_message, const string& dplyr_code) {
         // R7-AC3: Prevent crashes by handling all error types safely
+        string formatted_message;
         try {
-            string formatted_message = format_error_message(error_code, error_message, dplyr_code);
-            
-            switch (error_code) {
-                case DPLYR_ERROR_NULL_POINTER:
-                case DPLYR_ERROR_INVALID_UTF8:
-                    // FFI-related errors - input validation issues
-                    throw InvalidInputException(formatted_message);
-                    
-                case DPLYR_ERROR_INPUT_TOO_LARGE:
-                case DPLYR_ERROR_TIMEOUT:
-                    // Resource limit errors - DoS prevention
-                    throw InvalidInputException("Resource limit exceeded: " + formatted_message);
-                    
-                case DPLYR_ERROR_SYNTAX:
-                    // Syntax errors in dplyr code
-                    throw ParserException("DPLYR syntax error: " + formatted_message);
-                    
-                case DPLYR_ERROR_UNSUPPORTED:
-                    // Unsupported operations
-                    throw NotImplementedException("DPLYR unsupported operation: " + formatted_message);
-                    
-                case DPLYR_ERROR_INTERNAL:
-                case DPLYR_ERROR_PANIC:
-                    // Internal errors - should not crash DuckDB
-                    throw InternalException("DPLYR internal error: " + formatted_message);
-                    
-                default:
-                    // Unknown error codes
-                    throw InternalException("DPLYR unknown error (code " + std::to_string(error_code) + "): " + formatted_message);
-            }
+            formatted_message = format_error_message(error_code, error_message, dplyr_code);
         } catch (const std::exception& format_error) {
             // R7-AC3: Even error formatting should not crash
             throw InternalException("DPLYR error handling failed: " + string(format_error.what()));
+        }
+
+        switch (error_code) {
+            case DPLYR_ERROR_NULL_POINTER:
+            case DPLYR_ERROR_INVALID_UTF8:
+                throw InvalidInputException(formatted_message);
+            case DPLYR_ERROR_INPUT_TOO_LARGE:
+            case DPLYR_ERROR_TIMEOUT:
+                throw InvalidInputException("Resource limit exceeded: " + formatted_message);
+            case DPLYR_ERROR_SYNTAX:
+                throw ParserException("DPLYR syntax error: " + formatted_message);
+            case DPLYR_ERROR_UNSUPPORTED:
+                throw NotImplementedException("DPLYR unsupported operation: " + formatted_message);
+            case DPLYR_ERROR_INTERNAL:
+            case DPLYR_ERROR_PANIC:
+                throw InternalException("DPLYR internal error: " + formatted_message);
+            default:
+                throw InternalException("DPLYR unknown error (code " + std::to_string(error_code) + "): " +
+                                        formatted_message);
         }
     }
     
@@ -570,7 +558,7 @@ static string AddDuckDbPipeSyntaxGuidance(const string &error) {
         return error;
     }
 
-    return error + " In DuckDB, run SET dplyr_pipe_syntax = '" + pipe_syntax + "' for this session.";
+    return error + " In DuckDB, run SET GLOBAL dplyr_pipe_syntax = '" + pipe_syntax + "'.";
 }
 
 static unique_ptr<TableRef> PipeSyntaxErrorTableRef(const string &error, const ParserOptions &options) {
@@ -592,6 +580,42 @@ static unique_ptr<TableRef> SelectSubqueryTableRef(const string &query, const Pa
 }
 
 static constexpr const char *DPLYR_PIPE_SYNTAX_SETTING = "dplyr_pipe_syntax";
+
+struct DplyrParserExtensionInfo final : ParserExtensionInfo {
+    void SetGlobalPipeSyntax(uint32_t pipe_syntax_p) {
+        lock_guard<mutex> guard(pipe_syntax_lock);
+        has_global_pipe_syntax = true;
+        global_pipe_syntax = pipe_syntax_p;
+    }
+
+    void ResetGlobalPipeSyntax() {
+        lock_guard<mutex> guard(pipe_syntax_lock);
+        has_global_pipe_syntax = false;
+    }
+
+    bool TryGetGlobalPipeSyntax(uint32_t &pipe_syntax_out) {
+        lock_guard<mutex> guard(pipe_syntax_lock);
+        if (!has_global_pipe_syntax) {
+            return false;
+        }
+        pipe_syntax_out = global_pipe_syntax;
+        return true;
+    }
+
+private:
+    mutex pipe_syntax_lock;
+    bool has_global_pipe_syntax = false;
+    uint32_t global_pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+};
+
+static DplyrParserExtensionInfo *GetDplyrParserExtensionInfo(ClientContext &context) {
+    for (auto &extension : ExtensionCallbackManager::Get(context).ParserExtensions()) {
+        if (extension.parser_override == dplyr_parser_override && extension.parser_info) {
+            return static_cast<DplyrParserExtensionInfo *>(extension.parser_info.get());
+        }
+    }
+    return nullptr;
+}
 
 static QueryCompileStatus DefaultPipeSyntaxFromEnvironment(uint32_t &pipe_syntax, string &error_out) {
     pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
@@ -616,20 +640,19 @@ static QueryCompileStatus ParsePipeSyntaxValue(const string &value, uint32_t &pi
 }
 
 static QueryCompileStatus EffectivePipeSyntax(ClientContext &context, uint32_t &pipe_syntax, string &error_out) {
-    Value session_value;
-    auto lookup = context.TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, session_value);
-    if (lookup) {
-        if (session_value.IsNull()) {
-            if (lookup.GetScope() == SettingScope::LOCAL) {
-                Value global_value;
-                if (DBConfig::GetConfig(context).TryGetCurrentSetting(DPLYR_PIPE_SYNTAX_SETTING, global_value) &&
-                    !global_value.IsNull()) {
-                    return ParsePipeSyntaxValue(global_value.ToString(), pipe_syntax, error_out);
-                }
-            }
-            return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
-        }
-        return ParsePipeSyntaxValue(session_value.ToString(), pipe_syntax, error_out);
+    auto *info = GetDplyrParserExtensionInfo(context);
+    if (info != nullptr && info->TryGetGlobalPipeSyntax(pipe_syntax)) {
+        error_out.clear();
+        return QueryCompileStatus::Success;
+    }
+    return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
+}
+
+static QueryCompileStatus EffectiveGlobalPipeSyntax(DplyrParserExtensionInfo &info, uint32_t &pipe_syntax,
+                                                    string &error_out) {
+    if (info.TryGetGlobalPipeSyntax(pipe_syntax)) {
+        error_out.clear();
+        return QueryCompileStatus::Success;
     }
     return DefaultPipeSyntaxFromEnvironment(pipe_syntax, error_out);
 }
@@ -642,8 +665,22 @@ static QueryCompileStatus PipeSyntaxFromTableInput(ClientContext &context, const
     return ParsePipeSyntaxValue(StringValue::Get(input.inputs[1]), pipe_syntax, error_out);
 }
 
-static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope /*scope*/, Value &parameter) {
+static void SetDplyrPipeSyntax(ClientContext &context, SetScope scope, Value &parameter) {
+    auto *info = GetDplyrParserExtensionInfo(context);
+    const bool updates_global = scope == SetScope::AUTOMATIC || scope == SetScope::GLOBAL;
     if (parameter.IsNull()) {
+        if (updates_global && info != nullptr) {
+            info->ResetGlobalPipeSyntax();
+        }
+        if (scope == SetScope::AUTOMATIC) {
+            // DuckDB 1.5.0/1.5.1 invoke the callback with AUTOMATIC but then
+            // reset only the session store. Keep the core global store in sync.
+            auto &config = DBConfig::GetConfig(context);
+            ExtensionOption extension_option;
+            if (config.TryGetExtensionOption(DPLYR_PIPE_SYNTAX_SETTING, extension_option)) {
+                config.ResetOption(extension_option);
+            }
+        }
         return;
     }
 
@@ -653,6 +690,9 @@ static void SetDplyrPipeSyntax(ClientContext & /*context*/, SetScope /*scope*/, 
         return;
     }
     parameter = Value(CanonicalPipeSyntaxName(pipe_syntax));
+    if (updates_global && info != nullptr) {
+        info->SetGlobalPipeSyntax(pipe_syntax);
+    }
 }
 
 static void DplyrPipeSyntaxCurrentFunction(DataChunk & /*args*/, ExpressionState &state, Vector &result) {
@@ -672,13 +712,24 @@ static unique_ptr<Expression> DplyrPipeSyntaxCurrentBindExpression(FunctionBindE
 
 template <class CompileFn>
 static QueryCompileStatus CompileDplyrQueryWithCompiler(const string& query, string &sql_out, string &error_out,
-                                                        CompileFn compile_fn) {
+                                                        CompileFn compile_fn, int *result_code_out = nullptr) {
     char* sql_output = nullptr;
     char* error_output = nullptr;
     DplyrOptions options = DefaultDplyrOptions();
 
     auto start_time = std::chrono::high_resolution_clock::now();
     int result = compile_fn(&options, &sql_output, &error_output);
+    if (result_code_out != nullptr) {
+        *result_code_out = result;
+    }
+
+    auto ffi_string_deleter = [](char *value) {
+        if (value != nullptr) {
+            dplyr_free_string(value);
+        }
+    };
+    unique_ptr<char, decltype(ffi_string_deleter)> sql_guard(sql_output, ffi_string_deleter);
+    unique_ptr<char, decltype(ffi_string_deleter)> error_guard(error_output, ffi_string_deleter);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -691,16 +742,10 @@ static QueryCompileStatus CompileDplyrQueryWithCompiler(const string& query, str
 
     if (!dplyr_is_success(result)) {
         error_out = (error_output != nullptr) ? string(error_output) : "Unknown dplyr compilation error";
-        if (error_output != nullptr) {
-            dplyr_free_string(error_output);
-        }
         return QueryCompileStatus::Error;
     }
 
     sql_out = (sql_output != nullptr) ? string(sql_output) : "";
-    if (sql_output != nullptr) {
-        dplyr_free_string(sql_output);
-    }
 
     if (!dplyr_result_has_output(result) || sql_out.empty()) {
         error_out = "DPLYR generated empty SQL";
@@ -718,15 +763,9 @@ static QueryCompileStatus CompileDplyrQueryWithCompiler(const string& query, str
     return QueryCompileStatus::Success;
 }
 
-static QueryCompileStatus CompileDplyrQuery(const string& query, string &sql_out, string &error_out) {
-    return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
-        [&](DplyrOptions* options, char** sql_output, char** error_output) {
-            return dplyr_compile_query(query.c_str(), options, sql_output, error_output);
-        });
-}
-
 static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
-                                                          string &sql_out, string &error_out) {
+                                                          string &sql_out, string &error_out,
+                                                          int *result_code_out = nullptr) {
     return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
         [&](DplyrOptions* options, char** sql_output, char** error_output) {
             return dplyr_compile_query_with_pipe_syntax(
@@ -735,7 +774,7 @@ static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, u
                 pipe_syntax,
                 sql_output,
                 error_output);
-        });
+        }, result_code_out);
 }
 
 static string StripTrailingSemicolon(string input) {
@@ -747,41 +786,28 @@ static string StripTrailingSemicolon(string input) {
     return input;
 }
 
-static bool CanCompileDplyrQueryWithAnyPipeSyntax(const string& query) {
-    string sql;
-    string error;
-    auto magrittr_status = CompileDplyrQueryWithPipeSyntax(
-        query,
-        DPLYR_PIPE_SYNTAX_MAGRITTR,
-        sql,
-        error);
-    if (magrittr_status == QueryCompileStatus::Success && error.empty()) {
-        return true;
-    }
-
-    sql.clear();
-    error.clear();
-    auto native_status = CompileDplyrQueryWithPipeSyntax(
-        query,
-        DPLYR_PIPE_SYNTAX_NATIVE,
-        sql,
-        error);
-    return native_status == QueryCompileStatus::Success && error.empty();
+static bool IsDisabledPipeSyntaxError(const string &error) {
+    return error.find("Magrittr pipe is not enabled") != string::npos ||
+           error.find("Native pipe is not enabled") != string::npos;
 }
 
-ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const string& query) {
+ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *info, const string& query) {
     try {
-        string sql;
+        auto &dplyr_info = *static_cast<DplyrParserExtensionInfo *>(info);
+        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
         string error;
-        auto status = CompileDplyrQuery(query, sql, error);
+        if (EffectiveGlobalPipeSyntax(dplyr_info, pipe_syntax, error) != QueryCompileStatus::Success) {
+            return ParserExtensionParseResult(error);
+        }
+
+        string sql;
+        auto status = CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error);
         if (status == QueryCompileStatus::NotHandled) {
             return ParserExtensionParseResult();
         }
         if (status == QueryCompileStatus::Error || !error.empty()) {
-            if (CanCompileDplyrQueryWithAnyPipeSyntax(query)) {
-                return ParserExtensionParseResult(make_uniq_base<ParserExtensionParseData, DplyrParseData>(
-                    StripTrailingSemicolon(query),
-                    false));
+            if (IsDisabledPipeSyntaxError(error)) {
+                return ParserExtensionParseResult(AddDuckDbPipeSyntaxGuidance(error));
             }
             return ParserExtensionParseResult(error);
         }
@@ -795,29 +821,83 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo * /*info*/, const str
     }
 }
 
-ParserOverrideResult dplyr_parser_override(ParserExtensionInfo * /*info*/, const string &query,
+ParserOverrideResult dplyr_parser_override(ParserExtensionInfo *info, const string &query,
                                            ParserOptions &options) {
     try {
+        auto &dplyr_info = *static_cast<DplyrParserExtensionInfo *>(info);
+        auto native_options = options;
+        native_options.extensions = nullptr;
+        native_options.parser_override_setting = AllowParserOverride::DEFAULT_OVERRIDE;
         string sql;
         string error;
-        auto status = CompileDplyrQuery(query, sql, error);
-        if (status == QueryCompileStatus::NotHandled) {
-            return ParserOverrideResult();
-        }
-        if (status == QueryCompileStatus::Error || !error.empty()) {
-            // Parser overrides do not receive a ClientContext, so a session-only
-            // dplyr_pipe_syntax setting must stay on the context-aware legacy path.
-            if (CanCompileDplyrQueryWithAnyPipeSyntax(query)) {
+        int result_code = DPLYR_ERROR_INTERNAL;
+        uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+        auto pipe_status = EffectiveGlobalPipeSyntax(dplyr_info, pipe_syntax, error);
+        if (pipe_status != QueryCompileStatus::Success) {
+            try {
+                Parser native_parser(native_options);
+                native_parser.ParseQuery(query);
+                if (options.parser_override_setting == AllowParserOverride::STRICT_OVERRIDE) {
+                    return ParserOverrideResult(std::move(native_parser.statements));
+                }
                 return ParserOverrideResult();
+            } catch (const ParserException &) {
+                // Preserve the pipe configuration error for non-native statements below.
+            }
+            if (options.parser_override_setting == AllowParserOverride::FALLBACK_OVERRIDE) {
+                Parser error_parser(native_options);
+                error_parser.ParseQuery(DplyrErrorSql(error));
+                return ParserOverrideResult(std::move(error_parser.statements));
             }
             ParserException exception(error);
             return ParserOverrideResult(exception);
         }
+        auto status = CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error, &result_code);
+        if (status == QueryCompileStatus::NotHandled) {
+            if (options.parser_override_setting == AllowParserOverride::STRICT_OVERRIDE) {
+                try {
+                    Parser native_parser(native_options);
+                    native_parser.ParseQuery(query);
+                    return ParserOverrideResult(std::move(native_parser.statements));
+                } catch (const ParserException &) {
+                    // Let DuckDB report the original parse error for non-native statements.
+                }
+            }
+            return ParserOverrideResult();
+        }
+        if (status == QueryCompileStatus::Error || !error.empty()) {
+            try {
+                Parser native_parser(native_options);
+                native_parser.ParseQuery(query);
+                if (options.parser_override_setting == AllowParserOverride::STRICT_OVERRIDE) {
+                    return ParserOverrideResult(std::move(native_parser.statements));
+                }
+                return ParserOverrideResult();
+            } catch (const ParserException &) {
+                // The native parser did not claim the query; preserve the dplyr error below.
+            }
+            if (IsDisabledPipeSyntaxError(error)) {
+                return ParserOverrideResult();
+            }
+            if (options.parser_override_setting == AllowParserOverride::FALLBACK_OVERRIDE) {
+                string formatted_error = error;
+                try {
+                    DplyrErrorHandler::handle_error(result_code, error, query);
+                } catch (const std::exception &ex) {
+                    formatted_error = ex.what();
+                }
+                Parser error_parser(native_options);
+                error_parser.ParseQuery(DplyrErrorSql(formatted_error));
+                return ParserOverrideResult(std::move(error_parser.statements));
+            }
+            DplyrErrorHandler::handle_error(result_code, error, query);
+        }
 
-        auto native_options = options;
-        native_options.parser_override_setting = AllowParserOverride::DEFAULT_OVERRIDE;
         Parser parser(native_options);
         parser.ParseQuery(sql);
+        if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
+            throw ParserException("DPLYR generated SQL must contain exactly one SELECT statement");
+        }
         return ParserOverrideResult(std::move(parser.statements));
     } catch (std::exception &ex) {
         return ParserOverrideResult(ex);
@@ -872,10 +952,12 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
 }
 
 // Implementations for DplyrParserExtension
-DplyrParserExtension::DplyrParserExtension() : ParserExtension() { // NOLINT(modernize-use-equals-default)
+DplyrParserExtension::DplyrParserExtension(shared_ptr<DplyrParserExtensionInfo> parser_info_p)
+    : ParserExtension() {
     parse_function = dplyr_parse;
     plan_function = dplyr_plan;
     parser_override = dplyr_parser_override;
+    parser_info = std::move(parser_info_p);
 }
 
 struct DplyrTableFunctionData : public TableFunctionData {
@@ -1106,12 +1188,13 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     auto& config = DBConfig::GetConfig(instance);
     config.AddExtensionOption(
         DPLYR_PIPE_SYNTAX_SETTING,
-        "The active dplyr pipe syntax for this DuckDB session",
+        "The active database-global dplyr pipe syntax",
         DplyrPipeSyntaxSettingType(),
         Value(),
         SetDplyrPipeSyntax,
-        SetScope::SESSION);
-    ParserExtension::Register(config, DplyrParserExtension());
+        SetScope::GLOBAL);
+    auto parser_info = make_shared_ptr<DplyrParserExtensionInfo>();
+    ParserExtension::Register(config, DplyrParserExtension(parser_info));
     
     TableFunction dplyr_function("dplyr",
         {LogicalType::VARCHAR},
