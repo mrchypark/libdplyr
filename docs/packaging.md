@@ -30,33 +30,38 @@
 ### 개별 플랫폼 패키징
 ```bash
 # 현재 플랫폼용 패키징
-./scripts/package-artifacts.sh
+DUCKDB_VERSION=1.5.4 ./scripts/package-artifacts.sh
 
 # 특정 플랫폼 지정
-PLATFORM_OVERRIDE=linux-x86_64 ./scripts/package-artifacts.sh
+DUCKDB_VERSION=1.5.4 PLATFORM_OVERRIDE=linux-x86_64 ./scripts/package-artifacts.sh
 
 # 버전 지정
-VERSION=v1.0.0 ./scripts/package-artifacts.sh
+VERSION=v1.0.0 DUCKDB_VERSION=1.5.4 ./scripts/package-artifacts.sh
 ```
 
 ### 멀티플랫폼 패키징
 ```bash
 # 모든 사용 가능한 플랫폼 패키징
-./scripts/package-all-platforms.sh
+DUCKDB_VERSION=1.5.4 ./scripts/package-all-platforms.sh
 
 # 특정 패키지 디렉토리 사용
-PACKAGE_DIR=release ./scripts/package-all-platforms.sh
+PACKAGE_DIR=release DUCKDB_VERSION=1.5.4 ./scripts/package-all-platforms.sh
 ```
 
 ### Windows 패키징
 ```cmd
 REM Windows에서 패키징
+set DUCKDB_VERSION=1.5.4
 scripts\package-artifacts.bat
 
-REM 버전 지정
+REM libdplyr 패키지 버전 지정
 set VERSION=v1.0.0
 scripts\package-artifacts.bat
 ```
+
+`DUCKDB_VERSION`은 수동 패키징의 필수 입력이며, C++ 확장 바이너리를 빌드한
+정확한 DuckDB 버전이어야 합니다. 선택적인 `v` 접두사는 정규화되며, 정확한
+`1.5.<patch>` 버전이 아니면 패키징은 실패합니다.
 
 ## 패키지 구조
 
@@ -115,11 +120,11 @@ packages/v1.0.0/
     "libdplyr": "0.4.0",
     "rust": "rustc 1.75.0",
     "cmake": "cmake version 3.20.0",
-    "duckdb_tested": "v0.10.0"
+    "duckdb_build_version": "1.5.4"
   },
   "compatibility": {
-    "duckdb_min_version": "0.9.0",
-    "duckdb_max_version": "1.0.0",
+    "duckdb_min_version": "1.5.4",
+    "duckdb_max_version": "1.5.4",
     "abi_version": "1",
     "api_version": "1"
   },
@@ -138,6 +143,11 @@ packages/v1.0.0/
 }
 ```
 
+`duckdb_min_version`과 `duckdb_max_version`이 같은 것은 C++ 확장 바이너리가
+해당 DuckDB 빌드 버전과 정확히 일치해야 한다는 뜻입니다. 현재 소스는 DuckDB
+`1.5.0`과 `1.5.4`에서 별도로 테스트되지만, 이는 바이너리 호환 범위를 의미하지
+않습니다.
+
 ### release-metadata.json (통합 패키지)
 ```json
 {
@@ -146,7 +156,8 @@ packages/v1.0.0/
     "extension_name": "dplyr",
     "build_timestamp": "2024-01-15T10:30:00Z",
     "git_commit": "abc123def456",
-    "git_branch": "main"
+    "git_branch": "main",
+    "duckdb_build_version": "1.5.4"
   },
   "platforms": {
     "linux-x86_64": {
@@ -162,6 +173,12 @@ packages/v1.0.0/
       "available": false,
       "reason": "Build artifacts not found"
     }
+  },
+  "compatibility": {
+    "duckdb_min_version": "1.5.4",
+    "duckdb_max_version": "1.5.4",
+    "abi_version": "1",
+    "api_version": "1"
   },
   "statistics": {
     "total_platforms": 4,
@@ -245,7 +262,7 @@ VERSION=v1.0.0 ./scripts/verify-packages.sh
 ```yaml
 - name: Package Artifacts
   run: |
-    ./scripts/package-all-platforms.sh
+    DUCKDB_VERSION=1.5.4 ./scripts/package-all-platforms.sh
     ./scripts/verify-packages.sh
 
 - name: Upload Packages
@@ -261,7 +278,7 @@ VERSION=v1.0.0 ./scripts/verify-packages.sh
   if: github.event_name == 'release'
   run: |
     # 패키징
-    ./scripts/package-all-platforms.sh
+    DUCKDB_VERSION=1.5.4 ./scripts/package-all-platforms.sh
     
     # 검증
     ./scripts/verify-packages.sh
@@ -363,7 +380,7 @@ DPLYR_DEBUG=1 duckdb :memory: -c "LOAD './extension.duckdb_extension';"
 ### 패키징 스크립트 수정
 ```bash
 # 스크립트 테스트
-./scripts/package-artifacts.sh
+DUCKDB_VERSION=1.5.4 ./scripts/package-artifacts.sh
 ./scripts/verify-packages.sh
 
 # 새 기능 추가 시 검증 스크립트도 업데이트

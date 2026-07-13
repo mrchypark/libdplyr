@@ -599,7 +599,7 @@ bool dplyr_is_recoverable_error(int error_code);
 /**
  * @brief Minimum supported DuckDB version
  */
-#define DPLYR_MIN_DUCKDB_VERSION "1.4.0"
+#define DPLYR_MIN_DUCKDB_VERSION "1.5.0"
 
 /**
  * @brief Maximum supported DuckDB version

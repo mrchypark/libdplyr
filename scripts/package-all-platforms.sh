@@ -16,6 +16,27 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo '
 PACKAGE_DIR="${PACKAGE_DIR:-packages}"
 EXTENSION_NAME="dplyr"
 
+resolve_duckdb_version() {
+    local raw_version
+
+    raw_version=${DUCKDB_VERSION:-}
+    if [ -z "$raw_version" ]; then
+        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.4)." >&2
+        return 1
+    fi
+
+    raw_version=${raw_version#v}
+    if [[ ! "$raw_version" =~ ^1\.5\.[0-9]+$ ]]; then
+        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.4)." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$raw_version"
+}
+
+DUCKDB_VERSION=$(resolve_duckdb_version)
+export DUCKDB_VERSION
+
 # Supported platforms
 PLATFORMS=(
     "linux-x86_64"
@@ -28,6 +49,7 @@ echo -e "${BLUE}🌍 Multi-platform Artifact Packaging${NC}"
 echo "====================================="
 echo "Version: $VERSION"
 echo "Extension: $EXTENSION_NAME"
+echo "DuckDB build version: $DUCKDB_VERSION"
 echo "Package Directory: $PACKAGE_DIR"
 echo ""
 
@@ -208,7 +230,8 @@ cat > "$COMBINED_PACKAGE/release-metadata.json" << EOF
     "extension_name": "$EXTENSION_NAME",
     "build_timestamp": "$BUILD_TIMESTAMP",
     "git_commit": "$GIT_COMMIT",
-    "git_branch": "$GIT_BRANCH"
+    "git_branch": "$GIT_BRANCH",
+    "duckdb_build_version": "$DUCKDB_VERSION"
   },
   "platforms": {
 EOF
@@ -230,7 +253,8 @@ for platform in "${PACKAGED_PLATFORMS[@]}"; do
       "architecture": "$arch",
       "extension_file": "$EXTENSION_NAME-$platform.duckdb_extension",
       "available": true
-    }EOF
+    }
+EOF
 done
 
 # Add missing platforms
@@ -249,15 +273,16 @@ for platform in "${MISSING_PLATFORMS[@]}"; do
       "extension_file": "$EXTENSION_NAME-$platform.duckdb_extension",
       "available": false,
       "reason": "Build artifacts not found"
-    }EOF
+    }
+EOF
 done
 
 cat >> "$COMBINED_PACKAGE/release-metadata.json" << EOF
 
   },
   "compatibility": {
-    "duckdb_min_version": "0.9.0",
-    "duckdb_max_version": "1.0.0",
+    "duckdb_min_version": "$DUCKDB_VERSION",
+    "duckdb_max_version": "$DUCKDB_VERSION",
     "abi_version": "1",
     "api_version": "1"
   },
@@ -526,7 +551,7 @@ sha256sum -c $ARCHIVE_NAME.tar.gz.sha256
 
 If you encounter issues:
 1. Check the platform-specific \`INSTALL.md\`
-2. Verify DuckDB version compatibility (>= 0.9.0)
+2. Confirm DuckDB exactly matches the packaged build version ($DUCKDB_VERSION)
 3. Enable debug logging: \`export DPLYR_DEBUG=1\`
 4. Report issues with platform and version information
 

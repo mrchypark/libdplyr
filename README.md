@@ -73,6 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### DuckDB Parser Override
+
+DuckDB 1.5.x에서는 `SET allow_parser_override_extension = 'fallback';`로 dplyr pipeline을 네이티브 AST로 변환할 수 있습니다. parser override는 호출 세션의 임시 테이블과 트랜잭션을 그대로 사용합니다. 암시적 pipeline의 `dplyr_pipe_syntax`는 parser override API에 `ClientContext`가 없는 제약 때문에 DB-global 값만 읽으며, `SET GLOBAL dplyr_pipe_syntax = 'native';`처럼 지정합니다. session 값은 암시적 pipeline에 영향을 주지 않으며, 연결별 문법이 필요하면 `dplyr(query, mode)`를 사용합니다. 설정이 없으면 `DPLYR_PIPE_SYNTAX` 환경 변수(기본값 `magrittr`)를 사용합니다. 자세한 호환성 및 설정 규칙은 [submodule compatibility 문서](docs/submodules.md#parser-override)를 참고하세요.
+
 ## 📋 Supported Functions
 
 libdplyr supports a wide range of dplyr verbs and R functions.

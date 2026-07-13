@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   DUCKDB_PRIMARY_VERSION: v1.5.4
-  DUCKDB_COMPAT_VERSION: v1.4.0
+  DUCKDB_COMPAT_VERSION: v1.5.0
 
 jobs:
   build-and-test-primary:
@@ -406,7 +406,7 @@ jobs:
 
   compatibility-check-pr:
     if: github.event_name == 'pull_request'
-    name: Compatibility Check (PR / ${{ matrix.os }} / DuckDB v1.4.0)
+    name: Compatibility Check (PR / ${{ matrix.os }} / DuckDB v1.5.0)
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -416,18 +416,18 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
+            artifact-name: dplyr-v1.5.0-compat-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            artifact-name: dplyr-v1.5.0-compat-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            artifact-name: dplyr-v1.5.0-compat-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-osx-universal.zip"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -780,7 +780,7 @@ jobs:
 
   compatibility-check-extended:
     if: github.event_name == 'push'
-    name: Compatibility Check (Push / ${{ matrix.os }} / DuckDB v1.4.0)
+    name: Compatibility Check (Push / ${{ matrix.os }} / DuckDB v1.5.0)
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -790,18 +790,18 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-linux-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-linux-amd64.zip"
+            artifact-name: dplyr-v1.5.0-compat-linux-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-macos-x86_64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            artifact-name: dplyr-v1.5.0-compat-macos-x86_64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             cmake-generator: "Unix Makefiles"
-            artifact-name: dplyr-v1.4.0-compat-macos-arm64
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.4.0/duckdb_cli-osx-universal.zip"
+            artifact-name: dplyr-v1.5.0-compat-macos-arm64
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-osx-universal.zip"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -34,6 +34,26 @@ esac
 PLATFORM_ARCH="${PLATFORM}-${ARCH}"
 EXTENSION_NAME="dplyr"
 
+resolve_duckdb_version() {
+    local raw_version
+
+    raw_version=${DUCKDB_VERSION:-}
+    if [ -z "$raw_version" ]; then
+        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.4)." >&2
+        return 1
+    fi
+
+    raw_version=${raw_version#v}
+    if [[ ! "$raw_version" =~ ^1\.5\.[0-9]+$ ]]; then
+        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.4)." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$raw_version"
+}
+
+DUCKDB_VERSION=$(resolve_duckdb_version)
+
 echo -e "${BLUE}📦 libdplyr Artifact Packaging${NC}"
 echo "================================="
 echo "Version: $VERSION"
@@ -130,12 +150,6 @@ RUST_VERSION=$(rustc --version 2>/dev/null || echo "unknown")
 # Get CMake version
 CMAKE_VERSION=$(cmake --version 2>/dev/null | head -n1 || echo "unknown")
 
-# Get DuckDB version (if available)
-DUCKDB_VERSION="unknown"
-if command -v duckdb &> /dev/null; then
-    DUCKDB_VERSION=$(duckdb --version 2>/dev/null || echo "unknown")
-fi
-
 # Get libdplyr version from Cargo.toml
 LIBDPLYR_VERSION="unknown"
 if [ -f "libdplyr_c/Cargo.toml" ]; then
@@ -166,11 +180,11 @@ cat > "$PLATFORM_PACKAGE/metadata.json" << EOF
     "libdplyr": "$LIBDPLYR_VERSION",
     "rust": "$RUST_VERSION",
     "cmake": "$CMAKE_VERSION",
-    "duckdb_tested": "$DUCKDB_VERSION"
+    "duckdb_build_version": "$DUCKDB_VERSION"
   },
   "compatibility": {
-    "duckdb_min_version": "0.9.0",
-    "duckdb_max_version": "1.0.0",
+    "duckdb_min_version": "$DUCKDB_VERSION",
+    "duckdb_max_version": "$DUCKDB_VERSION",
     "abi_version": "1",
     "api_version": "1"
   },
@@ -207,7 +221,8 @@ cat > "$PLATFORM_PACKAGE/INSTALL.md" << EOF
 
 ## Prerequisites
 
-- **DuckDB**: Version 0.9.0 or later
+- **DuckDB binary version**: Exactly $DUCKDB_VERSION (declared by the required DUCKDB_VERSION packaging input)
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
 - **Operating System**: $PLATFORM ($ARCH architecture)
 - **Memory**: At least 64MB available RAM
 - **Disk Space**: At least 10MB free space
@@ -349,7 +364,7 @@ perf_test %>%
 ### Common Issues
 
 1. **Extension fails to load**
-   - Check DuckDB version compatibility (>= 0.9.0)
+   - Confirm DuckDB is exactly version $DUCKDB_VERSION
    - Verify file permissions
    - Ensure correct platform/architecture
 
@@ -384,7 +399,8 @@ To remove the extension:
 
 - **Extension Version**: $VERSION
 - **Build Commit**: $GIT_COMMIT
-- **Compatible DuckDB**: 0.9.0 - 1.0.0
+- **Required DuckDB binary version**: $DUCKDB_VERSION (exact match)
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
 - **Platform**: $PLATFORM_ARCH
 - **Build Date**: $BUILD_TIMESTAMP
 
@@ -500,7 +516,8 @@ cat > "$PACKAGE_ROOT/release-summary-$PLATFORM_ARCH.md" << EOF
 - \`$ARCHIVE_NAME.zip\` - Compressed archive (Windows)
 
 ## Compatibility
-- **DuckDB**: 0.9.0 - 1.0.0
+- **Required DuckDB binary version**: $DUCKDB_VERSION (exact match)
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
 - **Platform**: $PLATFORM ($ARCH)
 - **ABI Version**: 1
 - **API Version**: 1

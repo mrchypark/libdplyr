@@ -11,10 +11,10 @@
 
 `libdplyr`는 DuckDB C++ extension API를 직접 쓰는 확장입니다. 이 경로는 DuckDB 공식 문서 기준으로 **unstable API extension** 범주에 가깝습니다. 따라서:
 
-- 저장소 차원에서 `1.4.0`과 `1.5.4`를 둘 다 CI로 검증하는 것은 가능
-- 하지만 community-extensions 배포 모델에서 "하나의 바이너리로 1.4.x와 1.5.x 동시 지원"을 주장하는 것은 부정확
+- 저장소 차원에서 `1.5.0`과 `1.5.4`를 둘 다 CI로 검증하는 것은 가능
+- 하지만 community-extensions 배포 모델에서 "하나의 바이너리로 모든 1.5.x 버전을 동시 지원"한다고 주장하는 것은 부정확
 - community-extensions 제출은 **현재 최신 stable 기준 배포**로 이해하는 것이 맞음
-- `1.4.0` 지원은 배포 보장이라기보다 **repo-level source compatibility check**로 표현하는 편이 정확
+- `1.5.0` 지원은 배포 보장이라기보다 **repo-level source compatibility check**로 표현하는 편이 정확
 
 ## 제출 전에 맞춰야 하는 것
 
@@ -60,7 +60,7 @@
 제출 설명과 PR 본문에서는 이렇게 쓰는 편이 맞습니다.
 
 - `DuckDB 1.5.4`를 현재 community submission target으로 사용
-- 저장소 CI에서 `DuckDB 1.4.0`을 별도 compatibility lane으로 계속 검증
+- 저장소 CI에서 `DuckDB 1.5.0`을 별도 compatibility lane으로 계속 검증
 - `libdplyr`는 C++/unstable API extension이므로 배포 모델상 최신 stable 대상 제출이 기준
 
 ## 실제 제출 순서
@@ -73,7 +73,7 @@
 
 - `libdplyr`는 Rust core + C API + DuckDB C++ extension 구조
 - 현재 최신 stable DuckDB를 대상으로 community build를 요청
-- 저장소 CI에서 `1.4.0` compatibility lane을 별도 유지 중
+- 저장소 CI에서 `1.5.0` compatibility lane을 별도 유지 중
 - parser extension 기능은 auto-detection 대상이 아니므로 `extended_description`에 설명을 넣었음
 
 ## `ref_next`는 언제 쓰나
@@ -90,7 +90,7 @@ DuckDB 다음 minor 릴리스 전환기에는 `ref_next`가 필요할 수 있습
 ## 제출 전 체크
 
 - [ ] PR CI에서 `ubuntu/macos/windows` `DuckDB 1.5.4`가 통과
-- [ ] `DuckDB 1.4.0` compatibility lane 통과
+- [ ] `DuckDB 1.5.0` compatibility lane 통과
 - [ ] `community-pr/description.yml` 필드 최신화
 - [ ] `repo.ref`를 실제 제출 커밋으로 고정
 - [ ] 저장소 URL placeholder 제거
