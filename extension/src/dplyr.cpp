@@ -583,18 +583,18 @@ static constexpr const char *DPLYR_PIPE_SYNTAX_SETTING = "dplyr_pipe_syntax";
 
 struct DplyrParserExtensionInfo final : ParserExtensionInfo {
     void SetGlobalPipeSyntax(uint32_t pipe_syntax_p) {
-        lock_guard<mutex> guard(pipe_syntax_lock);
+        std::lock_guard<std::mutex> guard(pipe_syntax_lock);
         has_global_pipe_syntax = true;
         global_pipe_syntax = pipe_syntax_p;
     }
 
     void ResetGlobalPipeSyntax() {
-        lock_guard<mutex> guard(pipe_syntax_lock);
+        std::lock_guard<std::mutex> guard(pipe_syntax_lock);
         has_global_pipe_syntax = false;
     }
 
     bool TryGetGlobalPipeSyntax(uint32_t &pipe_syntax_out) {
-        lock_guard<mutex> guard(pipe_syntax_lock);
+        std::lock_guard<std::mutex> guard(pipe_syntax_lock);
         if (!has_global_pipe_syntax) {
             return false;
         }
@@ -603,7 +603,7 @@ struct DplyrParserExtensionInfo final : ParserExtensionInfo {
     }
 
 private:
-    mutex pipe_syntax_lock;
+    std::mutex pipe_syntax_lock;
     bool has_global_pipe_syntax = false;
     uint32_t global_pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
 };

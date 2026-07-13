@@ -22,12 +22,15 @@
 
 // duckdb::DuckDB includes
 #include "duckdb.hpp"
+#if !defined(_WIN32)
 #include "duckdb/main/extension_callback_manager.hpp"
+#endif
 #include "duckdb/parser/parser_extension.hpp"
 #include "dplyr.h"
 
 namespace {
 
+#if !defined(_WIN32)
 constexpr const char *LEGACY_GENERATED_SQL_SENTINEL =
     "legacy parser extension claimed generated dplyr SQL";
 
@@ -45,6 +48,7 @@ duckdb::ParserExtensionParseResult ClaimInvalidGeneratedDplyrSql(
     }
     return duckdb::ParserExtensionParseResult(LEGACY_GENERATED_SQL_SENTINEL);
 }
+#endif
 
 void SetEnvironmentVariableForTest(const char *key, const std::string &value) {
 #ifdef _WIN32
@@ -310,6 +314,7 @@ TEST_F(DuckDBExtensionTest, ParserOverrideStrictReportsDplyrError) {
         {"no_such_verb"});
 }
 
+#if !defined(_WIN32)
 TEST_F(DuckDBExtensionTest, ParserCallbacksReturnExtensionErrorWhenInfoIsMissing) {
     auto extensions = duckdb::ExtensionCallbackManager::Get(*conn->context).ParserExtensions();
     auto extension = std::find_if(extensions.begin(), extensions.end(), [](const auto &candidate) {
@@ -324,6 +329,7 @@ TEST_F(DuckDBExtensionTest, ParserCallbacksReturnExtensionErrorWhenInfoIsMissing
     auto override_result = extension->parser_override(nullptr, "mtcars %>% select(mpg)", options);
     EXPECT_EQ(override_result.type, duckdb::ParserExtensionResultType::DISPLAY_EXTENSION_ERROR);
 }
+#endif
 
 TEST_F(DuckDBExtensionTest, ParserOverrideStrictPreservesResourceLimitErrorCode) {
     ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
@@ -390,6 +396,7 @@ TEST_F(DuckDBExtensionTest, ParserOverrideRejectsMultipleGeneratedStatementsAtom
     EXPECT_EQ(table_result->RowCount(), 1);
 }
 
+#if !defined(_WIN32)
 TEST_F(DuckDBExtensionTest, ParserOverrideGeneratedSqlCannotBeClaimedByLegacyParserExtension) {
     ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'strict'")->HasError());
     duckdb::ParserExtension legacy_extension;
@@ -407,6 +414,7 @@ TEST_F(DuckDBExtensionTest, ParserOverrideGeneratedSqlCannotBeClaimedByLegacyPar
     EXPECT_NE(error.find("syntax error"), std::string::npos) << error;
     EXPECT_NE(error.find("UNION"), std::string::npos) << error;
 }
+#endif
 
 TEST_F(DuckDBExtensionTest, ParserOverrideUsesCallerContextForTempTables) {
     ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'fallback'")->HasError());
