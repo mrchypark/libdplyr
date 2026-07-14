@@ -356,18 +356,27 @@ if [ ! -f "$PLATFORM_ARCH/$EXTENSION_FILE" ]; then
     exit 1
 fi
 
-# Install extension
-INSTALL_DIR="$HOME/.duckdb/extensions"
-mkdir -p "$INSTALL_DIR"
+# Install extension through the matching DuckDB CLI so it is placed in the
+# version- and platform-specific extension directory.
+if ! command -v duckdb > /dev/null 2>&1; then
+    echo -e "${RED}❌ duckdb is required and must match the packaged extension version${NC}"
+    exit 1
+fi
 
-echo "Installing extension to $INSTALL_DIR..."
-cp "$PLATFORM_ARCH/$EXTENSION_FILE" "$INSTALL_DIR/"
+STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/libdplyr-install.XXXXXX")
+trap 'rm -rf "$STAGING_DIR"' EXIT
+CANONICAL_EXTENSION="$STAGING_DIR/dplyr.duckdb_extension"
+cp "$PLATFORM_ARCH/$EXTENSION_FILE" "$CANONICAL_EXTENSION"
+SQL_EXTENSION_PATH=${CANONICAL_EXTENSION//\'/\'\'}
 
-echo -e "${GREEN}✅ Extension installed successfully!${NC}"
+echo "Installing and verifying extension with $(duckdb --version)..."
+duckdb -unsigned -bail :memory: -c "FORCE INSTALL '$SQL_EXTENSION_PATH'; LOAD dplyr;"
+
+echo -e "${GREEN}✅ Extension installed and loaded successfully!${NC}"
 echo ""
 echo "To use the extension in DuckDB:"
-echo "  1. Start DuckDB: duckdb"
-echo "  2. Load extension: LOAD 'dplyr';"
+echo "  1. Start DuckDB: duckdb -unsigned"
+echo "  2. Load extension: LOAD dplyr;"
 echo "  3. Example: SELECT * FROM dplyr('data %>% select(col)');"
 echo ""
 echo "For more information, see the INSTALL.md file in the platform directory."
@@ -402,18 +411,37 @@ if not exist "%PLATFORM_ARCH%\%EXTENSION_FILE%" (
     exit /b 1
 )
 
-REM Install extension
-set INSTALL_DIR=%APPDATA%\duckdb\extensions
-if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+REM Install extension through the matching DuckDB CLI so it is placed in the
+REM version- and platform-specific extension directory.
+where duckdb.exe >nul 2>nul
+if errorlevel 1 (
+    echo ❌ duckdb.exe is required and must match the packaged extension version
+    exit /b 1
+)
 
-echo Installing extension to %INSTALL_DIR%...
-copy "%PLATFORM_ARCH%\%EXTENSION_FILE%" "%INSTALL_DIR%\" >nul
+set "STAGING_DIR=%TEMP%\libdplyr-install-%RANDOM%-%RANDOM%"
+mkdir "%STAGING_DIR%"
+if errorlevel 1 exit /b 1
+set "CANONICAL_EXTENSION=%STAGING_DIR%\dplyr.duckdb_extension"
+copy "%PLATFORM_ARCH%\%EXTENSION_FILE%" "%CANONICAL_EXTENSION%" >nul
+if errorlevel 1 (
+    rmdir /s /q "%STAGING_DIR%"
+    exit /b 1
+)
+set "SQL_EXTENSION_PATH=%CANONICAL_EXTENSION:\=/%"
+set "SQL_EXTENSION_PATH=%SQL_EXTENSION_PATH:'=''%"
 
-echo ✅ Extension installed successfully!
+echo Installing and verifying extension with DuckDB...
+duckdb.exe -unsigned -bail :memory: -c "FORCE INSTALL '%SQL_EXTENSION_PATH%'; LOAD dplyr;"
+set INSTALL_STATUS=%ERRORLEVEL%
+rmdir /s /q "%STAGING_DIR%"
+if not "%INSTALL_STATUS%"=="0" exit /b %INSTALL_STATUS%
+
+echo ✅ Extension installed and loaded successfully!
 echo.
 echo To use the extension in DuckDB:
-echo   1. Start DuckDB: duckdb
-echo   2. Load extension: LOAD 'dplyr';
+echo   1. Start DuckDB: duckdb.exe -unsigned
+echo   2. Load extension: LOAD dplyr;
 echo   3. Example: SELECT * FROM dplyr('data %%^>%% select^(col^)');
 echo.
 echo For more information, see the INSTALL.md file in the platform directory.
@@ -521,7 +549,9 @@ combined\\install.bat    # Windows
 ### Manual Installation
 1. Download the appropriate platform package
 2. Extract the extension binary
-3. Load in DuckDB: \`LOAD '/path/to/extension';\`
+3. Copy the versioned binary to \`dplyr.duckdb_extension\`
+4. Start DuckDB with \`duckdb -unsigned\` (Linux/macOS) or \`duckdb.exe -unsigned\` (Windows)
+5. Load in DuckDB: \`LOAD '/path/to/dplyr.duckdb_extension';\`
 
 ## 📊 Package Statistics
 

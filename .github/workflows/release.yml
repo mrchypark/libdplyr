@@ -345,13 +345,27 @@ jobs:
 
           ### Prerequisites
           - DuckDB ${{ matrix.duckdb_version }} (exact match required)
+          - The release extension is unsigned, so start the DuckDB CLI with \`duckdb -unsigned\`
+          - On Windows, running \`bash ./install.sh\` requires Git Bash
 
           ### Installation
-          1. Download the extension file: \`${{ matrix.extension-name }}\`
-          2. Place it in a directory accessible to DuckDB
-          3. Load the extension in DuckDB:
+          1. Download \`${{ matrix.extension-name }}\` and \`install.sh\` into the same directory.
+          2. Run \`DUCKDB_VERSION=${{ matrix.duckdb_version }} bash ./install.sh\`.
+
+          On Windows, run the script from Git Bash. Alternatively, install manually from PowerShell:
+             \`\`\`powershell
+             Copy-Item "${{ matrix.extension-name }}" dplyr.duckdb_extension
+             duckdb.exe -unsigned
+             \`\`\`
+          Then install and load the canonical file in that DuckDB session:
              \`\`\`sql
-             LOAD '/path/to/${{ matrix.extension-name }}';
+             FORCE INSTALL 'C:/absolute/path/to/dplyr.duckdb_extension';
+             LOAD dplyr;
+             \`\`\`
+
+          The script performs the equivalent canonical copy before installing:
+             \`\`\`bash
+             cp "${{ matrix.extension-name }}" dplyr.duckdb_extension
              \`\`\`
 
           ### Usage
@@ -362,8 +376,9 @@ jobs:
 
           ### Verification
           \`\`\`sql
-          -- Test that the extension loaded successfully
-          SELECT 'Extension loaded successfully' as status;
+          SELECT extension_name, loaded, installed
+          FROM duckdb_extensions()
+          WHERE extension_name = 'dplyr';
           \`\`\`
 
           For more information, see the project documentation.
@@ -372,12 +387,65 @@ jobs:
           # Create checksum
           cd release-package
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            certutil -hashfile "${{ matrix.extension-name }}" SHA256 > "${{ matrix.extension-name }}.sha256"
+            CERTUTIL_OUTPUT="$(certutil -hashfile "${{ matrix.extension-name }}" SHA256)"
+            CHECKSUM=""
+            while IFS= read -r line; do
+              candidate="$(printf '%s' "$line" | tr -d '\r[:space:]')"
+              if [[ "$candidate" =~ ^[[:xdigit:]]{64}$ ]]; then
+                CHECKSUM="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
+                break
+              fi
+            done <<< "$CERTUTIL_OUTPUT"
+            if [[ -z "$CHECKSUM" ]]; then
+              echo "Error: certutil did not return a valid SHA256 checksum" >&2
+              exit 1
+            fi
+            printf '%s  %s\n' "$CHECKSUM" "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             shasum -a 256 "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
           else
             sha256sum "${{ matrix.extension-name }}" > "${{ matrix.extension-name }}.sha256"
           fi
+
+      - name: Test packaged extension installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTALL_TEST_DIR="$(mktemp -d)"
+          trap 'rm -rf "$INSTALL_TEST_DIR"' EXIT
+          cp "release-package/${{ matrix.extension-name }}" "$INSTALL_TEST_DIR/"
+          cp scripts/install-duckdb-extension.sh "$INSTALL_TEST_DIR/install.sh"
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            DPLYR_PLATFORM="windows-x86_64"
+            DUCKDB_COMMAND=(duckdb.exe)
+          elif [[ "${{ runner.os }}" == "macOS" && "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            DPLYR_PLATFORM="macos-x86_64"
+            DUCKDB_COMMAND=(arch -x86_64 duckdb)
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            DPLYR_PLATFORM="macos-arm64"
+            DUCKDB_COMMAND=(duckdb)
+          else
+            DPLYR_PLATFORM="linux-x86_64"
+            DUCKDB_COMMAND=(duckdb)
+          fi
+
+          export HOME="$INSTALL_TEST_DIR/home"
+          mkdir -p "$HOME"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            export USERPROFILE="$(cygpath -w "$HOME")"
+          fi
+
+          (
+            cd "$INSTALL_TEST_DIR"
+            DPLYR_PLATFORM="$DPLYR_PLATFORM" \
+              DUCKDB_VERSION="${{ matrix.duckdb_version }}" \
+              bash ./install.sh
+          )
+
+          "${DUCKDB_COMMAND[@]}" -unsigned -bail :memory: \
+            -cmd "LOAD dplyr;" \
+            -c "CREATE TEMP TABLE install_smoke(id INTEGER); INSERT INTO install_smoke VALUES (1), (2); SELECT COUNT(*) AS row_count FROM dplyr('install_smoke %>% select(id)');"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -445,64 +513,10 @@ jobs:
           }
           EOF
 
-          # Create installation script
-          cat > install.sh << 'EOF'
-          #!/bin/bash
-          # DuckDB dplyr Extension Installation Script
-
-          set -e
-
-          PLATFORM=""
-          case "$(uname -s)" in
-              Linux*)     PLATFORM="linux-x86_64";;
-              Darwin*)
-                  case "$(uname -m)" in
-                      arm64)  PLATFORM="macos-arm64";;
-                      *)      PLATFORM="macos-x86_64";;
-                  esac;;
-              CYGWIN*|MINGW*|MSYS*) PLATFORM="windows-x86_64";;
-              *)          echo "Unsupported platform"; exit 1;;
-          esac
-
-          if [[ -z "${DUCKDB_VERSION:-}" ]]; then
-              if command -v duckdb >/dev/null 2>&1; then
-                  DETECTED_VERSION="$(duckdb --version | grep -Eo 'v?[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || true)"
-                  if [[ -n "$DETECTED_VERSION" ]]; then
-                      DUCKDB_VERSION="$DETECTED_VERSION"
-                      echo "Detected DuckDB version: $DUCKDB_VERSION"
-                  fi
-              fi
-          fi
-
-          if [[ -z "${DUCKDB_VERSION:-}" ]]; then
-              echo "This release contains DuckDB-version-specific binaries."
-              echo "Set DUCKDB_VERSION to the exact DuckDB version you are using (for example, v1.5.0 or v1.5.4),"
-              echo "or run this script from an environment where the duckdb CLI is available in PATH."
-              echo ""
-              echo "Available binaries for platform $PLATFORM:"
-              ls -1 "dplyr-"*"-${PLATFORM}.duckdb_extension" 2>/dev/null || ls -1 *.duckdb_extension
-              exit 1
-          fi
-
-          EXTENSION_FILE="dplyr-${DUCKDB_VERSION}-${PLATFORM}.duckdb_extension"
-
-          if [[ ! -f "$EXTENSION_FILE" ]]; then
-              echo "Extension file for platform $PLATFORM and DuckDB $DUCKDB_VERSION not found!"
-              echo "Available binaries for platform $PLATFORM:"
-              ls -1 "dplyr-"*"-${PLATFORM}.duckdb_extension" 2>/dev/null || ls -1 *.duckdb_extension
-              exit 1
-          fi
-
-          echo "Installing DuckDB dplyr extension for $PLATFORM..."
-          echo "Extension file: $EXTENSION_FILE"
-          echo ""
-          echo "To use the extension, load it in DuckDB:"
-          echo "  LOAD '$(pwd)/$EXTENSION_FILE';"
-          echo ""
-          echo "Installation completed successfully!"
-          EOF
-
+          # Publish the same installer exercised by the build matrix.
+          cp ../scripts/install-duckdb-extension.sh install.sh
           chmod +x install.sh
+          bash -n install.sh
 
       - name: Generate release notes
         run: |
@@ -520,9 +534,20 @@ jobs:
           ## 📦 Installation
 
           ### Quick Install
-          1. Download the appropriate extension for your platform
-          2. Run the installation script: \`DUCKDB_VERSION=v1.5.4 ./install.sh\`
-          3. Load in DuckDB: \`LOAD '/path/to/extension';\`
+          1. Download the appropriate versioned extension and \`install.sh\` into the same directory
+          2. Run the installation script: \`DUCKDB_VERSION=v1.5.4 bash ./install.sh\`
+          3. Start DuckDB with \`duckdb -unsigned\`, then run \`LOAD dplyr;\`
+
+          The versioned filename identifies the download artifact. The local file must be named
+          \`dplyr.duckdb_extension\` before DuckDB installs or loads it; \`install.sh\` performs this copy.
+
+          On Windows, \`bash ./install.sh\` requires Git Bash. To install manually from PowerShell instead:
+          \`\`\`powershell
+          Copy-Item "dplyr-v1.5.4-windows-x86_64.duckdb_extension" dplyr.duckdb_extension
+          duckdb.exe -unsigned
+          \`\`\`
+          Then run \`FORCE INSTALL 'C:/absolute/path/to/dplyr.duckdb_extension';\` and \`LOAD dplyr;\`
+          in that DuckDB session.
 
           ### Platform- and DuckDB-version-specific Downloads
           - **DuckDB v1.5.0**
@@ -540,12 +565,15 @@ jobs:
           - DuckDB 1.5.4 is the primary supported current build
           - DuckDB 1.5.0 compatibility binaries are also provided
           - Load the binary that matches your exact DuckDB version
+          - The release extension is unsigned; start the CLI with \`duckdb -unsigned\`
           - Compatible operating system (Linux, macOS, Windows)
 
           ## 📊 Usage Example
           \`\`\`sql
-          -- Load the extension
-          LOAD '/path/to/dplyr-platform.duckdb_extension';
+          -- After copying the downloaded asset to dplyr.duckdb_extension,
+          -- start the CLI with duckdb -unsigned and install it once.
+          FORCE INSTALL '/path/to/dplyr.duckdb_extension';
+          LOAD dplyr;
           SET allow_parser_override_extension = 'fallback';
 
           -- Use database-global magrittr syntax for implicit pipelines
@@ -560,7 +588,9 @@ jobs:
           \`\`\`
 
           ## ✅ Verification
-          Release artifacts are load-tested before packaging. The tagged main commit passed
+          Release artifacts are copied from their versioned download names to the canonical
+          \`dplyr.duckdb_extension\` load name and installation-tested with their exact DuckDB
+          versions. The tagged main commit passed
           the repository's CI and security workflows before this release, including platform,
           parser callback safety, Windows linkage, and DuckDB 1.5.0 compatibility checks.
 
@@ -588,7 +618,7 @@ jobs:
 
           ---
 
-          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/v0.4.0...${{ github.event.release.tag_name || github.event.inputs.version }}
+          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/v0.5.0...${{ github.event.release.tag_name || github.event.inputs.version }}
           EOF
 
       - name: Create or update release

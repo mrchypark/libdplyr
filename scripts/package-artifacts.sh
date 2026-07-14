@@ -244,53 +244,51 @@ sha256sum -c checksums.txt
 ### 3. Load the Extension in DuckDB
 
 #### Option A: Load from File Path
+
+DuckDB derives the extension entry point from the filename, so first copy the
+versioned distribution artifact to the canonical filename:
+
+\`\`\`bash
+# Linux/macOS
+cp $(basename "$PACKAGED_EXTENSION") $EXTENSION_NAME.duckdb_extension
+\`\`\`
+
+\`\`\`cmd
+REM Windows
+copy $(basename "$PACKAGED_EXTENSION") $EXTENSION_NAME.duckdb_extension
+\`\`\`
+
+Start DuckDB with \`duckdb -unsigned\` on Linux/macOS or
+\`duckdb.exe -unsigned\` on Windows, then run:
+
 \`\`\`sql
 -- Load the extension
-LOAD '/path/to/$(basename "$PACKAGED_EXTENSION")';
+LOAD '/path/to/$EXTENSION_NAME.duckdb_extension';
 
 -- Verify it loaded successfully
 SELECT 'Extension loaded successfully' as status;
 \`\`\`
 
 #### Option B: Install to DuckDB Extensions Directory
+
+Use a DuckDB CLI whose version exactly matches this package. The commands below
+stage the canonical filename, install it into DuckDB's versioned extension
+directory, and verify that it loads.
+
 \`\`\`bash
-# Copy to DuckDB extensions directory (platform-specific)
-EOF
-
-# Add platform-specific installation paths
-case "$PLATFORM" in
-    "linux")
-        cat >> "$PLATFORM_PACKAGE/INSTALL.md" << EOF
-# Linux
-cp $(basename "$PACKAGED_EXTENSION") ~/.duckdb/extensions/
-# or system-wide
-sudo cp $(basename "$PACKAGED_EXTENSION") /usr/local/lib/duckdb/extensions/
-EOF
-        ;;
-    "macos")
-        cat >> "$PLATFORM_PACKAGE/INSTALL.md" << EOF
-# macOS
-cp $(basename "$PACKAGED_EXTENSION") ~/Library/Application\ Support/duckdb/extensions/
-# or system-wide
-sudo cp $(basename "$PACKAGED_EXTENSION") /usr/local/lib/duckdb/extensions/
-EOF
-        ;;
-    "windows")
-        cat >> "$PLATFORM_PACKAGE/INSTALL.md" << EOF
-# Windows
-copy $(basename "$PACKAGED_EXTENSION") %APPDATA%\\duckdb\\extensions\\
-# or system-wide
-copy $(basename "$PACKAGED_EXTENSION") "C:\\Program Files\\duckdb\\extensions\\"
-EOF
-        ;;
-esac
-
-cat >> "$PLATFORM_PACKAGE/INSTALL.md" << EOF
+# Linux/macOS
+CANONICAL_EXTENSION="\$PWD/$EXTENSION_NAME.duckdb_extension"
+cp $(basename "$PACKAGED_EXTENSION") "\$CANONICAL_EXTENSION"
+SQL_EXTENSION_PATH=\${CANONICAL_EXTENSION//\'/\'\'}
+duckdb -unsigned -bail :memory: -c "FORCE INSTALL '\$SQL_EXTENSION_PATH'; LOAD $EXTENSION_NAME;"
 \`\`\`
 
-Then load with:
-\`\`\`sql
-LOAD '$EXTENSION_NAME';
+\`\`\`cmd
+REM Windows
+copy $(basename "$PACKAGED_EXTENSION") $EXTENSION_NAME.duckdb_extension
+set "CANONICAL_EXTENSION=%CD:\=/%/$EXTENSION_NAME.duckdb_extension"
+set "SQL_EXTENSION_PATH=%CANONICAL_EXTENSION:'=''%"
+duckdb.exe -unsigned -bail :memory: -c "FORCE INSTALL '%SQL_EXTENSION_PATH%'; LOAD $EXTENSION_NAME;"
 \`\`\`
 
 ## Usage Examples
@@ -298,7 +296,8 @@ LOAD '$EXTENSION_NAME';
 ### Basic dplyr Operations
 \`\`\`sql
 -- Load the extension
-LOAD '/path/to/$(basename "$PACKAGED_EXTENSION")';
+LOAD '/path/to/$EXTENSION_NAME.duckdb_extension';
+SET allow_parser_override_extension = 'fallback';
 
 -- Create sample data
 CREATE TABLE mtcars AS
@@ -334,7 +333,8 @@ FROM high_efficiency;
 ### Test Basic Functionality
 \`\`\`sql
 -- Test extension loading
-LOAD '/path/to/$(basename "$PACKAGED_EXTENSION")';
+LOAD '/path/to/$EXTENSION_NAME.duckdb_extension';
+SET allow_parser_override_extension = 'fallback';
 SELECT 'Extension loaded' as test_result;
 
 -- Test basic dplyr operation
@@ -369,7 +369,7 @@ perf_test %>%
    - Ensure correct platform/architecture
 
 2. **"Function not found" errors**
-   - Confirm extension is loaded: \`LOAD '/path/to/extension';\`
+   - Confirm extension is loaded: \`LOAD '/path/to/$EXTENSION_NAME.duckdb_extension';\`
    - Check for typos in dplyr syntax
 
 3. **Performance issues**
@@ -381,7 +381,7 @@ perf_test %>%
 \`\`\`bash
 # Enable debug logging
 export DPLYR_DEBUG=1
-duckdb your_database.db
+duckdb -unsigned your_database.db
 \`\`\`
 
 ### Getting Help
@@ -532,16 +532,20 @@ cat > "$PACKAGE_ROOT/release-summary-$PLATFORM_ARCH.md" << EOF
 ## Installation
 1. Download the appropriate archive for your platform
 2. Extract the extension binary
-3. Load in DuckDB: \`LOAD '/path/to/extension';\`
-4. Example: \`SELECT * FROM dplyr('data %>% select(col)');\`
+3. Copy the versioned binary to \`$EXTENSION_NAME.duckdb_extension\`
+4. Load in DuckDB: \`LOAD '/path/to/$EXTENSION_NAME.duckdb_extension';\`
+5. Example: \`SELECT * FROM dplyr('data %>% select(col)');\`
 
 ## Verification
 \`\`\`bash
 # Verify checksum
 sha256sum -c checksums.txt
 
+# Stage the canonical filename required by DuckDB
+cp $(basename "$PACKAGED_EXTENSION") $EXTENSION_NAME.duckdb_extension
+
 # Test loading
-duckdb -c "LOAD './$(basename "$PACKAGED_EXTENSION")'; SELECT 'OK' as status;"
+duckdb -unsigned -c "LOAD './$EXTENSION_NAME.duckdb_extension'; SELECT 'OK' as status;"
 \`\`\`
 
 ## Support

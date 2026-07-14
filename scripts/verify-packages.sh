@@ -15,6 +15,8 @@ NC='\033[0m' # No Color
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}"
 PACKAGE_DIR="${PACKAGE_DIR:-packages}"
 EXTENSION_NAME="dplyr"
+STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/libdplyr-package-verify.XXXXXX")
+trap 'rm -rf "$STAGING_DIR"' EXIT
 
 echo -e "${BLUE}🔍 Package Verification${NC}"
 echo "======================="
@@ -114,37 +116,35 @@ for platform in "${PLATFORMS[@]}"; do
     
     # Verify checksums
     if [ -f "checksums.txt" ]; then
-        # Extract SHA256 hash from checksums.txt
-        if grep -q "SHA256" checksums.txt; then
-            EXPECTED_HASH=$(grep "SHA256" checksums.txt | awk '{print $2}' | head -n1)
-            EXTENSION_FILE="$EXTENSION_NAME-$platform.duckdb_extension"
-            
-            if [ -f "$EXTENSION_FILE" ]; then
-                # Calculate actual hash
-                if command -v sha256sum &> /dev/null; then
-                    ACTUAL_HASH=$(sha256sum "$EXTENSION_FILE" | awk '{print $1}')
-                elif command -v shasum &> /dev/null; then
-                    ACTUAL_HASH=$(shasum -a 256 "$EXTENSION_FILE" | awk '{print $1}')
-                else
-                    echo -e "  ${YELLOW}⚠️ No SHA256 tool available${NC}"
-                    cd - > /dev/null
-                    continue
-                fi
-                
-                if [ "$EXPECTED_HASH" = "$ACTUAL_HASH" ]; then
-                    echo -e "  ${GREEN}✅ Checksum verified${NC}"
-                else
-                    echo -e "  ${RED}❌ Checksum mismatch${NC}"
-                    echo "    Expected: $EXPECTED_HASH"
-                    echo "    Actual:   $ACTUAL_HASH"
-                    INTEGRITY_OK=false
-                fi
+        EXPECTED_HASH=$(grep -Eio '[[:xdigit:]]{64}' checksums.txt | head -n1 | tr '[:upper:]' '[:lower:]' || true)
+        EXTENSION_FILE="$EXTENSION_NAME-$platform.duckdb_extension"
+
+        if [ -z "$EXPECTED_HASH" ]; then
+            echo -e "  ${RED}❌ No SHA256 hash found in checksums.txt${NC}"
+            INTEGRITY_OK=false
+        elif [ -f "$EXTENSION_FILE" ]; then
+            # Calculate actual hash
+            if command -v sha256sum &> /dev/null; then
+                ACTUAL_HASH=$(sha256sum "$EXTENSION_FILE" | awk '{print $1}')
+            elif command -v shasum &> /dev/null; then
+                ACTUAL_HASH=$(shasum -a 256 "$EXTENSION_FILE" | awk '{print $1}')
             else
-                echo -e "  ${RED}❌ Extension file not found${NC}"
+                echo -e "  ${YELLOW}⚠️ No SHA256 tool available${NC}"
+                cd - > /dev/null
+                continue
+            fi
+
+            if [ "$EXPECTED_HASH" = "$ACTUAL_HASH" ]; then
+                echo -e "  ${GREEN}✅ Checksum verified${NC}"
+            else
+                echo -e "  ${RED}❌ Checksum mismatch${NC}"
+                echo "    Expected: $EXPECTED_HASH"
+                echo "    Actual:   $ACTUAL_HASH"
                 INTEGRITY_OK=false
             fi
         else
-            echo -e "  ${YELLOW}⚠️ No SHA256 hash found in checksums.txt${NC}"
+            echo -e "  ${RED}❌ Extension file not found${NC}"
+            INTEGRITY_OK=false
         fi
     else
         echo -e "  ${RED}❌ checksums.txt not found${NC}"
@@ -324,15 +324,20 @@ if command -v duckdb &> /dev/null; then
         CURRENT_PLATFORM_ARCH="${CURRENT_PLATFORM}-${CURRENT_ARCH}"
         
         if [ "$platform" = "$CURRENT_PLATFORM_ARCH" ]; then
+            CANONICAL_EXTENSION="$STAGING_DIR/$EXTENSION_NAME.duckdb_extension"
+            cp "$EXTENSION_FILE" "$CANONICAL_EXTENSION"
+            SQL_EXTENSION_PATH=${CANONICAL_EXTENSION//\'/\'\'}
+
             # Test loading
-            if duckdb :memory: -c "LOAD '$EXTENSION_FILE'; SELECT 'Extension loaded successfully' as result;" 2>/dev/null | grep -q "Extension loaded successfully"; then
+            if LOAD_OUTPUT=$(duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; SELECT 'Extension loaded successfully' as result;") && grep -q "Extension loaded successfully" <<< "$LOAD_OUTPUT"; then
                 echo -e "  ${GREEN}✅ Extension loads successfully${NC}"
                 
                 # Test basic functionality (if implemented)
-                if duckdb :memory: -c "LOAD '$EXTENSION_FILE'; CREATE TABLE test AS SELECT 1 as id; SELECT 'Basic test passed' as result;" 2>/dev/null | grep -q "Basic test passed"; then
+                if BASIC_OUTPUT=$(duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; CREATE TABLE test AS SELECT 1 as id; SELECT 'Basic test passed' as result;") && grep -q "Basic test passed" <<< "$BASIC_OUTPUT"; then
                     echo -e "  ${GREEN}✅ Basic functionality works${NC}"
                 else
-                    echo -e "  ${YELLOW}⚠️ Basic functionality test failed (may not be implemented)${NC}"
+                    echo -e "  ${RED}❌ Basic functionality test failed${NC}"
+                    LOADING_OK=false
                 fi
                 
             else
@@ -345,8 +350,8 @@ if command -v duckdb &> /dev/null; then
     done
     
     if [ "$LOADING_OK" = false ]; then
-        echo -e "\n${YELLOW}⚠️ Some extension loading tests failed${NC}"
-        echo "This may be expected if extensions are for different platforms"
+        echo -e "\n${RED}❌ Extension loading tests failed${NC}"
+        exit 1
     else
         echo -e "\n${GREEN}✅ Extension loading tests passed${NC}"
     fi

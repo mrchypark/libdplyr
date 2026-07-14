@@ -225,9 +225,17 @@ echo.
 echo ### 3. Load the Extension in DuckDB
 echo.
 echo #### Option A: Load from File Path
+echo DuckDB derives the extension entry point from the filename, so first copy the
+echo versioned distribution artifact to the canonical filename:
+echo ```cmd
+echo copy %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension %EXTENSION_NAME%.duckdb_extension
+echo ```
+echo.
+echo Start DuckDB with `duckdb.exe -unsigned`, then run:
+echo.
 echo ```sql
 echo -- Load the extension
-echo LOAD 'C:\path\to\%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension';
+echo LOAD 'C:\path\to\%EXTENSION_NAME%.duckdb_extension';
 echo.
 echo -- Verify it loaded successfully
 echo SELECT 'Extension loaded successfully' as status;
@@ -235,16 +243,11 @@ echo ```
 echo.
 echo #### Option B: Install to DuckDB Extensions Directory
 echo ```cmd
-echo REM Copy to user extensions directory
-echo copy %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension %%APPDATA%%\duckdb\extensions\
-echo.
-echo REM Or system-wide ^(requires admin^)
-echo copy %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension "C:\Program Files\duckdb\extensions\"
-echo ```
-echo.
-echo Then load with:
-echo ```sql
-echo LOAD '%EXTENSION_NAME%';
+echo REM Use a duckdb.exe version that exactly matches this package
+echo copy %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension %EXTENSION_NAME%.duckdb_extension
+echo set "CANONICAL_EXTENSION=%%CD:\=/%%/%EXTENSION_NAME%.duckdb_extension"
+echo set "SQL_EXTENSION_PATH=%%CANONICAL_EXTENSION:'=''%%"
+echo duckdb.exe -unsigned -bail :memory: -c "FORCE INSTALL '%%SQL_EXTENSION_PATH%%'; LOAD %EXTENSION_NAME%;"
 echo ```
 echo.
 echo ## Usage Examples
@@ -252,7 +255,8 @@ echo.
 echo ### Basic dplyr Operations
 echo ```sql
 echo -- Load the extension
-echo LOAD 'C:\path\to\%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension';
+echo LOAD 'C:\path\to\%EXTENSION_NAME%.duckdb_extension';
+echo SET allow_parser_override_extension = 'fallback';
 echo.
 echo -- Create sample data
 echo CREATE TABLE mtcars AS
@@ -283,7 +287,7 @@ echo    - Verify file permissions
 echo    - Ensure correct platform/architecture
 echo.
 echo 2. **"Function not found" errors**
-echo    - Confirm extension is loaded: `LOAD 'C:\path\to\extension';`
+echo    - Confirm extension is loaded: `LOAD 'C:\path\to\%EXTENSION_NAME%.duckdb_extension';`
 echo    - Check for typos in dplyr syntax
 echo.
 echo 3. **Performance issues**
@@ -295,7 +299,7 @@ echo ### Debug Mode
 echo ```cmd
 echo REM Enable debug logging
 echo set DPLYR_DEBUG=1
-echo duckdb your_database.db
+echo duckdb.exe -unsigned your_database.db
 echo ```
 echo.
 echo ## Version Information
@@ -329,10 +333,14 @@ echo # Generated on %BUILD_TIMESTAMP%
 echo.
 ) > checksums.txt
 
-REM SHA256 using certutil
-for /f "tokens=*" %%i in ('certutil -hashfile "%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension" SHA256 ^| findstr /v "hash"') do (
-    echo SHA256: %%i >> checksums.txt
+REM SHA256 in the portable "digest  filename" format
+set "EXTENSION_SHA256="
+for /f "delims=" %%i in ('powershell -NoProfile -Command "^(Get-FileHash -Algorithm SHA256 -LiteralPath '%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension'^).Hash.ToLowerInvariant^(^)"') do set "EXTENSION_SHA256=%%i"
+if not defined EXTENSION_SHA256 (
+    echo ❌ Failed to calculate the extension SHA256 checksum
+    exit /b 1
 )
+echo !EXTENSION_SHA256!  %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension>> checksums.txt
 
 cd /d "%~dp0.."
 
@@ -357,10 +365,14 @@ powershell -command "Compress-Archive -Path '%PLATFORM_ARCH%\*' -DestinationPath
 if exist "%ARCHIVE_NAME%.zip" (
     echo ✅ ZIP archive created: %PACKAGE_ROOT%\%ARCHIVE_NAME%.zip
 
-    REM Generate archive checksum
-    for /f "tokens=*" %%i in ('certutil -hashfile "%ARCHIVE_NAME%.zip" SHA256 ^| findstr /v "hash"') do (
-        echo %%i > "%ARCHIVE_NAME%.zip.sha256"
+    REM Generate archive checksum in the same portable format
+    set "ARCHIVE_SHA256="
+    for /f "delims=" %%i in ('powershell -NoProfile -Command "^(Get-FileHash -Algorithm SHA256 -LiteralPath '%ARCHIVE_NAME%.zip'^).Hash.ToLowerInvariant^(^)"') do set "ARCHIVE_SHA256=%%i"
+    if not defined ARCHIVE_SHA256 (
+        echo ❌ Failed to calculate the archive SHA256 checksum
+        exit /b 1
     )
+    echo !ARCHIVE_SHA256!  %ARCHIVE_NAME%.zip> "%ARCHIVE_NAME%.zip.sha256"
     echo ✅ Archive checksum: %PACKAGE_ROOT%\%ARCHIVE_NAME%.zip.sha256
 )
 
@@ -410,16 +422,20 @@ echo.
 echo ## Installation
 echo 1. Download the ZIP archive for Windows
 echo 2. Extract the extension binary
-echo 3. Load in DuckDB: `LOAD 'C:\path\to\extension';`
-echo 4. Example: `SELECT * FROM dplyr^('data %%^>%% select^(col^)'^);`
+echo 3. Copy the versioned binary to `%EXTENSION_NAME%.duckdb_extension`
+echo 4. Load in DuckDB: `LOAD 'C:\path\to\%EXTENSION_NAME%.duckdb_extension';`
+echo 5. Example: `SELECT * FROM dplyr^('data %%^>%% select^(col^)'^);`
 echo.
 echo ## Verification
 echo ```cmd
 echo REM Verify checksum
 echo certutil -hashfile %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension SHA256
 echo.
+echo REM Stage the canonical filename required by DuckDB
+echo copy %EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension %EXTENSION_NAME%.duckdb_extension
+echo.
 echo REM Test loading
-echo duckdb -c "LOAD './%EXTENSION_NAME%-%PLATFORM_ARCH%.duckdb_extension'; SELECT 'OK' as status;"
+echo duckdb.exe -unsigned -c "LOAD './%EXTENSION_NAME%.duckdb_extension'; SELECT 'OK' as status;"
 echo ```
 echo.
 echo ---
