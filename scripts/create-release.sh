@@ -117,6 +117,13 @@ fi
 
 echo -e "${GREEN}✅ Git repository and GitHub CLI ready${NC}"
 
+REPOSITORY_SLUG=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')
+if [ -z "$REPOSITORY_SLUG" ]; then
+    echo -e "${RED}❌ Could not determine the GitHub repository slug${NC}"
+    exit 1
+fi
+REPOSITORY_URL="https://github.com/$REPOSITORY_SLUG"
+
 # Check if tag already exists
 if git rev-parse "$VERSION" >/dev/null 2>&1; then
     if [ "$FORCE" = false ]; then
@@ -181,21 +188,24 @@ cat >> "$RELEASE_NOTES_FILE" << EOF
 
 ### Quick Install
 \`\`\`bash
-# Download and install automatically
-curl -L https://github.com/\${{ github.repository }}/releases/download/$VERSION/dplyr-$VERSION-all-platforms.tar.gz | tar -xz
-cd combined && ./install.sh
+# Download install.sh and the exact DuckDB/platform asset into the same directory, then run:
+DUCKDB_VERSION=v1.5.4 bash ./install.sh
 \`\`\`
 
 ### Platform-specific Downloads
-- **Linux x86_64**: \`dplyr-linux-x86_64.duckdb_extension\`
-- **macOS x86_64**: \`dplyr-macos-x86_64.duckdb_extension\`
-- **macOS ARM64**: \`dplyr-macos-arm64.duckdb_extension\`
-- **Windows x86_64**: \`dplyr-windows-x86_64.duckdb_extension\`
+- **DuckDB v1.5.0**: \`dplyr-v1.5.0-linux-x86_64.duckdb_extension\`, \`dplyr-v1.5.0-macos-x86_64.duckdb_extension\`, \`dplyr-v1.5.0-macos-arm64.duckdb_extension\`
+- **DuckDB v1.5.4**: \`dplyr-v1.5.4-linux-x86_64.duckdb_extension\`, \`dplyr-v1.5.4-macos-x86_64.duckdb_extension\`, \`dplyr-v1.5.4-macos-arm64.duckdb_extension\`, \`dplyr-v1.5.4-windows-x86_64.duckdb_extension\`
 
 ### Manual Installation
-1. Download the appropriate platform package
-2. Extract the extension binary
-3. Load in DuckDB: \`LOAD '/path/to/extension';\`
+1. Download the versioned asset matching the exact DuckDB version and platform.
+2. Preserve that download for checksum verification, then copy it locally to \`dplyr.duckdb_extension\`.
+3. Start that exact DuckDB CLI with \`duckdb -unsigned\` (or \`duckdb.exe -unsigned\` on Windows).
+4. Install and load the canonical local path, then enable parser override fallback:
+   \`\`\`sql
+   FORCE INSTALL '/absolute/path/to/dplyr.duckdb_extension';
+   LOAD dplyr;
+   SET allow_parser_override_extension = 'fallback';
+   \`\`\`
 
 ## 🔧 Requirements
 - Manual packaging requires DUCKDB_VERSION; each C++ extension binary requires that exact recorded DuckDB build version
@@ -204,8 +214,10 @@ cd combined && ./install.sh
 
 ## 📊 Usage Example
 \`\`\`sql
--- Load the extension
-LOAD '/path/to/dplyr-platform.duckdb_extension';
+-- Start the exact DuckDB version with -unsigned, then install the canonical local copy once.
+FORCE INSTALL '/absolute/path/to/dplyr.duckdb_extension';
+LOAD dplyr;
+SET allow_parser_override_extension = 'fallback';
 
 -- Use implicit pipeline syntax (%>%)
 mtcars %>%
@@ -226,17 +238,17 @@ SELECT AVG(hp) as avg_horsepower FROM filtered_data;
 ## 🔍 Verification
 \`\`\`bash
 # Verify checksum
-sha256sum -c checksums.txt
+sha256sum -c checksums.sha256
 
-# Test loading
-duckdb -c "LOAD './extension'; SELECT 'Extension loaded successfully' as status;"
+# Keep the versioned download, but install through the canonical local filename.
+cp dplyr-v1.5.4-linux-x86_64.duckdb_extension dplyr.duckdb_extension
+CANONICAL_EXTENSION="\$(pwd)/dplyr.duckdb_extension"
+SQL_EXTENSION_PATH="\$(printf '%s' "\$CANONICAL_EXTENSION" | sed "s/'/''/g")"
 
-# Test basic functionality
-duckdb -c "
-LOAD './extension';
-CREATE TABLE test AS SELECT 1 as id, 'test' as name;
-SELECT * FROM dplyr('test %>% select(id, name)');
-"
+# Use the matching DuckDB v1.5.4 CLI.
+duckdb -unsigned -bail :memory: \\
+  -cmd "FORCE INSTALL '\$SQL_EXTENSION_PATH'; LOAD dplyr; SET allow_parser_override_extension = 'fallback';" \\
+  -c "CREATE TABLE test AS SELECT 1 AS id, 'test' AS name; test %>% select(id, name);"
 \`\`\`
 
 ## 📈 Performance
@@ -269,17 +281,17 @@ fi
 cat >> "$RELEASE_NOTES_FILE" << EOF
 
 ## 📚 Documentation
-- [Installation Guide](https://github.com/\${{ github.repository }}/blob/$VERSION/docs/installation.md)
-- [User Guide](https://github.com/\${{ github.repository }}/blob/$VERSION/docs/user-guide.md)
-- [API Reference](https://github.com/\${{ github.repository }}/blob/$VERSION/docs/api-reference.md)
-- [Troubleshooting](https://github.com/\${{ github.repository }}/blob/$VERSION/docs/troubleshooting.md)
+- [Installation Guide]($REPOSITORY_URL/blob/$VERSION/docs/installation.md)
+- [User Guide]($REPOSITORY_URL/blob/$VERSION/docs/user-guide.md)
+- [API Reference]($REPOSITORY_URL/blob/$VERSION/docs/api-reference.md)
+- [Troubleshooting]($REPOSITORY_URL/blob/$VERSION/docs/troubleshooting.md)
 
 ## 🤝 Contributing
-We welcome contributions! Please see our [Contributing Guide](https://github.com/\${{ github.repository }}/blob/$VERSION/CONTRIBUTING.md).
+We welcome contributions! Please see our [Contributing Guide]($REPOSITORY_URL/blob/$VERSION/CONTRIBUTING.md).
 
 ---
 
-**Full Changelog**: https://github.com/\${{ github.repository }}/compare/$PREV_TAG...$VERSION
+**Full Changelog**: $REPOSITORY_URL/compare/$PREV_TAG...$VERSION
 EOF
 
 echo -e "${GREEN}✅ Release notes generated${NC}"
@@ -312,6 +324,7 @@ echo "-------------------------------"
 
 # Trigger the release workflow
 gh workflow run release.yml \
+    --ref "$VERSION" \
     -f version="$VERSION" \
     -f prerelease="$PRERELEASE" \
     -f draft="$DRAFT"
@@ -333,7 +346,7 @@ RUN_ID=$(gh run list --workflow=release.yml --limit=1 --json databaseId --jq '.[
 
 if [ -n "$RUN_ID" ]; then
     echo "Workflow run ID: $RUN_ID"
-    echo "Monitor progress: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/actions/runs/$RUN_ID"
+    echo "Monitor progress: $REPOSITORY_URL/actions/runs/$RUN_ID"
 
     # Wait for workflow to complete (with timeout)
     echo "Waiting for workflow to complete (timeout: 30 minutes)..."
@@ -461,8 +474,8 @@ cat > "post-release-checklist-$VERSION.md" << EOF
 
 ## 🔗 Useful Links
 - Release: $RELEASE_URL
-- Workflow: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + \"/\" + .name')/actions/workflows/release.yml
-- Issues: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/issues
+- Workflow: $REPOSITORY_URL/actions/workflows/release.yml
+- Issues: $REPOSITORY_URL/issues
 
 ## 📊 Release Statistics
 - Version: $VERSION
@@ -492,7 +505,7 @@ echo "  - Platforms: 4 supported"
 echo ""
 echo "🔗 Links:"
 echo "  - Release: $RELEASE_URL"
-echo "  - Workflow: https://github.com/$(gh repo view --json owner,name --jq '.owner.login + "/" + .name')/actions"
+echo "  - Workflow: $REPOSITORY_URL/actions"
 echo "  - Checklist: post-release-checklist-$VERSION.md"
 echo ""
 echo "📋 Next Steps:"

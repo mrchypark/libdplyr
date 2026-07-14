@@ -102,14 +102,15 @@ gh workflow run release.yml -f version=v1.0.0
 #### 3.2 수동 검증
 ```bash
 # 1. 각 플랫폼별 다운로드 테스트
-curl -L https://github.com/repo/releases/download/v1.0.0/dplyr-linux-x86_64.duckdb_extension -o test.extension
+curl -LO https://github.com/repo/releases/download/v1.0.0/dplyr-linux-x86_64.duckdb_extension
+cp dplyr-linux-x86_64.duckdb_extension dplyr.duckdb_extension
 
 # 2. 확장 로딩 테스트
-duckdb -c "LOAD './test.extension'; SELECT 'OK' as status;"
+duckdb -unsigned -bail -c "LOAD './dplyr.duckdb_extension'; SELECT 'OK' as status;"
 
 # 3. 기본 기능 테스트
-duckdb -c "
-LOAD './test.extension';
+duckdb -unsigned -bail -c "
+LOAD './dplyr.duckdb_extension';
 SELECT * FROM dplyr('mtcars %>% select(mpg, cyl) %>% filter(mpg > 20)');
 "
 ```

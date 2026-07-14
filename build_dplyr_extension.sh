@@ -19,7 +19,7 @@ python3 ../../extension-ci-tools/scripts/append_extension_metadata.py \
   -o ../../dplyr.duckdb_extension \
   -n dplyr \
   -dv "${DUCKDB_VERSION}" \
-  -ev 0.5.0 \
+  -ev 0.5.1 \
   -p osx_arm64 \
   --abi-type CPP
 

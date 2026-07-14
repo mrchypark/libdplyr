@@ -117,7 +117,7 @@ packages/v1.0.0/
     "build_type": "Release"
   },
   "versions": {
-    "libdplyr": "0.5.0",
+    "libdplyr": "0.5.1",
     "rust": "rustc 1.75.0",
     "cmake": "cmake version 3.20.0",
     "duckdb_build_version": "1.5.4"
@@ -312,8 +312,11 @@ tar -xzf dplyr-v1.0.0-linux-x86_64.tar.gz
 cd linux-x86_64
 sha256sum -c checksums.txt
 
+# DuckDB가 진입점 이름을 올바르게 찾도록 표준 파일명으로 복사
+cp dplyr-linux-x86_64.duckdb_extension dplyr.duckdb_extension
+
 # DuckDB에서 로드
-duckdb -c "LOAD './dplyr-linux-x86_64.duckdb_extension';"
+duckdb -unsigned -c "LOAD './dplyr.duckdb_extension';"
 ```
 
 ## 문제 해결
@@ -363,10 +366,11 @@ nm -D dplyr-linux-x86_64.duckdb_extension | grep dplyr
 #### 로딩 테스트
 ```bash
 # 기본 로딩 테스트
-duckdb :memory: -c "LOAD './extension.duckdb_extension'; SELECT 'OK';"
+cp dplyr-linux-x86_64.duckdb_extension dplyr.duckdb_extension
+duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension'; SELECT 'OK';"
 
 # 디버그 모드
-DPLYR_DEBUG=1 duckdb :memory: -c "LOAD './extension.duckdb_extension';"
+DPLYR_DEBUG=1 duckdb -unsigned :memory: -c "LOAD './dplyr.duckdb_extension';"
 ```
 
 ## 개발자 가이드
