@@ -329,11 +329,11 @@ if command -v duckdb &> /dev/null; then
             SQL_EXTENSION_PATH=${CANONICAL_EXTENSION//\'/\'\'}
 
             # Test loading
-            if duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; SELECT 'Extension loaded successfully' as result;" | grep -q "Extension loaded successfully"; then
+            if LOAD_OUTPUT=$(duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; SELECT 'Extension loaded successfully' as result;") && grep -q "Extension loaded successfully" <<< "$LOAD_OUTPUT"; then
                 echo -e "  ${GREEN}✅ Extension loads successfully${NC}"
                 
                 # Test basic functionality (if implemented)
-                if duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; CREATE TABLE test AS SELECT 1 as id; SELECT 'Basic test passed' as result;" | grep -q "Basic test passed"; then
+                if BASIC_OUTPUT=$(duckdb -unsigned -bail :memory: -c "LOAD '$SQL_EXTENSION_PATH'; CREATE TABLE test AS SELECT 1 as id; SELECT 'Basic test passed' as result;") && grep -q "Basic test passed" <<< "$BASIC_OUTPUT"; then
                     echo -e "  ${GREEN}✅ Basic functionality works${NC}"
                 else
                     echo -e "  ${RED}❌ Basic functionality test failed${NC}"
