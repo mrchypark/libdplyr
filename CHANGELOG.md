@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-14
+
+### Added
+- **DuckDB parser override**: Convert implicit dplyr pipeline statements to native DuckDB ASTs on DuckDB 1.5.x while preserving the caller's temporary tables and transaction state.
+- **Pipe syntax control**: Use the database-global `dplyr_pipe_syntax` setting for implicit pipelines and the explicit `dplyr(query, mode)` argument for per-call `magrittr` or `native` syntax.
+
+### Changed
+- **DuckDB compatibility**: Support DuckDB 1.5.0 through 1.5.4, with exact-version extension packages for the minimum compatibility and primary supported versions.
+- **Distribution**: Align release, CI, and scheduled workflows with DuckDB 1.5.0 compatibility and DuckDB 1.5.4 primary artifacts.
+
+### Fixed
+- **Extension safety**: Harden parser callbacks, generated SQL handling, option resets, and FFI error cleanup.
+- **Cross-platform CI**: Avoid linking non-exported DuckDB parser internals in Windows integration tests and qualify standard synchronization types for portable builds.
+
 ## [0.3.1] - 2026-02-02
 
 ### Changed
