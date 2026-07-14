@@ -78,7 +78,9 @@ CANONICAL_EXTENSION="$SCRIPT_DIR/dplyr.duckdb_extension"
 if [[ ! -f "$EXTENSION_FILE" ]]; then
     echo "Extension file for platform $PLATFORM and DuckDB $DUCKDB_VERSION not found!" >&2
     echo "Available binaries for platform $PLATFORM:" >&2
-    find "$SCRIPT_DIR" -maxdepth 1 -name "dplyr-*-${PLATFORM}.duckdb_extension" -print >&2
+    for file in "$SCRIPT_DIR"/dplyr-*-"${PLATFORM}".duckdb_extension; do
+        [[ -e "$file" ]] && echo "  ${file##*/}" >&2
+    done
     exit 1
 fi
 
