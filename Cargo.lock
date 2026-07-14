@@ -544,7 +544,7 @@ checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libdplyr"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "colored",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "libdplyr_c"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "criterion",

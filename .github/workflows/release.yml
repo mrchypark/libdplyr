@@ -512,10 +512,10 @@ jobs:
           # DuckDB dplyr Extension ${{ github.event.release.tag_name || github.event.inputs.version }}
 
           ## 🚀 Features
-          - Complete dplyr syntax support for DuckDB
-          - Multi-platform compatibility (Linux, macOS, Windows)
-          - High-performance transpilation with caching
-          - Comprehensive error handling and debugging
+          - Native DuckDB 1.5 parser override for implicit dplyr pipeline statements
+          - Caller-context execution that preserves temporary tables and transaction state
+          - Database-global implicit pipe syntax with explicit per-call control through \`dplyr(query, mode)\`
+          - Exact-version DuckDB 1.5.0 compatibility packages and 1.5.4 primary packages, including Windows for 1.5.4
 
           ## 📦 Installation
 
@@ -536,6 +536,7 @@ jobs:
             - \`dplyr-v1.5.4-windows-x86_64.duckdb_extension\`
 
           ## 🔧 Requirements
+          - DuckDB 1.5.x is required for parser override support
           - DuckDB 1.5.4 is the primary supported current build
           - DuckDB 1.5.0 compatibility binaries are also provided
           - Load the binary that matches your exact DuckDB version
@@ -545,18 +546,23 @@ jobs:
           \`\`\`sql
           -- Load the extension
           LOAD '/path/to/dplyr-platform.duckdb_extension';
+          SET allow_parser_override_extension = 'fallback';
 
-          -- Use implicit pipeline syntax (%>%)
+          -- Use database-global magrittr syntax for implicit pipelines
+          SET GLOBAL dplyr_pipe_syntax = 'magrittr';
           mtcars %>%
                  select(mpg, cyl, hp) %>%
                  filter(mpg > 20) %>%
                  arrange(desc(hp));
+
+          -- Select native pipe syntax explicitly for one table-function call
+          SELECT * FROM dplyr('mtcars |> select(mpg, cyl)', 'native');
           \`\`\`
 
           ## ✅ Verification
-          Release artifacts are load-tested before packaging. Additional platform,
-          security, and compatibility checks are provided by the CI and security
-          workflows attached to the release branch.
+          Release artifacts are load-tested before packaging. The tagged main commit passed
+          the repository's CI and security workflows before this release, including platform,
+          parser callback safety, Windows linkage, and DuckDB 1.5.0 compatibility checks.
 
           ## 🔒 Security
           - All artifacts include SHA256 checksums
@@ -582,7 +588,7 @@ jobs:
 
           ---
 
-          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/previous-tag...${{ github.event.release.tag_name || github.event.inputs.version }}
+          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/v0.4.0...${{ github.event.release.tag_name || github.event.inputs.version }}
           EOF
 
       - name: Create or update release
