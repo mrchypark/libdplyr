@@ -534,6 +534,20 @@ TEST_F(DuckDBExtensionTest, TableFunctionMissingTableReturnsQueryErrorWithoutThr
     EXPECT_NE(error.find("missing_table"), std::string::npos) << error;
 }
 
+TEST_F(DuckDBExtensionTest, TableFunctionPropagatesErrorsRaisedDuringFetch) {
+    ASSERT_FALSE(conn->Query(
+        "CREATE VIEW dplyr_fetch_error AS SELECT CASE WHEN i = 500000 THEN "
+        "error('stream fetch failed') ELSE i END AS x FROM range(1000000) AS t(i)")
+                     ->HasError());
+
+    auto result = conn->Query("SELECT * FROM dplyr('dplyr_fetch_error %>% select(x)')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_TRUE(result->HasError()) << "Fetch-time execution errors must not become an empty result";
+    EXPECT_NE(result->GetError().find("stream fetch failed"), std::string::npos)
+        << result->GetError();
+}
+
 TEST_F(DuckDBExtensionTest, TableFunctionUsesCallerContextForTempTables) {
     ASSERT_FALSE(conn->Query("CREATE TEMP TABLE dplyr_temp_visible(x INTEGER)")->HasError());
     ASSERT_FALSE(conn->Query("INSERT INTO dplyr_temp_visible VALUES (11), (12)")->HasError());

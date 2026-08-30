@@ -1167,6 +1167,11 @@ static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &contex
         }
         collection->Append(append_state, *chunk);
     }
+    if (result->HasError()) {
+        Executor::Get(context).PushError(result->GetErrorObject());
+        auto empty_collection = make_uniq<ColumnDataCollection>(context, data.types);
+        return make_uniq<DplyrTableFunctionState>(std::move(empty_collection));
+    }
 
     return make_uniq<DplyrTableFunctionState>(std::move(collection));
 }
