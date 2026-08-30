@@ -73,6 +73,11 @@ pub enum DplyrOperation {
         columns: Vec<ColumnExpr>,
         location: SourceLocation,
     },
+    /// SELECT DISTINCT operation (optional identifier projection)
+    Distinct {
+        columns: Vec<String>,
+        location: SourceLocation,
+    },
     /// WHERE operation (row filtering)
     Filter {
         condition: Expr,
@@ -103,6 +108,11 @@ pub enum DplyrOperation {
         aggregations: Vec<Aggregation>,
         location: SourceLocation,
     },
+    /// Count rows, optionally adding identifier-only grouping keys.
+    Count {
+        columns: Vec<String>,
+        location: SourceLocation,
+    },
     /// JOIN operation for combining tables
     Join {
         join_type: JoinType,
@@ -129,12 +139,14 @@ impl DplyrOperation {
     pub const fn location(&self) -> &SourceLocation {
         match self {
             Self::Select { location, .. } => location,
+            Self::Distinct { location, .. } => location,
             Self::Filter { location, .. } => location,
             Self::Mutate { location, .. } => location,
             Self::Rename { location, .. } => location,
             Self::Arrange { location, .. } => location,
             Self::GroupBy { location, .. } => location,
             Self::Summarise { location, .. } => location,
+            Self::Count { location, .. } => location,
             Self::Join { location, .. } => location,
             Self::SetOp { location, .. } => location,
         }
@@ -144,12 +156,14 @@ impl DplyrOperation {
     pub const fn operation_name(&self) -> &'static str {
         match self {
             Self::Select { .. } => "select",
+            Self::Distinct { .. } => "distinct",
             Self::Filter { .. } => "filter",
             Self::Mutate { .. } => "mutate",
             Self::Rename { .. } => "rename",
             Self::Arrange { .. } => "arrange",
             Self::GroupBy { .. } => "group_by",
             Self::Summarise { .. } => "summarise",
+            Self::Count { .. } => "count/tally",
             Self::Join { .. } => "join",
             Self::SetOp { operation, .. } => match operation {
                 SetOperation::Intersect => "intersect",
@@ -175,6 +189,11 @@ pub enum Expr {
     },
     /// Function call
     Function { name: String, args: Vec<Expr> },
+    /// Ordered `case_when()` formulas with an optional default.
+    CaseWhen {
+        branches: Vec<(Expr, Expr)>,
+        default: Option<Box<Expr>>,
+    },
     /// Named function argument, e.g. `sep = " "`.
     NamedArg { name: String, value: Box<Expr> },
 }
@@ -261,10 +280,16 @@ pub enum JoinType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct JoinSpec {
     pub table: String,
-    /// Single column name for simple joins (e.g., `by = "id"`)
-    pub by_column: Option<String>,
+    /// Equality keys from `by = "id"` or `by = c("left" = "right", "same")`.
+    pub by: Vec<JoinKey>,
     /// Fallback: general expression for complex joins
     pub on_expr: Option<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinKey {
+    pub left: String,
+    pub right: String,
 }
 
 /// Join operation for combining tables

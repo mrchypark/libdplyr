@@ -242,6 +242,16 @@ fn inspect_ast(ast: &DplyrNode) {
                     libdplyr::DplyrOperation::Select { columns, .. } => {
                         println!("     {}. Select: {} columns", i + 1, columns.len());
                     }
+                    libdplyr::DplyrOperation::Distinct { columns, .. } => {
+                        println!("     {}. Distinct: {} columns", i + 1, columns.len());
+                    }
+                    libdplyr::DplyrOperation::Count { columns, .. } => {
+                        println!(
+                            "     {}. Count/tally: {} additional keys",
+                            i + 1,
+                            columns.len()
+                        );
+                    }
                     libdplyr::DplyrOperation::Filter { .. } => {
                         println!("     {}. Filter: condition applied", i + 1);
                     }

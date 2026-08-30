@@ -488,6 +488,22 @@ mod select_parsing_tests {
     use super::*;
 
     #[test]
+    fn test_select_wildcard() {
+        let lexer = Lexer::new("select(*)".to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+
+        let ast = parser.parse().unwrap();
+
+        let DplyrNode::Pipeline { operations, .. } = ast else {
+            panic!("Expected Pipeline node");
+        };
+        let DplyrOperation::Select { columns, .. } = &operations[0] else {
+            panic!("Expected Select operation");
+        };
+        assert_eq!(columns[0].expr, Expr::Identifier("*".to_string()));
+    }
+
+    #[test]
     fn test_select_single_column() {
         let lexer = Lexer::new("select(name)".to_string());
         let mut parser = Parser::new(lexer).unwrap();
@@ -829,6 +845,51 @@ mod select_parsing_tests {
             }
         } else {
             panic!("Expected Pipeline node");
+        }
+    }
+}
+
+mod distinct_parsing_tests {
+    use super::*;
+
+    #[test]
+    fn test_distinct_with_identifiers() {
+        let lexer = Lexer::new("distinct(name, age)".to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+
+        let ast = parser.parse().unwrap();
+
+        let DplyrNode::Pipeline { operations, .. } = ast else {
+            panic!("Expected Pipeline node");
+        };
+        assert!(matches!(
+            &operations[0],
+            DplyrOperation::Distinct { columns, .. } if columns == &["name", "age"]
+        ));
+    }
+
+    #[test]
+    fn test_distinct_without_columns() {
+        let lexer = Lexer::new("distinct()".to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+
+        let ast = parser.parse().unwrap();
+
+        let DplyrNode::Pipeline { operations, .. } = ast else {
+            panic!("Expected Pipeline node");
+        };
+        assert!(matches!(
+            &operations[0],
+            DplyrOperation::Distinct { columns, .. } if columns.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_distinct_rejects_expressions_and_options() {
+        for input in ["distinct(upper(name))", "distinct(.keep_all = TRUE)"] {
+            let lexer = Lexer::new(input.to_string());
+            let mut parser = Parser::new(lexer).unwrap();
+            assert!(parser.parse().is_err(), "{input} should be rejected");
         }
     }
 }

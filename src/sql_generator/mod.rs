@@ -211,9 +211,21 @@ impl SqlGenerator {
         let source_table = source.as_deref().unwrap_or("data");
 
         // Process each operation in order
-        for operation in operations {
+        for (index, operation) in operations.iter().enumerate() {
+            if matches!(operation, DplyrOperation::Count { .. })
+                && operations[index + 1..]
+                    .iter()
+                    .any(|next| !matches!(next, DplyrOperation::Arrange { .. }))
+            {
+                return Err(GenerationError::InvalidAst {
+                    reason: "operations after count()/tally() require a subquery".to_string(),
+                });
+            }
             self.process_operation(operation, &mut query_parts, source_table)?;
-            if matches!(operation, DplyrOperation::Summarise { .. }) {
+            if matches!(
+                operation,
+                DplyrOperation::Summarise { .. } | DplyrOperation::Count { .. }
+            ) {
                 aggregation_group_by = if query_parts.group_by.is_empty() {
                     None
                 } else {
@@ -235,10 +247,38 @@ impl SqlGenerator {
         query_parts: &mut QueryParts,
         source_table: &str,
     ) -> GenerationResult<()> {
+        if query_parts.distinct {
+            return Err(GenerationError::InvalidAst {
+                reason: "operations after distinct() require a subquery".to_string(),
+            });
+        }
+
         match operation {
             DplyrOperation::Select { columns, .. } => {
+                query_parts
+                    .derived_columns
+                    .extend(columns.iter().filter_map(|column| column.alias.clone()));
                 query_parts.select_columns =
                     self.generate_select_columns_with_mutations(columns, query_parts)?;
+            }
+            DplyrOperation::Distinct { columns, .. } => {
+                if !query_parts.group_by.is_empty() {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "distinct() after group_by() requires a subquery".to_string(),
+                    });
+                }
+                query_parts.distinct = true;
+                if !columns.is_empty() {
+                    let column_exprs: Vec<_> = columns
+                        .iter()
+                        .map(|column| ColumnExpr {
+                            expr: Expr::Identifier(column.clone()),
+                            alias: None,
+                        })
+                        .collect();
+                    query_parts.select_columns =
+                        self.generate_select_columns_with_mutations(&column_exprs, query_parts)?;
+                }
             }
             DplyrOperation::Filter { condition, .. } => {
                 let where_clause = self.generate_expression(condition)?;
@@ -261,6 +301,7 @@ impl SqlGenerator {
                 query_parts.order_by = self.generate_order_by(columns)?;
             }
             DplyrOperation::GroupBy { columns, .. } => {
+                query_parts.group_columns = columns.clone();
                 query_parts.group_by = columns
                     .iter()
                     .map(|col| self.dialect.quote_identifier(col))
@@ -274,6 +315,65 @@ impl SqlGenerator {
                 }
                 select_columns.extend(self.generate_aggregations(aggregations)?);
                 query_parts.select_columns = select_columns;
+                query_parts.has_aggregation = true;
+            }
+            DplyrOperation::Count { columns, .. } => {
+                if query_parts.has_aggregation {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "count()/tally() after aggregation requires a subquery".to_string(),
+                    });
+                }
+                if query_parts.set_operation.is_some() {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "count()/tally() after a set operation requires a subquery"
+                            .to_string(),
+                    });
+                }
+                if !columns.is_empty() && !query_parts.joins.is_empty() {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "count() keys after a join require qualified columns".to_string(),
+                    });
+                }
+
+                let mut group_columns = query_parts.group_columns.clone();
+                for column in columns {
+                    if !group_columns.contains(column) {
+                        group_columns.push(column.clone());
+                    }
+                }
+                if group_columns.iter().any(|column| {
+                    query_parts.mutated_columns.contains_key(column)
+                        || query_parts.derived_columns.contains(column)
+                }) {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "computed count() keys require a subquery".to_string(),
+                    });
+                }
+
+                let mut alias = "n".to_string();
+                while group_columns.contains(&alias) {
+                    alias.push('n');
+                }
+                query_parts.group_columns = group_columns;
+                query_parts.group_by = query_parts
+                    .group_columns
+                    .iter()
+                    .map(|column| self.dialect.quote_identifier(column))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let mut select_columns = Vec::new();
+                if !query_parts.group_by.is_empty() {
+                    select_columns.push(query_parts.group_by.clone());
+                }
+                select_columns.extend(self.generate_aggregations(&[Aggregation {
+                    function: "n".to_string(),
+                    column: String::new(),
+                    alias: Some(alias),
+                }])?);
+                query_parts.select_columns = select_columns;
+                query_parts.order_by.clear();
+                query_parts.has_aggregation = true;
             }
             DplyrOperation::Join {
                 join_type, spec, ..
@@ -339,6 +439,7 @@ impl SqlGenerator {
         }
 
         for spec in renames {
+            query_parts.derived_columns.insert(spec.new_name.clone());
             query_parts.select_columns.push(format!(
                 "{} AS {}",
                 self.dialect.quote_identifier(&spec.old_name),
@@ -361,6 +462,29 @@ impl SqlGenerator {
         // Check if dialect supports SEMI/ANTI JOIN natively (DuckDB only)
         let is_duckdb = self.dialect.dialect_name() == "duckdb";
 
+        let condition = if !spec.by.is_empty() {
+            spec.by
+                .iter()
+                .map(|key| {
+                    format!(
+                        "{} = {}",
+                        self.dialect
+                            .quote_identifier_path(&[source_table, &key.left]),
+                        self.dialect
+                            .quote_identifier_path(&[&spec.table, &key.right])
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        } else if let Some(expr) = &spec.on_expr {
+            self.generate_expression(expr)?
+        } else {
+            return Err(GenerationError::InvalidAst {
+                reason: "join operation requires either 'by' parameter or 'on' condition"
+                    .to_string(),
+            });
+        };
+
         // For SEMI and ANTI joins, non-DuckDB dialects need subquery transformation
         match join_type {
             JoinType::Semi | JoinType::Anti if !is_duckdb => {
@@ -369,24 +493,6 @@ impl SqlGenerator {
                     JoinType::Semi => "EXISTS",
                     JoinType::Anti => "NOT EXISTS",
                     _ => unreachable!(),
-                };
-
-                // Generate the condition
-                let condition = if let Some(by_column) = &spec.by_column {
-                    format!(
-                        "{} = {}",
-                        self.dialect
-                            .quote_identifier_path(&[source_table, by_column]),
-                        self.dialect
-                            .quote_identifier_path(&[&spec.table, by_column])
-                    )
-                } else if let Some(expr) = &spec.on_expr {
-                    self.generate_expression(expr)?
-                } else {
-                    return Err(GenerationError::InvalidAst {
-                        reason: "join operation requires either 'by' parameter or 'on' condition"
-                            .to_string(),
-                    });
                 };
 
                 // Create subquery: WHERE (NOT) EXISTS (SELECT 1 FROM right_table ON condition)
@@ -417,32 +523,11 @@ impl SqlGenerator {
             JoinType::Anti => "ANTI JOIN",
         };
 
-        // Generate ON clause based on join specification
-        let on_clause = if let Some(by_column) = &spec.by_column {
-            // by = "column_name" -> ON "source"."column" = "right_table"."column"
-            format!(
-                "{} = {}",
-                self.dialect
-                    .quote_identifier_path(&[source_table, by_column]),
-                self.dialect
-                    .quote_identifier_path(&[&spec.table, by_column])
-            )
-        } else if let Some(expr) = &spec.on_expr {
-            // Fallback to expression-based ON clause
-            self.generate_expression(expr)?
-        } else {
-            // No join condition specified
-            return Err(GenerationError::InvalidAst {
-                reason: "join operation requires either 'by' parameter or 'on' condition"
-                    .to_string(),
-            });
-        };
-
         query_parts.joins.push(format!(
             "{} {} ON {}",
             join_sql,
             self.dialect.quote_identifier(&spec.table),
-            on_clause
+            condition
         ));
 
         Ok(())
@@ -473,9 +558,19 @@ impl SqlGenerator {
         aggregations
             .iter()
             .map(|agg| {
+                let is_n_distinct = agg.function.eq_ignore_ascii_case("n_distinct");
+                if is_n_distinct && agg.column.is_empty() {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "n_distinct() requires a column".to_string(),
+                    });
+                }
                 let func_name = self
                     .dialect
-                    .translate_aggregate_function(&agg.function)
+                    .translate_aggregate_function(if is_n_distinct {
+                        "count"
+                    } else {
+                        &agg.function
+                    })
                     .ok_or_else(|| GenerationError::UnsupportedAggregateFunction {
                         function: agg.function.clone(),
                         dialect: self.dialect.dialect_name().to_string(),
@@ -486,7 +581,13 @@ impl SqlGenerator {
                     self.dialect.quote_identifier(&agg.column)
                 };
 
-                let expr = format!("{func_name}({column_ref})");
+                let expr = if is_n_distinct {
+                    format!(
+                        "{func_name}(DISTINCT {column_ref}) + CASE WHEN {func_name}(*) > {func_name}({column_ref}) THEN 1 ELSE 0 END"
+                    )
+                } else {
+                    format!("{func_name}({column_ref})")
+                };
 
                 if let Some(alias) = &agg.alias {
                     Ok(format!(
@@ -528,6 +629,24 @@ impl SqlGenerator {
             }
             Expr::Function { name, args } => {
                 self.generate_function_expression_with_window_partition(name, args, partition_by)
+            }
+            Expr::CaseWhen { branches, default } => {
+                let mut sql = String::from("CASE");
+                for (condition, value) in branches {
+                    let condition_sql =
+                        self.generate_expression_with_window_partition(condition, partition_by)?;
+                    let value_sql =
+                        self.generate_expression_with_window_partition(value, partition_by)?;
+                    sql.push_str(&format!(" WHEN {condition_sql} THEN {value_sql}"));
+                }
+                let default_sql = match default {
+                    Some(expr) => {
+                        self.generate_expression_with_window_partition(expr, partition_by)?
+                    }
+                    None => "NULL".to_string(),
+                };
+                sql.push_str(&format!(" ELSE {default_sql} END"));
+                Ok(sql)
             }
             Expr::NamedArg { name, .. } => Err(GenerationError::InvalidAst {
                 reason: format!("named argument '{name}' cannot be used outside a function call"),

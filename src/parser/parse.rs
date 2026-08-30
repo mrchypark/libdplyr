@@ -529,12 +529,15 @@ impl Parser {
     fn parse_operation(&mut self) -> ParseResult<DplyrOperation> {
         match &self.current_token {
             Token::Select => self.parse_select(),
+            Token::Distinct => self.parse_distinct(),
             Token::Filter => self.parse_filter(),
             Token::Mutate => self.parse_mutate(),
             Token::Rename => self.parse_rename(),
             Token::Arrange => self.parse_arrange(),
             Token::GroupBy => self.parse_group_by(),
             Token::Summarise => self.parse_summarise(),
+            Token::Identifier(name) if name == "count" => self.parse_count(),
+            Token::Identifier(name) if name == "tally" => self.parse_tally(),
             Token::InnerJoin
             | Token::LeftJoin
             | Token::RightJoin
@@ -574,6 +577,42 @@ impl Parser {
 
         self.expect_token(Token::RightParen)?;
         Ok(DplyrOperation::Select { columns, location })
+    }
+
+    /// Parses the portable subset of distinct(): no arguments or identifiers only.
+    fn parse_distinct(&mut self) -> ParseResult<DplyrOperation> {
+        let location = self.current_location();
+        self.advance()?; // Skip 'distinct'
+        self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
+
+        let mut columns = Vec::new();
+        if self.current_token != Token::RightParen {
+            let Token::Identifier(column) = &self.current_token else {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "column identifier".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            };
+            columns.push(column.clone());
+            self.advance()?;
+            while self.current_token == Token::Comma {
+                self.advance()?;
+                let Token::Identifier(column) = &self.current_token else {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "column identifier".to_string(),
+                        found: format!("{}", self.current_token),
+                        position: self.position,
+                    });
+                };
+                columns.push(column.clone());
+                self.advance()?;
+            }
+        }
+
+        self.expect_token(Token::RightParen)?;
+        Ok(DplyrOperation::Distinct { columns, location })
     }
 
     /// Parses filter() operation.
@@ -755,6 +794,55 @@ impl Parser {
         })
     }
 
+    /// Parses the identifier-only subset of count().
+    fn parse_count(&mut self) -> ParseResult<DplyrOperation> {
+        let location = self.current_location();
+        self.advance()?;
+        self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
+
+        let mut columns = Vec::new();
+        if self.current_token != Token::RightParen {
+            let Token::Identifier(column) = &self.current_token else {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "column identifier".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            };
+            columns.push(column.clone());
+            self.advance()?;
+            while self.current_token == Token::Comma {
+                self.advance()?;
+                let Token::Identifier(column) = &self.current_token else {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "column identifier".to_string(),
+                        found: format!("{}", self.current_token),
+                        position: self.position,
+                    });
+                };
+                columns.push(column.clone());
+                self.advance()?;
+            }
+        }
+
+        self.expect_token(Token::RightParen)?;
+        Ok(DplyrOperation::Count { columns, location })
+    }
+
+    /// Parses the unweighted, argument-free subset of tally().
+    fn parse_tally(&mut self) -> ParseResult<DplyrOperation> {
+        let location = self.current_location();
+        self.advance()?;
+        self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
+        self.expect_token(Token::RightParen)?;
+        Ok(DplyrOperation::Count {
+            columns: Vec::new(),
+            location,
+        })
+    }
+
     /// Parses join operations (inner_join, left_join, right_join, full_join, semi_join, anti_join).
     fn parse_join(&mut self) -> ParseResult<DplyrOperation> {
         let join_type = match &self.current_token {
@@ -805,18 +893,25 @@ impl Parser {
         self.expect_token(Token::Assignment)?;
 
         // Parse by parameter - handle string literal as column name
-        let (by_column, on_expr) = match &self.current_token {
+        let (by, on_expr) = match &self.current_token {
             Token::String(s) => {
                 // by = "column_name" - simple join on same column name
                 let col_name = s.clone();
                 self.advance()?;
-                (Some(col_name), None)
+                (
+                    vec![JoinKey {
+                        left: col_name.clone(),
+                        right: col_name,
+                    }],
+                    None,
+                )
             }
+            Token::Identifier(name) if name == "c" => (self.parse_join_key_vector()?, None),
             Token::Identifier(_) => {
                 // Could be a column reference or complex expression
                 // For now, parse as expression
                 let expr = self.parse_expression()?;
-                (None, Some(expr))
+                (Vec::new(), Some(expr))
             }
             _ => {
                 return Err(ParseError::UnexpectedToken {
@@ -833,11 +928,56 @@ impl Parser {
             join_type,
             spec: JoinSpec {
                 table: table_name,
-                by_column,
+                by,
                 on_expr,
             },
             location,
         })
+    }
+
+    fn parse_join_key_vector(&mut self) -> ParseResult<Vec<JoinKey>> {
+        self.advance()?; // Skip c
+        self.expect_token(Token::LeftParen)?;
+
+        let mut keys = Vec::new();
+        loop {
+            let left = match &self.current_token {
+                Token::String(name) => name.clone(),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "non-empty string join key vector".to_string(),
+                        found: format!("{}", self.current_token),
+                        position: self.position,
+                    })
+                }
+            };
+            self.advance()?;
+
+            let right = if self.current_token == Token::Assignment {
+                self.advance()?;
+                let Token::String(name) = &self.current_token else {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "string join key".to_string(),
+                        found: format!("{}", self.current_token),
+                        position: self.position,
+                    });
+                };
+                let name = name.clone();
+                self.advance()?;
+                name
+            } else {
+                left.clone()
+            };
+            keys.push(JoinKey { left, right });
+
+            if self.current_token != Token::Comma {
+                break;
+            }
+            self.advance()?;
+        }
+
+        self.expect_token(Token::RightParen)?;
+        Ok(keys)
     }
 
     /// Parses set operations (intersect, union, setdiff).
@@ -871,6 +1011,14 @@ impl Parser {
 
     /// Parses column expressions.
     fn parse_column_expr(&mut self) -> ParseResult<ColumnExpr> {
+        if self.current_token == Token::Multiply {
+            self.advance()?;
+            return Ok(ColumnExpr {
+                expr: Expr::Identifier("*".to_string()),
+                alias: None,
+            });
+        }
+
         // Check if this is an alias assignment (alias = expr)
         if let Token::Identifier(first_name) = &self.current_token {
             let first_name = first_name.clone();
@@ -1283,6 +1431,10 @@ impl Parser {
                 if self.current_token == Token::LeftParen {
                     self.advance()?; // Skip (
 
+                    if name == "case_when" {
+                        return self.parse_case_when();
+                    }
+
                     let mut args = Vec::new();
                     if self.current_token != Token::RightParen {
                         args.push(self.parse_function_argument()?);
@@ -1330,6 +1482,42 @@ impl Parser {
                 position: self.position,
             }),
         }
+    }
+
+    fn parse_case_when(&mut self) -> ParseResult<Expr> {
+        let mut branches = Vec::new();
+        let mut default = None;
+
+        while self.current_token != Token::RightParen {
+            if self.current_token == Token::Dot {
+                self.advance()?;
+                self.expect_identifier_name("default")?;
+                self.expect_token(Token::Assignment)?;
+                default = Some(Box::new(self.parse_expression()?));
+                break;
+            }
+
+            let condition = self.parse_expression()?;
+            self.expect_token(Token::Tilde)?;
+            let value = self.parse_expression()?;
+            branches.push((condition, value));
+
+            if self.current_token != Token::Comma {
+                break;
+            }
+            self.advance()?;
+        }
+
+        if branches.is_empty() {
+            return Err(ParseError::UnexpectedToken {
+                expected: "at least one case_when condition ~ value formula".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        }
+
+        self.expect_token(Token::RightParen)?;
+        Ok(Expr::CaseWhen { branches, default })
     }
 
     fn parse_function_argument(&mut self) -> ParseResult<Expr> {

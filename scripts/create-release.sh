@@ -189,12 +189,12 @@ cat >> "$RELEASE_NOTES_FILE" << EOF
 ### Quick Install
 \`\`\`bash
 # Download install.sh and the exact DuckDB/platform asset into the same directory, then run:
-DUCKDB_VERSION=v1.5.4 bash ./install.sh
+DUCKDB_VERSION=v1.5.5 bash ./install.sh
 \`\`\`
 
 ### Platform-specific Downloads
 - **DuckDB v1.5.0**: \`dplyr-v1.5.0-linux-x86_64.duckdb_extension\`, \`dplyr-v1.5.0-macos-x86_64.duckdb_extension\`, \`dplyr-v1.5.0-macos-arm64.duckdb_extension\`
-- **DuckDB v1.5.4**: \`dplyr-v1.5.4-linux-x86_64.duckdb_extension\`, \`dplyr-v1.5.4-macos-x86_64.duckdb_extension\`, \`dplyr-v1.5.4-macos-arm64.duckdb_extension\`, \`dplyr-v1.5.4-windows-x86_64.duckdb_extension\`
+- **DuckDB v1.5.5**: \`dplyr-v1.5.5-linux-x86_64.duckdb_extension\`, \`dplyr-v1.5.5-macos-x86_64.duckdb_extension\`, \`dplyr-v1.5.5-macos-arm64.duckdb_extension\`, \`dplyr-v1.5.5-windows-x86_64.duckdb_extension\`
 
 ### Manual Installation
 1. Download the versioned asset matching the exact DuckDB version and platform.
@@ -209,7 +209,7 @@ DUCKDB_VERSION=v1.5.4 bash ./install.sh
 
 ## 🔧 Requirements
 - Manual packaging requires DUCKDB_VERSION; each C++ extension binary requires that exact recorded DuckDB build version
-- Source-tested DuckDB versions: 1.5.0 and 1.5.4
+- Source-tested DuckDB versions: 1.5.0 and 1.5.5
 - Compatible operating system (Linux, macOS, Windows)
 
 ## 📊 Usage Example
@@ -241,11 +241,11 @@ SELECT AVG(hp) as avg_horsepower FROM filtered_data;
 sha256sum -c checksums.sha256
 
 # Keep the versioned download, but install through the canonical local filename.
-cp dplyr-v1.5.4-linux-x86_64.duckdb_extension dplyr.duckdb_extension
+cp dplyr-v1.5.5-linux-x86_64.duckdb_extension dplyr.duckdb_extension
 CANONICAL_EXTENSION="\$(pwd)/dplyr.duckdb_extension"
 SQL_EXTENSION_PATH="\$(printf '%s' "\$CANONICAL_EXTENSION" | sed "s/'/''/g")"
 
-# Use the matching DuckDB v1.5.4 CLI.
+# Use the matching DuckDB v1.5.5 CLI.
 duckdb -unsigned -bail :memory: \\
   -cmd "FORCE INSTALL '\$SQL_EXTENSION_PATH'; LOAD dplyr; SET allow_parser_override_extension = 'fallback';" \\
   -c "CREATE TABLE test AS SELECT 1 AS id, 'test' AS name; test %>% select(id, name);"

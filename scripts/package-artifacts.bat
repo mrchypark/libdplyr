@@ -20,7 +20,7 @@ set EXTENSION_NAME=dplyr
 
 set DUCKDB_VERSION_RAW=%DUCKDB_VERSION%
 if not defined DUCKDB_VERSION_RAW (
-    echo DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version ^(for example, 1.5.4^).
+    echo DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version ^(for example, 1.5.5^).
     exit /b 1
 )
 
@@ -28,7 +28,7 @@ set DUCKDB_VERSION=!DUCKDB_VERSION_RAW!
 if /i "!DUCKDB_VERSION:~0,1!"=="v" set DUCKDB_VERSION=!DUCKDB_VERSION:~1!
 echo(!DUCKDB_VERSION!| %SystemRoot%\System32\findstr.exe /r /x "1\.5\.[0-9][0-9]*" >nul
 if errorlevel 1 (
-    echo Invalid DUCKDB_VERSION: '!DUCKDB_VERSION!'. Expected an exact 1.5.x semantic version ^(for example, 1.5.4^).
+    echo Invalid DUCKDB_VERSION: '!DUCKDB_VERSION!'. Expected an exact 1.5.x semantic version ^(for example, 1.5.5^).
     exit /b 1
 )
 
@@ -203,7 +203,7 @@ echo.
 echo ## Prerequisites
 echo.
 echo - **DuckDB binary version**: Exactly %DUCKDB_VERSION% ^(declared by the required DUCKDB_VERSION packaging input^)
-echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 echo - **Operating System**: Windows ^(x86_64 architecture^)
 echo - **Memory**: At least 64MB available RAM
 echo - **Disk Space**: At least 10MB free space
@@ -307,7 +307,7 @@ echo.
 echo - **Extension Version**: %VERSION%
 echo - **Build Commit**: %GIT_COMMIT%
 echo - **Required DuckDB binary version**: %DUCKDB_VERSION% ^(exact match^)
-echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 echo - **Platform**: %PLATFORM_ARCH%
 echo - **Build Date**: %BUILD_TIMESTAMP%
 echo.
@@ -407,7 +407,7 @@ echo - `%ARCHIVE_NAME%.zip` - Compressed archive ^(Windows^)
 echo.
 echo ## Compatibility
 echo - **Required DuckDB binary version**: %DUCKDB_VERSION% ^(exact match^)
-echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+echo - **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 echo - **Platform**: %PLATFORM% ^(%ARCH%^)
 echo - **ABI Version**: 1
 echo - **API Version**: 1

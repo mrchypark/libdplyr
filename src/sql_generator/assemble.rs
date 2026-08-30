@@ -1,6 +1,6 @@
 // SQL assembly helpers.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{DplyrOperation, GenerationResult, SqlGenerator};
 
@@ -8,11 +8,15 @@ use super::{DplyrOperation, GenerationResult, SqlGenerator};
 #[derive(Debug, Default)]
 pub(super) struct QueryParts {
     pub(super) select_columns: Vec<String>,
+    pub(super) distinct: bool,
     pub(super) where_clauses: Vec<String>,
     pub(super) group_by: String,
+    pub(super) group_columns: Vec<String>,
+    pub(super) has_aggregation: bool,
     pub(super) order_by: String,
     pub(super) joins: Vec<String>,
     pub(super) mutated_columns: HashMap<String, String>,
+    pub(super) derived_columns: HashSet<String>,
     pub(super) set_operation: Option<(String, String)>, // (operation, right_table)
 }
 
@@ -56,6 +60,9 @@ impl SqlGenerator {
 
         // SELECT clause
         query.push_str("SELECT ");
+        if parts.distinct {
+            query.push_str("DISTINCT ");
+        }
         if parts.select_columns.is_empty() {
             query.push('*');
         } else {

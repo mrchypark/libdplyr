@@ -14,7 +14,7 @@ libdplyr enables R users to write database queries using familiar dplyr syntax a
 
 ## ✨ Key Features
 
-- **dplyr Syntax Support**: Full support for `select()`, `filter()`, `mutate()`, `arrange()`, `group_by()`, `summarise()`
+- **dplyr Syntax Support**: Core support for `select()`, `distinct()`, `filter()`, `mutate()`, `arrange()`, `group_by()`, `summarise()`, and limited `count()`/`tally()`
 - **Pipeline Operations**: Chain operations using the `%>%` pipe operator
 - **Multiple Dialects**: PostgreSQL, MySQL, SQLite, DuckDB
 - **Performance**: High-performance Rust implementation
@@ -80,26 +80,30 @@ DuckDB 1.5.x에서는 `SET allow_parser_override_extension = 'fallback';`로 dpl
 ## 📋 Supported Functions
 
 libdplyr supports a wide range of dplyr verbs and R functions.
+Exact partial-support and rejection boundaries are documented in
+[the dplyr syntax support matrix](docs/dplyr-support.md).
 
 ### Core Verbs
 | Function | Description | Example |
 | :--- | :--- | :--- |
 | `select()` | Select/rename columns | `select(id, name)` |
+| `distinct()` | Keep distinct rows or identifier columns | `distinct(dept, role)` |
 | `filter()` | Filter rows | `filter(age > 18)` |
 | `mutate()` | Create/modify columns | `mutate(total = price * qty)` |
 | `rename()` | Rename columns | `rename(new = old)` |
 | `arrange()` | Sort rows | `arrange(desc(date))` |
 | `group_by()` | Group rows | `group_by(dept)` |
 | `summarise()` | Aggregate data | `summarise(avg = mean(val))` |
-| `*_join()` | Joins (inner, left, etc.) | `left_join(other, by="id")` |
+| `count()` / `tally()` | Count rows by identifier-only keys or current groups | `count(dept)` |
+| `*_join()` | Equality joins (inner, left, etc.) | `left_join(other, by=c("id", "left"="right"))` |
 | Set Ops | union, intersect, setdiff | `union(other)` |
 
 ### Helper Functions
-*   **Aggregation**: `mean`, `sum`, `min`, `max`, `n`, `count`, `median`*, `mode`*
+*   **Aggregation**: `mean`, `sum`, `min`, `max`, `n`, `n_distinct`, `count`, `median`*, `mode`*
 *   **Window**: `row_number`, `rank`, `lead`, `lag`, `ntile`
 *   **Math**: `abs`, `sqrt`, `round`, `floor`, `log`, `exp`
 *   **String**: `tolower`, `toupper`, `substr`, `trimws`
-*   **Logic**: `ifelse`, `is.na`, `coalesce`
+*   **Logic**: `ifelse`, `case_when`, `between`, `is.na`, `coalesce`
 
 ## Examples
 

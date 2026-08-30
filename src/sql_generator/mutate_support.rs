@@ -17,6 +17,7 @@ impl SqlGenerator {
             .iter()
             .map(|col| {
                 let (expr_sql, implicit_alias) = match &col.expr {
+                    Expr::Identifier(name) if name == "*" => ("*".to_string(), None),
                     Expr::Identifier(name) => {
                         if let Some(mutated_expr) = parts.mutated_columns.get(name) {
                             (mutated_expr.clone(), Some(name.as_str()))
@@ -147,6 +148,14 @@ impl SqlGenerator {
             Expr::Function { args, .. } => args
                 .iter()
                 .any(|arg| self.expression_references_columns(arg, columns)),
+            Expr::CaseWhen { branches, default } => {
+                branches.iter().any(|(condition, value)| {
+                    self.expression_references_columns(condition, columns)
+                        || self.expression_references_columns(value, columns)
+                }) || default
+                    .as_ref()
+                    .is_some_and(|expr| self.expression_references_columns(expr, columns))
+            }
             Expr::NamedArg { value, .. } => self.expression_references_columns(value, columns),
             Expr::Literal(_) => false,
         }
@@ -172,6 +181,13 @@ impl SqlGenerator {
             }
             Expr::Binary { left, right, .. } => {
                 self.expression_is_complex(left) || self.expression_is_complex(right)
+            }
+            Expr::CaseWhen { branches, default } => {
+                branches.iter().any(|(condition, value)| {
+                    self.expression_is_complex(condition) || self.expression_is_complex(value)
+                }) || default
+                    .as_ref()
+                    .is_some_and(|expr| self.expression_is_complex(expr))
             }
             Expr::NamedArg { value, .. } => self.expression_is_complex(value),
             _ => false,

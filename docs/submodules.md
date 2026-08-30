@@ -11,17 +11,17 @@
 
 ## 현재 고정 상태
 
-- `duckdb`: `08e34c447bae34eaee3723cac61f2878b6bdf787` (`v1.5.4`)
+- `duckdb`: `d8cdaa33fda8df955cc76ef58a280f68f4cd43fa` (`v1.5.5`)
 - `extension-ci-tools`: `72e76e99cd7fee45a99739cd118ec2db64e034ec` (`v1.5-variegata`)
 
 ## Compatibility Matrix
 
 - 최소 지원 DuckDB 버전: `v1.5.0`
-- 주 지원 DuckDB 버전: `v1.5.4`
+- 주 지원 DuckDB 버전: `v1.5.5`
 - 최소 호환성 검사 버전: `v1.5.0`
-- CI는 현재 `v1.5.4`를 멀티플랫폼 주 검증선으로, `v1.5.0`을 Linux/macOS 호환성 검증선으로 사용합니다.
-- 릴리스 바이너리는 현재 `v1.5.0`과 `v1.5.4`를 대상으로 생성합니다.
-- 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개로 관리하되, 현재 DuckDB 핀은 주 지원 버전 `v1.5.4`와 일치합니다.
+- CI는 현재 `v1.5.5`를 멀티플랫폼 주 검증선으로, `v1.5.0`을 Linux/macOS 호환성 검증선으로 사용합니다.
+- 릴리스 바이너리는 현재 `v1.5.0`과 `v1.5.5`를 대상으로 생성합니다.
+- 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개로 관리하되, 현재 DuckDB 핀은 주 지원 버전 `v1.5.5`와 일치합니다.
 
 ## Parser override
 

@@ -1142,30 +1142,30 @@ static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &contex
     auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
     if (!data.error.empty()) {
         Executor::Get(context).PushError(ErrorData(ExceptionType::INVALID_INPUT, data.error));
-        auto collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), data.types);
+        auto collection = make_uniq<ColumnDataCollection>(context, data.types);
         return make_uniq<DplyrTableFunctionState>(std::move(collection));
     }
 
     auto &db = DatabaseInstance::GetDatabase(context);
     Connection conn(db);
 
-    auto result = conn.Query(data.sql);
+    auto result = conn.SendQuery(data.sql);
     if (result->HasError()) {
         Executor::Get(context).PushError(result->GetErrorObject());
-        auto collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), data.types);
+        auto collection = make_uniq<ColumnDataCollection>(context, data.types);
         return make_uniq<DplyrTableFunctionState>(std::move(collection));
     }
 
-    // Fetch all chunks from the result and build a new collection
-    // This avoids using TakeCollection which is not exported on Windows
-    auto collection = make_uniq<ColumnDataCollection>(Allocator::DefaultAllocator(), data.types);
-    
+    // Keep the result buffer-managed; TakeCollection is not exported on Windows.
+    auto collection = make_uniq<ColumnDataCollection>(context, data.types);
+    ColumnDataAppendState append_state;
+    collection->InitializeAppend(append_state);
     while (true) {
         auto chunk = result->Fetch();
         if (!chunk || chunk->size() == 0) {
             break;
         }
-        collection->Append(*chunk);
+        collection->Append(append_state, *chunk);
     }
 
     return make_uniq<DplyrTableFunctionState>(std::move(collection));

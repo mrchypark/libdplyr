@@ -11,6 +11,7 @@ lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut m = HashMap::new();
         m.insert("select", Token::Select);
+        m.insert("distinct", Token::Distinct);
         m.insert("filter", Token::Filter);
         m.insert("mutate", Token::Mutate);
         m.insert("rename", Token::Rename);
@@ -54,6 +55,7 @@ lazy_static::lazy_static! {
 pub enum Token {
     // dplyr functions
     Select,
+    Distinct,
     Filter,
     Mutate,
     Rename,
@@ -91,6 +93,7 @@ pub enum Token {
     Minus,              // -
     Multiply,           // *
     Divide,             // /
+    Tilde,              // ~ (case_when formula)
 
     // Literals
     Identifier(String),
@@ -118,6 +121,7 @@ impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Select => write!(f, "select"),
+            Self::Distinct => write!(f, "distinct"),
             Self::Filter => write!(f, "filter"),
             Self::Mutate => write!(f, "mutate"),
             Self::Rename => write!(f, "rename"),
@@ -151,6 +155,7 @@ impl std::fmt::Display for Token {
             Self::Minus => write!(f, "-"),
             Self::Multiply => write!(f, "*"),
             Self::Divide => write!(f, "/"),
+            Self::Tilde => write!(f, "~"),
             Self::Identifier(name) => write!(f, "{name}"),
             Self::String(s) => write!(f, "\"{s}\""),
             Self::Number(n) => write!(f, "{n}"),
@@ -275,6 +280,10 @@ impl Lexer {
                     '/' => {
                         self.advance();
                         Ok(Token::Divide)
+                    }
+                    '~' => {
+                        self.advance();
+                        Ok(Token::Tilde)
                     }
                     '\\' => {
                         self.advance();
@@ -583,6 +592,11 @@ mod tests {
                     Token::EOF,
                 ],
             );
+        }
+
+        #[test]
+        fn test_case_when_formula_operator() {
+            assert_tokens("~", vec![Token::Tilde, Token::EOF]);
         }
 
         #[test]
@@ -1035,7 +1049,7 @@ mod tests {
 
         #[test]
         fn test_unexpected_character_symbols() {
-            let test_cases = vec!['@', '#', '$', '^', '~', '`', '[', ']'];
+            let test_cases = vec!['@', '#', '$', '^', '`', '[', ']'];
 
             for ch in test_cases {
                 let mut lexer = Lexer::new(ch.to_string());

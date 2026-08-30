@@ -111,3 +111,24 @@ SELECT dplyr_pipe_syntax() AS pipe_syntax;
 
 SELECT COUNT(*) AS cnt
 FROM dplyr('test_data %>% select(id) %>% filter(id <= 2)') AS t;
+
+-- Test 19: Identifier-only count lowering
+SELECT COUNT(*) AS cnt
+FROM dplyr('test_data %>% count(category)') AS t;
+
+-- Test 20: Portable case_when lowering
+SELECT COUNT(*) AS cnt
+FROM dplyr('test_data %>% mutate(bucket = case_when(value >= 50 ~ "high", .default = "low"))') AS t
+WHERE bucket = 'high';
+
+-- Test 21: Same-name and named vector join keys
+CREATE OR REPLACE TABLE category_lookup AS
+SELECT * FROM (VALUES
+    (1, true, 'one-active'), (1, false, 'one-inactive'),
+    (2, true, 'two-active'), (2, false, 'two-inactive'),
+    (3, true, 'three-active'), (3, false, 'three-inactive')
+) AS t(category_id, active, label);
+
+SELECT COUNT(*) AS cnt
+FROM dplyr('test_data %>% left_join(category_lookup, by = c("category" = "category_id", "active"))') AS t
+WHERE label IS NOT NULL;

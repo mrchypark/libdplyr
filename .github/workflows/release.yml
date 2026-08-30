@@ -25,7 +25,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  DUCKDB_PRIMARY_VERSION: v1.5.4
+  DUCKDB_PRIMARY_VERSION: v1.5.5
   DUCKDB_COMPAT_VERSION: v1.5.0
 
 jobs:
@@ -62,35 +62,35 @@ jobs:
             artifact-name: dplyr-v1.5.0-macos-arm64
             extension-name: dplyr-v1.5.0-macos-arm64.duckdb_extension
             duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.0/duckdb_cli-osx-universal.zip"
-          # DuckDB v1.5.4 primary support artifacts
+          # DuckDB v1.5.5 primary support artifacts
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             rust-toolchain: stable
-            duckdb_version: v1.5.4
-            artifact-name: dplyr-v1.5.4-linux-x86_64
-            extension-name: dplyr-v1.5.4-linux-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-linux-amd64.zip"
+            duckdb_version: v1.5.5
+            artifact-name: dplyr-v1.5.5-linux-x86_64
+            extension-name: dplyr-v1.5.5-linux-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
           - os: macos-14
             target: x86_64-apple-darwin
             rust-toolchain: stable
-            duckdb_version: v1.5.4
-            artifact-name: dplyr-v1.5.4-macos-x86_64
-            extension-name: dplyr-v1.5.4-macos-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.5
+            artifact-name: dplyr-v1.5.5-macos-x86_64
+            extension-name: dplyr-v1.5.5-macos-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-osx-universal.zip"
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-toolchain: stable
-            duckdb_version: v1.5.4
-            artifact-name: dplyr-v1.5.4-macos-arm64
-            extension-name: dplyr-v1.5.4-macos-arm64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-osx-universal.zip"
+            duckdb_version: v1.5.5
+            artifact-name: dplyr-v1.5.5-macos-arm64
+            extension-name: dplyr-v1.5.5-macos-arm64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-osx-universal.zip"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-toolchain: stable
-            duckdb_version: v1.5.4
-            artifact-name: dplyr-v1.5.4-windows-x86_64
-            extension-name: dplyr-v1.5.4-windows-x86_64.duckdb_extension
-            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-windows-amd64.zip"
+            duckdb_version: v1.5.5
+            artifact-name: dplyr-v1.5.5-windows-x86_64
+            extension-name: dplyr-v1.5.5-windows-x86_64.duckdb_extension
+            duckdb-url: "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-windows-amd64.zip"
 
     steps:
       # -------------------------------------------------------------------------
@@ -505,9 +505,9 @@ jobs:
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "git_commit": "${{ github.sha }}",
             "duckdb_min_version": "1.5.0",
-            "duckdb_primary_version": "1.5.4",
-            "duckdb_tested_versions": ["1.5.0", "1.5.4"],
-            "duckdb_versions_built": ["v1.5.0", "v1.5.4"],
+            "duckdb_primary_version": "1.5.5",
+            "duckdb_tested_versions": ["1.5.0", "1.5.5"],
+            "duckdb_versions_built": ["v1.5.0", "v1.5.5"],
             "total_artifacts": $(ls -1 *.duckdb_extension | wc -l),
             "release_notes_url": "${{ github.event.release.html_url || 'Manual release' }}"
           }
@@ -529,13 +529,13 @@ jobs:
           - Native DuckDB 1.5 parser override for implicit dplyr pipeline statements
           - Caller-context execution that preserves temporary tables and transaction state
           - Database-global implicit pipe syntax with explicit per-call control through \`dplyr(query, mode)\`
-          - Exact-version DuckDB 1.5.0 compatibility packages and 1.5.4 primary packages, including Windows for 1.5.4
+          - Exact-version DuckDB 1.5.0 compatibility packages and 1.5.5 primary packages, including Windows for 1.5.5
 
           ## 📦 Installation
 
           ### Quick Install
           1. Download the appropriate versioned extension and \`install.sh\` into the same directory
-          2. Run the installation script: \`DUCKDB_VERSION=v1.5.4 bash ./install.sh\`
+          2. Run the installation script: \`DUCKDB_VERSION=v1.5.5 bash ./install.sh\`
           3. Start DuckDB with \`duckdb -unsigned\`, then run \`LOAD dplyr;\`
 
           The versioned filename identifies the download artifact. The local file must be named
@@ -543,7 +543,7 @@ jobs:
 
           On Windows, \`bash ./install.sh\` requires Git Bash. To install manually from PowerShell instead:
           \`\`\`powershell
-          Copy-Item "dplyr-v1.5.4-windows-x86_64.duckdb_extension" dplyr.duckdb_extension
+          Copy-Item "dplyr-v1.5.5-windows-x86_64.duckdb_extension" dplyr.duckdb_extension
           duckdb.exe -unsigned
           \`\`\`
           Then run \`FORCE INSTALL 'C:/absolute/path/to/dplyr.duckdb_extension';\` and \`LOAD dplyr;\`
@@ -554,15 +554,15 @@ jobs:
             - \`dplyr-v1.5.0-linux-x86_64.duckdb_extension\`
             - \`dplyr-v1.5.0-macos-x86_64.duckdb_extension\`
             - \`dplyr-v1.5.0-macos-arm64.duckdb_extension\`
-          - **DuckDB v1.5.4**
-            - \`dplyr-v1.5.4-linux-x86_64.duckdb_extension\`
-            - \`dplyr-v1.5.4-macos-x86_64.duckdb_extension\`
-            - \`dplyr-v1.5.4-macos-arm64.duckdb_extension\`
-            - \`dplyr-v1.5.4-windows-x86_64.duckdb_extension\`
+          - **DuckDB v1.5.5**
+            - \`dplyr-v1.5.5-linux-x86_64.duckdb_extension\`
+            - \`dplyr-v1.5.5-macos-x86_64.duckdb_extension\`
+            - \`dplyr-v1.5.5-macos-arm64.duckdb_extension\`
+            - \`dplyr-v1.5.5-windows-x86_64.duckdb_extension\`
 
           ## 🔧 Requirements
           - DuckDB 1.5.x is required for parser override support
-          - DuckDB 1.5.4 is the primary supported current build
+          - DuckDB 1.5.5 is the primary supported current build
           - DuckDB 1.5.0 compatibility binaries are also provided
           - Load the binary that matches your exact DuckDB version
           - The release extension is unsigned; start the CLI with \`duckdb -unsigned\`
