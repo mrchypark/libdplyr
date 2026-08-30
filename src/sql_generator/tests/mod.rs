@@ -1,8 +1,9 @@
 use super::*;
 use crate::parser::{
-    Aggregation, Assignment, ColumnExpr, DplyrNode, DplyrOperation, Expr, OrderDirection,
+    Aggregation, Assignment, ColumnExpr, DplyrNode, DplyrOperation, Expr, JoinKey, OrderDirection,
     OrderExpr, SourceLocation,
 };
+use crate::{lexer::Lexer, parser::Parser};
 
 // Helper function to normalize SQL for comparison
 fn normalize_sql(sql: &str) -> String {
@@ -147,6 +148,20 @@ mod dialect_tests {
 
 mod clause_generation_tests {
     use super::*;
+
+    #[test]
+    fn test_select_wildcard_is_not_quoted() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let columns = vec![ColumnExpr {
+            expr: Expr::Identifier("*".to_string()),
+            alias: None,
+        }];
+
+        let result = generator
+            .generate_select_columns_with_mutations(&columns, &QueryParts::new())
+            .unwrap();
+        assert_eq!(result, vec!["*"]);
+    }
 
     #[test]
     fn test_select_clause_generation() {
@@ -324,6 +339,88 @@ mod clause_generation_tests {
             "NULL"
         );
     }
+}
+
+#[test]
+fn test_distinct_generates_portable_select_distinct() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new("users %>% distinct(name, age)".to_string())).unwrap();
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(
+        normalize_sql(&generator.generate(&ast).unwrap()),
+        "SELECT DISTINCT \"NAME\", \"AGE\" FROM \"USERS\""
+    );
+}
+
+#[test]
+fn test_distinct_without_columns_selects_all_columns() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new("users %>% distinct()".to_string())).unwrap();
+
+    assert_eq!(
+        normalize_sql(&generator.generate(&parser.parse().unwrap()).unwrap()),
+        "SELECT DISTINCT * FROM \"USERS\""
+    );
+}
+
+#[test]
+fn test_distinct_uses_preceding_mutate_projection() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new(
+        "users %>% mutate(z = x + 1) %>% distinct(z)".to_string(),
+    ))
+    .unwrap();
+
+    assert_eq!(
+        normalize_sql(&generator.generate(&parser.parse().unwrap()).unwrap()),
+        "SELECT DISTINCT (\"X\" + 1) AS \"Z\" FROM \"USERS\""
+    );
+}
+
+#[test]
+fn test_operations_after_distinct_are_rejected_without_a_subquery() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new(
+        "users %>% distinct(name) %>% select(name)".to_string(),
+    ))
+    .unwrap();
+
+    assert!(generator.generate(&parser.parse().unwrap()).is_err());
+}
+
+#[test]
+fn test_distinct_after_group_by_is_rejected_without_a_subquery() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new(
+        "users %>% group_by(team) %>% distinct(name)".to_string(),
+    ))
+    .unwrap();
+
+    assert!(generator.generate(&parser.parse().unwrap()).is_err());
+}
+
+#[test]
+fn test_n_distinct_generates_count_distinct() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    let mut parser = Parser::new(Lexer::new(
+        "users %>% summarise(n = n_distinct(email))".to_string(),
+    ))
+    .unwrap();
+
+    assert_eq!(
+        normalize_sql(&generator.generate(&parser.parse().unwrap()).unwrap()),
+        "SELECT COUNT(DISTINCT \"EMAIL\") + CASE WHEN COUNT(*) > COUNT(\"EMAIL\") THEN 1 ELSE 0 END AS \"N\" FROM \"USERS\""
+    );
+
+    let mut parser = Parser::new(Lexer::new(
+        "users %>% summarise(n = n_distinct())".to_string(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        generator.generate(&parser.parse().unwrap()),
+        Err(GenerationError::InvalidAst { reason }) if reason == "n_distinct() requires a column"
+    ));
 }
 
 // ===== Dialect-Specific SQL Generation Tests =====
@@ -1126,7 +1223,10 @@ mod dialect_specific_tests {
                     join_type: JoinType::Inner,
                     spec: JoinSpec {
                         table: "users\"x".to_string(),
-                        by_column: Some("id\"x".to_string()),
+                        by: vec![JoinKey {
+                            left: "id\"x".to_string(),
+                            right: "id\"x".to_string(),
+                        }],
                         on_expr: None,
                     },
                     location: SourceLocation::unknown(),

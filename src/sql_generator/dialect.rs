@@ -140,6 +140,13 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             }
         }
+        "between" => {
+            if args.len() == 3 {
+                Some(format!("({} BETWEEN {} AND {})", args[0], args[1], args[2]))
+            } else {
+                None
+            }
+        }
         // NULL checks
         "is.na" => {
             if args.len() == 1 {
@@ -362,6 +369,7 @@ fn is_supported_common_function(function: &str) -> bool {
             | "as.logical"
             | "ifelse"
             | "if_else"
+            | "between"
             | "is.na"
             | "lead"
             | "lag"

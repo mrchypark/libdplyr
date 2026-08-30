@@ -70,22 +70,17 @@ impl SimpleTranspileCache {
         // Cache lookup with LRU update
         let cached_result = REQUEST_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
-            if let Some(mut cached) = cache.get(&cache_key).cloned() {
-                // Update access tracking for LRU
+            cache.get_mut(&cache_key).map(|cached| {
                 cached.access_count += 1;
                 cached.last_access = Instant::now();
 
-                // Re-insert to update LRU position
-                cache.put(cache_key.clone(), cached.clone());
-                Some(cached)
-            } else {
-                None
-            }
+                (cached.timestamp, cached.sql.clone())
+            })
         });
 
-        if let Some(cached) = cached_result {
+        if let Some((timestamp, sql)) = cached_result {
             // Cache expiration check (5 minutes)
-            if cached.timestamp.elapsed() < Duration::from_secs(300) {
+            if timestamp.elapsed() < Duration::from_secs(300) {
                 // Record cache hit
                 CACHE_METRICS.with(|metrics| {
                     let mut metrics = metrics.borrow_mut();
@@ -93,7 +88,7 @@ impl SimpleTranspileCache {
                     metrics.cache_processing_time_us += cache_start.elapsed().as_micros() as u64;
                 });
 
-                return Ok(cached.sql);
+                return Ok(sql);
             } else {
                 // Expired entry - remove it
                 REQUEST_CACHE.with(|cache| {
@@ -669,6 +664,46 @@ mod tests {
 
         assert_eq!(dplyr_cache_get_size(), 100); // Size should remain at capacity
         assert_eq!(dplyr_cache_get_evictions(), 1); // One eviction should have occurred
+    }
+
+    #[test]
+    fn test_cache_hit_keeps_entry_most_recent() {
+        SimpleTranspileCache::clear_cache();
+        let options = DplyrOptions::default();
+
+        for i in 0..100 {
+            let code = format!("select(col{i})");
+            let _ = SimpleTranspileCache::get_or_transpile(&code, &options, |_code, _opts| {
+                Ok(format!("SELECT col{i} FROM table"))
+            });
+        }
+
+        assert_eq!(
+            SimpleTranspileCache::get_or_transpile("select(col0)", &options, |_code, _opts| {
+                Ok("replacement should not be used".to_string())
+            })
+            .expect("cache hit should return the original entry"),
+            "SELECT col0 FROM table"
+        );
+        let _ =
+            SimpleTranspileCache::get_or_transpile("select(new_col)", &options, |_code, _opts| {
+                Ok("SELECT new_col FROM table".to_string())
+            });
+
+        assert_eq!(
+            SimpleTranspileCache::get_or_transpile("select(col0)", &options, |_code, _opts| {
+                Ok("replacement should not be used".to_string())
+            })
+            .expect("recently accessed entry should not be evicted"),
+            "SELECT col0 FROM table"
+        );
+        assert_eq!(
+            SimpleTranspileCache::get_or_transpile("select(col1)", &options, |_code, _opts| {
+                Ok("SELECT replacement_col1 FROM table".to_string())
+            })
+            .expect("least-recently-used entry should be replaced"),
+            "SELECT replacement_col1 FROM table"
+        );
     }
 
     #[test]

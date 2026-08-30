@@ -297,6 +297,11 @@ impl DplyrValidator {
                 }
                 *complexity_score += 1;
             }
+            DplyrOperation::Distinct { columns: cols, .. } => {
+                operations.push("distinct".to_string());
+                columns.extend(cols.iter().cloned());
+                *complexity_score += 1;
+            }
             DplyrOperation::Filter { .. } => {
                 operations.push("filter".to_string());
                 *complexity_score += 2;
@@ -342,6 +347,12 @@ impl DplyrValidator {
                         columns.insert(alias.clone());
                     }
                 }
+                *complexity_score += 3;
+            }
+            DplyrOperation::Count { columns: cols, .. } => {
+                operations.push("count/tally".to_string());
+                columns.extend(cols.iter().cloned());
+                *has_aggregation = true;
                 *complexity_score += 3;
             }
             DplyrOperation::Join { .. } => {

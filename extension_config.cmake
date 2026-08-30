@@ -6,10 +6,10 @@
 # R8-AC1: Extension metadata and semver policy
 set(EXTENSION_NAME "dplyr")
 set(EXTENSION_DESCRIPTION "R dplyr syntax support for DuckDB")
-set(EXTENSION_VERSION "0.5.1")
+set(EXTENSION_VERSION "0.6.0")
 set(EXTENSION_VERSION_MAJOR 0)
-set(EXTENSION_VERSION_MINOR 5)
-set(EXTENSION_VERSION_PATCH 1)
+set(EXTENSION_VERSION_MINOR 6)
+set(EXTENSION_VERSION_PATCH 0)
 
 # Ensure DuckDB's extension metadata version is populated even when duckdb_extension_load
 # is unavailable (e.g., standalone top-level CMake configure).
@@ -30,9 +30,9 @@ set(EXTENSION_API_VERSION "1")  # API compatibility version
 # - 1.5.0 is the minimum supported compatibility target
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "PRIMARY_CURRENT_PLUS_MINIMUM_COMPAT")
 set(DUCKDB_EXTENSION_PRIMARY_SERIES "1.5.x")
-set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.4")
+set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.5")
 set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.5.0")
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0;1.5.4")
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0;1.5.5")
 
 # R8-AC1: Extension compatibility strategy
 # - Keep the current CI gate on the primary 1.5.x line across platforms
@@ -44,7 +44,7 @@ set(EXTENSION_COMPATIBILITY_STRATEGY "PRIMARY_SUPPORT_PLUS_COMPATIBILITY_CHECK")
 # Breaking changes require 1 minor version advance notice
 set(EXTENSION_DEPRECATION_POLICY "1_MINOR_VERSION_NOTICE")
 set(EXTENSION_BREAKING_CHANGE_NOTICE "CHANGELOG.md and GitHub Release Notes")
-set(EXTENSION_SUPPORT_LIFECYCLE "DuckDB 1.5.x only (1.5.0 minimum; tested through 1.5.4)")
+set(EXTENSION_SUPPORT_LIFECYCLE "DuckDB 1.5.x only (1.5.0 minimum; tested through 1.5.5)")
 
 # R8-AC1: Extension metadata and contact information
 set(EXTENSION_AUTHOR "libdplyr contributors")
@@ -195,12 +195,15 @@ set(EXTENSION_FEATURES
 # R8-AC1: Supported dplyr operations (minimum operation set from R1-AC2)
 set(EXTENSION_SUPPORTED_OPERATIONS
     "select"               # Column selection
+    "distinct"             # Duplicate removal
     "filter"               # Row filtering
     "mutate"               # Column transformation
     "rename"               # Column renaming
     "arrange"              # Row ordering
     "summarise"            # Aggregation
     "group_by"             # Grouping
+    "count"                # Identifier-only row counts
+    "tally"                # Current-group row counts
 )
 
 # R4-AC1: Test configuration

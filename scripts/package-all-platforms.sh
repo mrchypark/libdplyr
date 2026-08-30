@@ -21,13 +21,13 @@ resolve_duckdb_version() {
 
     raw_version=${DUCKDB_VERSION:-}
     if [ -z "$raw_version" ]; then
-        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.4)." >&2
+        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.5)." >&2
         return 1
     fi
 
     raw_version=${raw_version#v}
     if [[ ! "$raw_version" =~ ^1\.5\.[0-9]+$ ]]; then
-        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.4)." >&2
+        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.5)." >&2
         return 1
     fi
 

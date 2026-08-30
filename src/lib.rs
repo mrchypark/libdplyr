@@ -10,7 +10,7 @@
 //!
 //! ## Features
 //!
-//! - **Complete dplyr Function Support**: `select()`, `filter()`, `mutate()`, `arrange()`, `group_by()`, `summarise()`
+//! - **Core dplyr Function Support**: `select()`, `filter()`, `mutate()`, `arrange()`, `group_by()`, `summarise()`, limited `count()`/`tally()`
 //! - **Pipeline Operations**: Chain operations using the `%>%` pipe operator
 //! - **Multiple SQL Dialects**: PostgreSQL, MySQL, SQLite, DuckDB support with dialect-specific optimizations
 
@@ -26,7 +26,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! libdplyr = "0.5.1"
+//! libdplyr = "0.6.0"
 //! ```
 //!
 //! Basic usage:
@@ -135,12 +135,14 @@
 //! ### Data Aggregation
 //! - `group_by(col1, col2, ...)` - Group data by columns
 //! - `summarise(stat = function(col), ...)` - Aggregate data
+//! - `count(col, ...)` / `tally()` - Count rows by identifier-only keys or current groups
 //!
 //! ### Supported Aggregate Functions
 //! - `mean(col)` / `avg(col)` - Average
 //! - `sum(col)` - Sum
 //! - `count(col)` - Count non-null values
 //! - `n()` - Count all rows
+//! - `n_distinct(col)` - Count distinct values, including one NULL/NA value
 //! - `min(col)` / `max(col)` - Minimum/Maximum
 //! - `median(col)` - Median (DuckDB only)
 //! - `mode(col)` - Mode (DuckDB only)

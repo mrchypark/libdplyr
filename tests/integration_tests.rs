@@ -105,6 +105,19 @@ fn test_filter_operation() {
 }
 
 #[test]
+fn test_filter_between() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let sql = transpiler
+        .transpile("filter(between(age, 18, 65))")
+        .expect("between() should transpile");
+
+    assert_eq!(
+        sql,
+        "SELECT *\nFROM \"data\"\nWHERE (\"age\" BETWEEN 18 AND 65)"
+    );
+}
+
+#[test]
 fn test_chained_operations() {
     let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
     let dplyr_code = "select(name, age) %>% filter(age > 18)";
@@ -154,6 +167,53 @@ fn test_group_by_and_summarise() {
     assert!(normalized.contains("\"CATEGORY\""));
     assert!(normalized.contains("AVG"));
     assert!(normalized.contains("\"AGE\""));
+}
+
+#[test]
+fn test_count_and_tally_operations() {
+    let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+
+    assert_eq!(
+        transpiler
+            .transpile("users %>% count(team, region)")
+            .expect("count() should transpile"),
+        "SELECT \"team\", \"region\", COUNT(*) AS \"n\"\nFROM \"users\"\nGROUP BY \"team\", \"region\""
+    );
+    assert_eq!(
+        transpiler
+            .transpile("users %>% group_by(org) %>% count(team) %>% arrange(desc(n))")
+            .expect("grouped count() should transpile"),
+        "SELECT \"org\", \"team\", COUNT(*) AS \"n\"\nFROM \"users\"\nGROUP BY \"org\", \"team\"\nORDER BY \"n\" DESC"
+    );
+    assert_eq!(
+        transpiler
+            .transpile("users %>% tally()")
+            .expect("tally() should transpile"),
+        "SELECT COUNT(*) AS \"n\"\nFROM \"users\""
+    );
+    assert_eq!(
+        transpiler
+            .transpile("users %>% count(n)")
+            .expect("count() should avoid an alias collision"),
+        "SELECT \"n\", COUNT(*) AS \"nn\"\nFROM \"users\"\nGROUP BY \"n\""
+    );
+
+    assert!(transpiler
+        .transpile("users %>% count(wt = amount)")
+        .is_err());
+    assert!(transpiler.transpile("users %>% count(\"team\")").is_err());
+    assert!(transpiler
+        .transpile("users %>% tally(sort = TRUE)")
+        .is_err());
+    assert!(transpiler
+        .transpile("users %>% count(team) %>% filter(n > 1)")
+        .is_err());
+    assert!(transpiler
+        .transpile("users %>% mutate(team = org) %>% count(team)")
+        .is_err());
+    assert!(transpiler
+        .transpile("users %>% select(team = org) %>% count(team)")
+        .is_err());
 }
 
 #[test]
@@ -1179,4 +1239,63 @@ fn test_multiple_joins_in_pipeline() {
     assert!(sql_upper.contains("INNER JOIN"));
     assert!(sql_upper.contains("LEFT JOIN"));
     assert!(sql_upper.contains("ON"));
+}
+
+#[test]
+fn test_vector_join_keys() {
+    let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
+    let sql = transpiler
+        .transpile("orders %>% left_join(customers, by = c(\"customer_id\" = \"id\", \"region\"))")
+        .expect("named and same-name vector join keys should transpile");
+
+    assert!(sql.contains(
+        "ON \"orders\".\"customer_id\" = \"customers\".\"id\" AND \"orders\".\"region\" = \"customers\".\"region\""
+    ));
+
+    let postgres = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+    let semi_sql = postgres
+        .transpile("orders %>% semi_join(customers, by = c(\"customer_id\" = \"id\", \"region\"))")
+        .expect("vector keys should also work in the EXISTS lowering");
+    assert!(semi_sql.contains(
+        "EXISTS (SELECT 1 FROM \"customers\" WHERE \"orders\".\"customer_id\" = \"customers\".\"id\" AND \"orders\".\"region\" = \"customers\".\"region\")"
+    ));
+
+    for invalid in [
+        "orders %>% left_join(customers, by = c())",
+        "orders %>% left_join(customers, by = c(\"id\" = 1))",
+    ] {
+        assert!(
+            transpiler.transpile(invalid).is_err(),
+            "unsupported join key vector should fail closed: {invalid}"
+        );
+    }
+}
+
+#[test]
+fn test_limited_case_when() {
+    let transpiler = Transpiler::new(Box::new(DuckDbDialect::new()));
+    let sql = transpiler
+        .transpile(
+            "scores %>% mutate(grade = case_when(score >= 90 ~ \"A\", score >= 80 ~ \"B\", .default = \"C\"))",
+        )
+        .expect("case_when formulas and .default should transpile");
+
+    assert!(sql.contains(
+        "CASE WHEN (\"score\" >= 90) THEN 'A' WHEN (\"score\" >= 80) THEN 'B' ELSE 'C' END AS \"grade\""
+    ));
+
+    let null_default = transpiler
+        .transpile("scores %>% mutate(value = case_when(score > 0 ~ score))")
+        .expect("case_when should default to NULL when .default is omitted");
+    assert!(null_default.contains("CASE WHEN (\"score\" > 0) THEN \"score\" ELSE NULL END"));
+
+    for invalid in [
+        "scores %>% mutate(value = case_when())",
+        "scores %>% mutate(value = case_when(score > 0 ~ score, .ptype = 1))",
+    ] {
+        assert!(
+            transpiler.transpile(invalid).is_err(),
+            "unsupported case_when form should fail closed: {invalid}"
+        );
+    }
 }

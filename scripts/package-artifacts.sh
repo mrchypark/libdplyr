@@ -39,13 +39,13 @@ resolve_duckdb_version() {
 
     raw_version=${DUCKDB_VERSION:-}
     if [ -z "$raw_version" ]; then
-        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.4)." >&2
+        echo "DUCKDB_VERSION is required for manual packaging. Set it to the exact 1.5.x build version (for example, 1.5.5)." >&2
         return 1
     fi
 
     raw_version=${raw_version#v}
     if [[ ! "$raw_version" =~ ^1\.5\.[0-9]+$ ]]; then
-        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.4)." >&2
+        echo "Invalid DUCKDB_VERSION: '$raw_version'. Expected an exact 1.5.x semantic version (for example, 1.5.5)." >&2
         return 1
     fi
 
@@ -222,7 +222,7 @@ cat > "$PLATFORM_PACKAGE/INSTALL.md" << EOF
 ## Prerequisites
 
 - **DuckDB binary version**: Exactly $DUCKDB_VERSION (declared by the required DUCKDB_VERSION packaging input)
-- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 - **Operating System**: $PLATFORM ($ARCH architecture)
 - **Memory**: At least 64MB available RAM
 - **Disk Space**: At least 10MB free space
@@ -400,7 +400,7 @@ To remove the extension:
 - **Extension Version**: $VERSION
 - **Build Commit**: $GIT_COMMIT
 - **Required DuckDB binary version**: $DUCKDB_VERSION (exact match)
-- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 - **Platform**: $PLATFORM_ARCH
 - **Build Date**: $BUILD_TIMESTAMP
 
@@ -517,7 +517,7 @@ cat > "$PACKAGE_ROOT/release-summary-$PLATFORM_ARCH.md" << EOF
 
 ## Compatibility
 - **Required DuckDB binary version**: $DUCKDB_VERSION (exact match)
-- **Source-tested DuckDB versions**: 1.5.0 and 1.5.4
+- **Source-tested DuckDB versions**: 1.5.0 and 1.5.5
 - **Platform**: $PLATFORM ($ARCH)
 - **ABI Version**: 1
 - **API Version**: 1

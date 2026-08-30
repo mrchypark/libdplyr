@@ -68,6 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated GitHub Releases deployment (R4-AC3)
 - Comprehensive release notes with compatibility information (R8-AC3)
 - Community repository submission preparation
+
+### Changed
+- Advance the crate and extension version to 0.6.0 because the public AST adds
+  `Distinct` and `Count` operation variants.
+- Upgrade the primary DuckDB build and release target from 1.5.4 to 1.5.5 while retaining the 1.5.0 compatibility lane.
+- Support `select(*)`, `distinct()`, and identifier-only `distinct(...)` pipelines.
+- Add limited identifier-only `count()` and unweighted `tally()` lowering through existing grouped aggregation support.
+- Add same-name and named equality key vectors for `*_join(..., by = c(...))`.
+- Add portable `case_when(condition ~ value, .default = value)` lowering.
+- Reduce FFI cache-hit work by updating LRU metadata in place and cloning only the cached SQL string.
 - Multi-platform binary packaging and distribution
 - Universal installation script with platform detection
 - Release verification and quality assurance automation
