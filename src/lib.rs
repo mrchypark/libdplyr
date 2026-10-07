@@ -278,6 +278,7 @@ pub mod lexer;
 pub mod parser;
 pub mod performance;
 pub mod pipe_syntax;
+pub mod relational;
 pub mod sql_generator;
 
 // CLI module (excluded on wasm targets - no signal handling or terminal support)
@@ -292,6 +293,7 @@ pub use crate::performance::{
     BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
 };
 pub use crate::pipe_syntax::{PipeSyntax, PIPE_SYNTAX_ENV_VAR};
+pub use crate::relational::{CompiledQuery, SchemaColumn, SchemaInput, SourceSchema};
 pub use crate::sql_generator::{
     DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator,
     SqliteDialect,
@@ -435,6 +437,39 @@ impl Transpiler {
     pub fn transpile(&self, dplyr_code: &str) -> Result<String, TranspileError> {
         let ast = self.parse_dplyr(dplyr_code)?;
         Ok(self.generate_sql(&ast)?)
+    }
+
+    /// Compiles a pipeline with an ordered source schema and preserves query stages.
+    ///
+    /// This additive API supports dependencies between computed columns and operations
+    /// after aggregation. The schema must describe the pipeline's input relation.
+    pub fn transpile_with_schema(
+        &self,
+        dplyr_code: &str,
+        schema: &relational::SourceSchema,
+    ) -> Result<relational::CompiledQuery, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile(&ast, schema, &self.generator)?)
+    }
+
+    /// Compiles a pipeline using metadata for every source, join, and set input.
+    pub fn transpile_with_schemas(
+        &self,
+        dplyr_code: &str,
+        schemas: &[relational::SourceSchema],
+    ) -> Result<relational::CompiledQuery, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile_with_schemas(
+            &ast,
+            schemas,
+            &self.generator,
+        )?)
+    }
+
+    /// Lists distinct source names in input order for database schema discovery.
+    pub fn required_sources(&self, dplyr_code: &str) -> Result<Vec<String>, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::required_sources(&ast)?)
     }
 
     /// Parses dplyr code to generate an Abstract Syntax Tree (AST).

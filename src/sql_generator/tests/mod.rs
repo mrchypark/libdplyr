@@ -13,6 +13,121 @@ fn normalize_sql(sql: &str) -> String {
         .to_uppercase()
 }
 
+// R1-AC1: Never flatten a pipeline when that changes its sequential meaning.
+fn assert_requires_query_stage(inputs: &[&str]) {
+    for dialect in [
+        Box::new(PostgreSqlDialect::new()) as Box<dyn SqlDialect>,
+        Box::new(MySqlDialect::new()),
+        Box::new(SqliteDialect::new()),
+        Box::new(DuckDbDialect::new()),
+    ] {
+        let generator = SqlGenerator::new(dialect);
+        for input in inputs {
+            let ast = Parser::new(Lexer::new((*input).to_string()))
+                .expect("valid lexer")
+                .parse()
+                .expect("valid pipeline syntax");
+            let DplyrNode::Pipeline { operations, .. } = &ast else {
+                panic!("expected pipeline");
+            };
+            for result in [
+                generator.generate(&ast),
+                generator.generate_nested_pipeline(operations),
+            ] {
+                assert!(
+                    matches!(result, Err(GenerationError::InvalidAst { ref reason }) if reason.contains("subquery")),
+                    "{input} must require a query stage, got {result:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_query_stage_required_for_dependent_mutations() {
+    assert_requires_query_stage(&[
+        "data %>% mutate(a = x + 1, b = a + 1) %>% select(b)",
+        "data %>% mutate(a = x + 1) %>% mutate(b = a + 1)",
+        "data %>% mutate(a = x + 1, a = 0)",
+        "data %>% select(a = x) %>% mutate(b = a + 1)",
+        "data %>% mutate(a = x + 1, b = abs(x = a))",
+        "data %>% mutate(a = x + 1, b = case_when(a > 0 ~ x, .default = a))",
+    ]);
+}
+
+#[test]
+fn test_query_stage_required_after_aggregation() {
+    assert_requires_query_stage(&[
+        "data %>% summarise(total = sum(x)) %>% filter(total > 3)",
+        "data %>% group_by(g) %>% summarise(total = sum(x)) %>% filter(g > 0)",
+        "data %>% summarise(total = sum(x)) %>% mutate(b = total + 1)",
+        "data %>% summarise(total = sum(x)) %>% summarise(n = n())",
+        "data %>% count() %>% group_by(g)",
+    ]);
+}
+
+#[test]
+fn test_nested_pipeline_preserves_aggregation_grouping() {
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    for input in [
+        "summarise(total = sum(x)) %>% group_by(g)",
+        "group_by(g) %>% summarise(total = sum(x)) %>% group_by(h)",
+        "group_by(g) %>% mutate(r = row_number())",
+    ] {
+        let ast = Parser::new(Lexer::new(input.to_string()))
+            .expect("valid lexer")
+            .parse()
+            .expect("valid pipeline");
+        let DplyrNode::Pipeline { operations, .. } = &ast else {
+            panic!("expected pipeline");
+        };
+        assert_eq!(
+            generator
+                .generate_nested_pipeline(operations)
+                .expect("nested SQL"),
+            generator.generate(&ast).expect("top-level SQL"),
+            "{input}"
+        );
+    }
+    assert_eq!(
+        generator
+            .generate_nested_pipeline(&[])
+            .expect("empty pipeline"),
+        "SELECT *\nFROM \"data\""
+    );
+}
+
+#[test]
+fn test_query_stage_required_after_set_operations() {
+    assert_requires_query_stage(&[
+        "data %>% union(other) %>% intersect(third)",
+        "data %>% intersect(other) %>% setdiff(third)",
+        "data %>% setdiff(other) %>% union(third)",
+        "data %>% union(other) %>% filter(x > 0)",
+        "data %>% union(other) %>% select(x)",
+        "data %>% union(other) %>% arrange(x)",
+    ]);
+}
+
+#[test]
+fn test_mutate_subquery_rejects_dependent_assignments() {
+    let ast = Parser::new(Lexer::new("mutate(a = x + 1, b = a + 1)".to_string()))
+        .expect("valid lexer")
+        .parse()
+        .expect("valid mutate syntax");
+    let DplyrNode::Pipeline { operations, .. } = ast else {
+        panic!("expected pipeline");
+    };
+    let DplyrOperation::Mutate { assignments, .. } = &operations[0] else {
+        panic!("expected mutate");
+    };
+    let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+    assert!(matches!(
+        generator.generate_mutate_subquery("SELECT * FROM data", assignments),
+        Err(GenerationError::InvalidAst { .. })
+    ));
+}
+
 // Helper function to create test AST nodes
 fn create_test_select_operation(columns: Vec<&str>) -> DplyrOperation {
     DplyrOperation::Select {
@@ -1797,11 +1912,15 @@ mod mutate_advanced_tests {
         }];
 
         let query_parts = QueryParts::new();
-        let is_complex = generator.expression_is_complex(&assignments[0].expr);
-        assert!(is_complex, "Should detect window function as complex");
-
         let needs_subquery = generator.mutate_needs_subquery(&assignments, &query_parts);
-        assert!(needs_subquery, "Should need subquery for window functions");
+        assert!(
+            !needs_subquery,
+            "Independent windows do not need a subquery"
+        );
+        let sql = generator
+            .generate_mutate_subquery("SELECT * FROM data", &assignments)
+            .expect("independent window assignment");
+        assert!(sql.contains("ROW_NUMBER() OVER ()"));
     }
 
     #[test]
@@ -1962,44 +2081,5 @@ mod mutate_advanced_tests {
             right: Box::new(Expr::Literal(LiteralValue::Number(1.0))),
         };
         assert!(generator.expression_references_columns(&expr3, &columns));
-    }
-
-    #[test]
-    fn test_complex_expression_detection() {
-        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
-
-        // Window functions should be detected as complex
-        let window_functions = vec![
-            "row_number",
-            "rank",
-            "dense_rank",
-            "lag",
-            "lead",
-            "first_value",
-            "last_value",
-            "nth_value",
-        ];
-        for func_name in window_functions {
-            let expr = Expr::Function {
-                name: func_name.to_string(),
-                args: vec![],
-            };
-            assert!(
-                generator.expression_is_complex(&expr),
-                "Function {} should be detected as complex",
-                func_name
-            );
-        }
-
-        // Regular functions should not be complex
-        let regular_expr = Expr::Function {
-            name: "upper".to_string(),
-            args: vec![Expr::Identifier("name".to_string())],
-        };
-        assert!(!generator.expression_is_complex(&regular_expr));
-
-        // Literals should not be complex
-        let literal_expr = Expr::Literal(LiteralValue::Number(42.0));
-        assert!(!generator.expression_is_complex(&literal_expr));
     }
 }

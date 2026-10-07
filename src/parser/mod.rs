@@ -7,4 +7,4 @@ pub mod ast;
 pub mod parse;
 
 pub use ast::*;
-pub use parse::Parser;
+pub use parse::{Parser, MAX_EXPRESSION_DEPTH};

@@ -274,6 +274,13 @@ fn inspect_ast(ast: &DplyrNode) {
                             aggregations.len()
                         );
                     }
+                    libdplyr::DplyrOperation::SummariseExpressions { assignments, .. } => {
+                        println!(
+                            "     {}. Summarise: {} expressions",
+                            i + 1,
+                            assignments.len()
+                        );
+                    }
                     libdplyr::DplyrOperation::Join {
                         join_type, spec, ..
                     } => {

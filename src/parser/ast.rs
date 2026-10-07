@@ -108,6 +108,15 @@ pub enum DplyrOperation {
         aggregations: Vec<Aggregation>,
         location: SourceLocation,
     },
+    /// Aggregation operation whose entries are arbitrary expressions.
+    ///
+    /// Used when at least one entry is not the `function(identifier)` or
+    /// `function()` shape that [`Aggregation`] can represent, such as
+    /// `sum(x * y)`, `sum(x) / n()`, or a scalar wrapping an aggregate.
+    SummariseExpressions {
+        assignments: Vec<Assignment>,
+        location: SourceLocation,
+    },
     /// Count rows, optionally adding identifier-only grouping keys.
     Count {
         columns: Vec<String>,
@@ -146,6 +155,7 @@ impl DplyrOperation {
             Self::Arrange { location, .. } => location,
             Self::GroupBy { location, .. } => location,
             Self::Summarise { location, .. } => location,
+            Self::SummariseExpressions { location, .. } => location,
             Self::Count { location, .. } => location,
             Self::Join { location, .. } => location,
             Self::SetOp { location, .. } => location,
@@ -163,6 +173,7 @@ impl DplyrOperation {
             Self::Arrange { .. } => "arrange",
             Self::GroupBy { .. } => "group_by",
             Self::Summarise { .. } => "summarise",
+            Self::SummariseExpressions { .. } => "summarise",
             Self::Count { .. } => "count/tally",
             Self::Join { .. } => "join",
             Self::SetOp { operation, .. } => match operation {
@@ -196,6 +207,80 @@ pub enum Expr {
     },
     /// Named function argument, e.g. `sep = " "`.
     NamedArg { name: String, value: Box<Expr> },
+}
+
+/// Renders an expression as a readable label for use as an output column name.
+///
+/// This is a *label*, not a round-trippable R deparse: booleans print in SQL
+/// spelling (`TRUE`), and strings are escaped only enough to stay unambiguous
+/// rather than to be re-lexable. It guarantees one distinct label per distinct
+/// expression tree, which is what naming an unnamed `summarise()` entry needs.
+///
+/// Every `Binary` is parenthesized. That is more parentheses than R precedence
+/// strictly requires, but it keeps `x * y + 1` and `x * (y + 1)` distinct, so
+/// two structurally different unnamed entries can never collide on one name.
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Identifier(name) => write!(f, "{name}"),
+            Self::Literal(LiteralValue::String(value)) => {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                write!(f, "\"{escaped}\"")
+            }
+            Self::Literal(LiteralValue::Number(value)) => write!(f, "{value}"),
+            Self::Literal(LiteralValue::Boolean(value)) => {
+                f.write_str(if *value { "TRUE" } else { "FALSE" })
+            }
+            Self::Literal(LiteralValue::Null) => write!(f, "NULL"),
+            Self::Binary {
+                left,
+                operator,
+                right,
+            } => write!(f, "({left} {operator} {right})"),
+            Self::Function { name, args } => {
+                write!(f, "{name}(")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            Self::CaseWhen { branches, default } => {
+                write!(f, "case_when(")?;
+                for (condition, value) in branches {
+                    write!(f, "{condition} ~ {value}, ")?;
+                }
+                match default {
+                    Some(default) => write!(f, "default = {default}"),
+                    None => f.write_str("default = NULL"),
+                }?;
+                write!(f, ")")
+            }
+            Self::NamedArg { name, value } => write!(f, "{name} = {value}"),
+        }
+    }
+}
+
+impl std::fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::LessThan => "<",
+            Self::LessThanOrEqual => "<=",
+            Self::GreaterThan => ">",
+            Self::GreaterThanOrEqual => ">=",
+            Self::And => "&&",
+            Self::Or => "||",
+            Self::Plus => "+",
+            Self::Minus => "-",
+            Self::Multiply => "*",
+            Self::Divide => "/",
+        };
+        f.write_str(text)
+    }
 }
 
 /// Literal value types
@@ -263,6 +348,12 @@ pub struct Aggregation {
     pub function: String,
     pub column: String,
     pub alias: Option<String>,
+}
+
+/// One `summarise()` entry, kept in its narrowest representable form.
+pub(crate) enum SummariseEntry {
+    Aggregation(Aggregation),
+    Expression(Assignment),
 }
 
 /// Join type for different join operations

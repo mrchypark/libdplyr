@@ -136,7 +136,8 @@ pub fn contains_suspicious_patterns(input: &str) -> bool {
         // Excessive special characters
     ];
 
-    let input_upper = input.to_uppercase();
+    let unquoted_input = unquoted_content(input);
+    let input_upper = unquoted_input.to_uppercase();
     for pattern in &suspicious_patterns {
         if input_upper.contains(&pattern.to_uppercase()) {
             return true;
@@ -144,18 +145,46 @@ pub fn contains_suspicious_patterns(input: &str) -> bool {
     }
 
     // Check for excessive special characters (potential obfuscation)
-    let special_char_count = input
+    let special_char_count = unquoted_input
         .chars()
         .filter(|&c| {
             !c.is_alphanumeric() && !c.is_whitespace() && !"()[]{},.;:_-+*/%><=!&|".contains(c)
         })
         .count();
 
-    if special_char_count > input.len() / 10 {
+    if special_char_count > unquoted_input.len() / 10 {
         return true; // More than 10% special characters
     }
 
     false
+}
+
+fn unquoted_content(input: &str) -> String {
+    let mut content = String::with_capacity(input.len());
+    let mut quote = None;
+    let mut escape_next = false;
+
+    for ch in input.chars() {
+        if let Some(quote_char) = quote {
+            if escape_next {
+                escape_next = false;
+            } else if ch == '\\' {
+                escape_next = true;
+            } else if ch == quote_char {
+                quote = None;
+            }
+        } else if matches!(ch, '\'' | '"') {
+            quote = Some(ch);
+        } else {
+            content.push(ch);
+        }
+    }
+
+    if quote.is_some() {
+        input.to_string()
+    } else {
+        content
+    }
 }
 
 pub fn has_excessive_repetition(input: &str) -> bool {

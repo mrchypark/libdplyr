@@ -8,6 +8,42 @@ use crate::PipeSyntax;
 
 pub use super::ast::*;
 
+/// Maximum nesting depth allowed inside a single expression.
+///
+/// Bounds both the recursive descent in `parse_expression` and the depth of
+/// the resulting AST. Breadth is not bounded: any number of function arguments,
+/// pipeline steps, or `case_when()` branches is fine. A chain of binary
+/// operators such as `a + b + c + ...` is *not* breadth, though. It parses in a
+/// loop but still builds a left-deep tree, so each operator loop counts its own
+/// chain and rejects an over-long one before the tree is built.
+///
+/// The conservative bound also limits stack use in unoptimized recursive parsing.
+pub const MAX_EXPRESSION_DEPTH: usize = 64;
+
+fn depth_exceeded(position: usize) -> ParseError {
+    ParseError::InvalidExpression {
+        expr: format!("expression nesting depth exceeds {MAX_EXPRESSION_DEPTH}"),
+        position,
+    }
+}
+
+/// Returns the `(function, column)` pair when `expr` is exactly the shape an
+/// [`Aggregation`] can hold: `function()` or `function(identifier)`.
+///
+/// A compound argument such as `sum(x * y)`, a scalar wrapping an aggregate
+/// such as `round(sum(x), 2)`, or anything nested is deliberately rejected so
+/// it stays on the expression path.
+fn simple_aggregation(expr: &Expr) -> Option<(String, String)> {
+    let Expr::Function { name, args } = expr else {
+        return None;
+    };
+    match args.as_slice() {
+        [] => Some((name.clone(), String::new())),
+        [Expr::Identifier(column)] => Some((name.clone(), column.clone())),
+        _ => None,
+    }
+}
+
 /// Parser struct
 ///
 /// Provides functionality to parse dplyr tokens into an Abstract Syntax Tree (AST).
@@ -20,6 +56,7 @@ pub struct Parser {
     position: usize,
     line: usize,
     column: usize,
+    expression_depth: usize,
 }
 
 impl Parser {
@@ -54,6 +91,7 @@ impl Parser {
             position: 0,
             line: 1,
             column: 1,
+            expression_depth: 0,
         })
     }
 
@@ -72,6 +110,7 @@ impl Parser {
                 position: self.position,
             });
         }
+        validate_ast_depth(&node, self.position)?;
         Ok(node)
     }
 
@@ -774,24 +813,102 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut aggregations = Vec::new();
+        // `function(identifier)` and `function()` keep the compact `Aggregation`
+        // shape; anything else is an expression. The choice is per entry, and a
+        // single expression entry promotes the whole list, so order and aliases
+        // are preserved by reparsing the simple entries as assignments.
+        let mut entries: Vec<SummariseEntry> = Vec::new();
 
-        // First aggregation
         if self.current_token != Token::RightParen {
-            aggregations.push(self.parse_aggregation()?);
-
-            // Additional aggregations (comma-separated)
-            while self.current_token == Token::Comma {
-                self.advance()?; // Skip comma
-                aggregations.push(self.parse_aggregation()?);
+            loop {
+                entries.push(self.parse_summarise_entry()?);
+                if self.current_token != Token::Comma {
+                    break;
+                }
+                self.advance()?;
+                self.skip_newlines()?;
             }
         }
 
         self.expect_token(Token::RightParen)?;
-        Ok(DplyrOperation::Summarise {
-            aggregations,
-            location,
-        })
+
+        if entries
+            .iter()
+            .any(|entry| matches!(entry, SummariseEntry::Expression(_)))
+        {
+            Ok(DplyrOperation::SummariseExpressions {
+                assignments: entries
+                    .into_iter()
+                    .map(|entry| match entry {
+                        SummariseEntry::Aggregation(aggregation) => Assignment {
+                            column: aggregation.alias.unwrap_or_else(|| {
+                                format!("{}({})", aggregation.function, aggregation.column)
+                            }),
+                            expr: if aggregation.column.is_empty() {
+                                Expr::Function {
+                                    name: aggregation.function,
+                                    args: Vec::new(),
+                                }
+                            } else {
+                                Expr::Function {
+                                    name: aggregation.function,
+                                    args: vec![Expr::Identifier(aggregation.column)],
+                                }
+                            },
+                        },
+                        SummariseEntry::Expression(assignment) => assignment,
+                    })
+                    .collect(),
+                location,
+            })
+        } else {
+            Ok(DplyrOperation::Summarise {
+                aggregations: entries
+                    .into_iter()
+                    .map(|entry| match entry {
+                        SummariseEntry::Aggregation(aggregation) => aggregation,
+                        SummariseEntry::Expression(_) => unreachable!("checked above"),
+                    })
+                    .collect(),
+                location,
+            })
+        }
+    }
+
+    /// Parses one `summarise()` entry, choosing the narrower `Aggregation`
+    /// shape only when the entry really is `function(identifier)` or `function()`.
+    ///
+    /// Every entry is parsed as a general expression first, then classified by
+    /// its shape. Deciding before consuming would need multi-token lookahead to
+    /// tell `mean(age)` from `mean(age * y)`, and classifying afterwards gets
+    /// the same answer from the tree that was built anyway.
+    fn parse_summarise_entry(&mut self) -> ParseResult<SummariseEntry> {
+        let alias = match self.current_token.clone() {
+            Token::Identifier(name) if self.peek_token()? == Token::Assignment => {
+                self.advance()?; // identifier
+                self.advance()?; // =
+                self.skip_newlines()?;
+                Some(name)
+            }
+            _ => None,
+        };
+
+        let expr = self.parse_expression()?;
+        match (alias, simple_aggregation(&expr)) {
+            (alias, Some((function, column))) => Ok(SummariseEntry::Aggregation(Aggregation {
+                function,
+                column,
+                alias,
+            })),
+            (Some(alias), None) => Ok(SummariseEntry::Expression(Assignment {
+                column: alias,
+                expr,
+            })),
+            (None, None) => Ok(SummariseEntry::Expression(Assignment {
+                column: expr.to_string(),
+                expr,
+            })),
+        }
     }
 
     /// Parses the identifier-only subset of count().
@@ -1196,107 +1313,46 @@ impl Parser {
         }
     }
 
-    /// Parses aggregation operations.
-    fn parse_aggregation(&mut self) -> ParseResult<Aggregation> {
-        // Handle alias = aggregation_function(column) format
-        if let Token::Identifier(first_name) = &self.current_token {
-            let first_name = first_name.clone();
-            self.advance()?;
-
-            // If = token exists, it's an alias
-            if self.current_token == Token::Assignment {
-                self.advance()?; // Skip =
-
-                // Aggregation function name
-                if let Token::Identifier(function) = &self.current_token {
-                    let function = function.clone();
-                    self.advance()?;
-
-                    self.expect_token(Token::LeftParen)?;
-
-                    // Handle functions with no arguments (like n())
-                    if self.current_token == Token::RightParen {
-                        self.advance()?; // Skip )
-                        Ok(Aggregation {
-                            function,
-                            column: "".to_string(), // Empty column for functions like n()
-                            alias: Some(first_name),
-                        })
-                    } else if let Token::Identifier(column) = &self.current_token {
-                        let column = column.clone();
-                        self.advance()?;
-                        self.expect_token(Token::RightParen)?;
-
-                        Ok(Aggregation {
-                            function,
-                            column,
-                            alias: Some(first_name),
-                        })
-                    } else {
-                        Err(ParseError::UnexpectedToken {
-                            expected: "column identifier or closing parenthesis".to_string(),
-                            found: format!("{}", self.current_token),
-                            position: self.position,
-                        })
-                    }
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "aggregation function name".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            } else {
-                // Function(column) format without alias
-                self.expect_token(Token::LeftParen)?;
-
-                // Handle functions with no arguments (like n())
-                if self.current_token == Token::RightParen {
-                    self.advance()?; // Skip )
-                    Ok(Aggregation {
-                        function: first_name,
-                        column: "".to_string(), // Empty column for functions like n()
-                        alias: None,
-                    })
-                } else if let Token::Identifier(column) = &self.current_token {
-                    let column = column.clone();
-                    self.advance()?;
-                    self.expect_token(Token::RightParen)?;
-
-                    Ok(Aggregation {
-                        function: first_name,
-                        column,
-                        alias: None,
-                    })
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "column identifier or closing parenthesis".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            }
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "aggregation function name or alias".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            })
-        }
-    }
-
     /// Parses expressions.
     fn parse_expression(&mut self) -> ParseResult<Expr> {
-        self.parse_or_expression()
+        self.enter_expression()?;
+        self.expression_depth += 1;
+        let expr = self.parse_or_expression();
+        self.expression_depth -= 1;
+        expr
+    }
+
+    fn enter_expression(&self) -> ParseResult<()> {
+        if self.expression_depth >= MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(self.position));
+        }
+        Ok(())
+    }
+
+    /// Rejects an over-long left-deep operator chain as it is built.
+    ///
+    /// The loop below runs once per operator, so `a + b + c + ...` never
+    /// recurses and `expression_depth` never grows. The tree it produces is
+    /// still `chain` levels deep, so the bound is checked here instead of being
+    /// left to the post-parse AST walk: by then a chain of unbounded length has
+    /// already been allocated, and dropping that tree is itself a deep drop.
+    fn check_chain_depth(&self, chain: usize) -> ParseResult<()> {
+        if self.expression_depth + chain >= MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(self.position));
+        }
+        Ok(())
     }
 
     /// Parses OR expressions.
     fn parse_or_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_and_expression()?;
+        let mut chain = 0usize;
 
         while self.current_token == Token::Or {
             self.advance()?;
             let right = self.parse_and_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator: BinaryOp::Or,
@@ -1310,10 +1366,13 @@ impl Parser {
     /// Parses AND expressions.
     fn parse_and_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_equality_expression()?;
+        let mut chain = 0usize;
 
         while self.current_token == Token::And {
             self.advance()?;
             let right = self.parse_equality_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator: BinaryOp::And,
@@ -1327,6 +1386,7 @@ impl Parser {
     /// Parses equality expressions.
     fn parse_equality_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_comparison_expression()?;
+        let mut chain = 0usize;
 
         while matches!(self.current_token, Token::Equal | Token::NotEqual) {
             let operator = match self.current_token {
@@ -1336,6 +1396,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_comparison_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1349,6 +1411,7 @@ impl Parser {
     /// Parses comparison expressions.
     fn parse_comparison_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_additive_expression()?;
+        let mut chain = 0usize;
 
         while matches!(
             self.current_token,
@@ -1366,6 +1429,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_additive_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1379,6 +1444,7 @@ impl Parser {
     /// Parses addition/subtraction expressions.
     fn parse_additive_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_multiplicative_expression()?;
+        let mut chain = 0usize;
 
         while matches!(self.current_token, Token::Plus | Token::Minus) {
             let operator = match self.current_token {
@@ -1388,6 +1454,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_multiplicative_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1401,6 +1469,7 @@ impl Parser {
     /// Parses multiplication/division expressions.
     fn parse_multiplicative_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_primary_expression()?;
+        let mut chain = 0usize;
 
         while matches!(self.current_token, Token::Multiply | Token::Divide) {
             let operator = match self.current_token {
@@ -1410,6 +1479,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_primary_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1552,6 +1623,67 @@ impl Parser {
 enum LazyInput {
     MagrittrDot,
     NativeParameter(String),
+}
+
+/// Iteratively rejects an AST whose expressions nest deeper than the bound.
+///
+/// Left-deep chains such as `a + b + c + ...` parse in a loop, so the
+/// recursive descent counter never sees them. Their AST is still deep, and the
+/// SQL generator and the relational binder walk it recursively, so the shape is
+/// checked here with an explicit stack. Bounding the tree once, at parse time,
+/// covers consumers of parsed expressions.
+fn validate_ast_depth(node: &DplyrNode, position: usize) -> ParseResult<()> {
+    let mut roots = Vec::new();
+    if let DplyrNode::Pipeline { operations, .. } = node {
+        for operation in operations {
+            match operation {
+                DplyrOperation::Select { columns, .. } => {
+                    roots.extend(columns.iter().map(|column| &column.expr));
+                }
+                DplyrOperation::Filter { condition, .. } => roots.push(condition),
+                DplyrOperation::Mutate { assignments, .. } => {
+                    roots.extend(assignments.iter().map(|assignment| &assignment.expr));
+                }
+                DplyrOperation::SummariseExpressions { assignments, .. } => {
+                    roots.extend(assignments.iter().map(|assignment| &assignment.expr));
+                }
+                DplyrOperation::Join { spec, .. } => {
+                    if let Some(on_expr) = &spec.on_expr {
+                        roots.push(on_expr);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut stack: Vec<(&Expr, usize)> = roots.into_iter().map(|expr| (expr, 1)).collect();
+    while let Some((expr, depth)) = stack.pop() {
+        if depth > MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(position));
+        }
+        match expr {
+            Expr::Binary { left, right, .. } => {
+                stack.push((left, depth + 1));
+                stack.push((right, depth + 1));
+            }
+            Expr::Function { args, .. } => {
+                stack.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::CaseWhen { branches, default } => {
+                for (condition, value) in branches {
+                    stack.push((condition, depth + 1));
+                    stack.push((value, depth + 1));
+                }
+                if let Some(default) = default {
+                    stack.push((default, depth + 1));
+                }
+            }
+            Expr::NamedArg { value, .. } => stack.push((value, depth + 1)),
+            Expr::Identifier(_) | Expr::Literal(_) => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

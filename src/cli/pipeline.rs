@@ -9,6 +9,7 @@ use crate::cli::{
     DplyrValidator, ErrorHandler, ExitCode, JsonOutputFormatter, OutputFormat, OutputFormatter,
     StdinReader, TranspileMetadata, ValidateResult, ValidationConfig,
 };
+use crate::relational::{SchemaInput, SourceSchema};
 use crate::{
     DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SqlDialect, SqliteDialect,
     TranspileError, Transpiler,
@@ -31,6 +32,7 @@ pub struct CliArgs {
     pub debug: bool,
     pub compact: bool,
     pub json_output: bool,
+    pub schema_file: Option<String>,
 }
 
 /// Supported SQL dialect types
@@ -78,7 +80,8 @@ pub fn parse_args() -> CliArgs {
                      Examples:\n  \
                      libdplyr -t \"data %>% select(name, age) %>% filter(age > 18)\"\n  \
                      libdplyr -i input.R -o output.sql -d mysql -p\n  \
-                     echo \"data %>% select(*)\" | libdplyr -d sqlite")
+                     echo \"data %>% select(*)\" | libdplyr -d sqlite\n  \
+                     libdplyr -t \"data %>% filter(age > 18)\" --schema schema.json")
         .arg(
             Arg::new("input")
                 .short('i')
@@ -167,6 +170,30 @@ pub fn parse_args() -> CliArgs {
                 .long_help("Output SQL and metadata in JSON format. Includes dialect information, processing statistics, and timestamps.")
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("schema")
+                .long("schema")
+                .value_name("FILE")
+                .help("Source schema JSON file for schema-aware compilation")
+                .long_help("Compile the pipeline against a known source schema instead of the\n\
+                            schema-less generator. The file must contain JSON shaped as:\n\n\
+                              {\n\
+                                \"source\": \"users\",\n\
+                                \"columns\": [\n\
+                                  { \"name\": \"id\", \"data_type\": \"integer\", \"nullable\": false },\n\
+                                  { \"name\": \"age\", \"data_type\": \"integer\" }\n\
+                                ]\n\
+                              }\n\n\
+                            An ordered array of those objects supplies metadata for\n\
+                            every source a pipeline reads, for example a join:\n\n\
+                              [\n\
+                                { \"source\": \"users\",  \"columns\": [ { \"name\": \"id\" } ] },\n\
+                                { \"source\": \"orders\", \"columns\": [ { \"name\": \"user_id\" } ] }\n\
+                              ]\n\n\
+                            With --json the result reports the compiled stages and columns.\n\
+                            Cannot be used with --validate-only, which never generates SQL.")
+                .conflicts_with("validate-only"),
+        )
         .get_matches();
 
     parse_matches(&matches)
@@ -188,6 +215,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         debug: matches.get_flag("debug"),
         compact: matches.get_flag("compact"),
         json_output: matches.get_flag("json"),
+        schema_file: matches.get_one::<String>("schema").cloned(),
     }
 }
 
@@ -213,6 +241,20 @@ fn create_dialect(dialect_type: &SqlDialectType) -> Box<dyn SqlDialect> {
         SqlDialectType::Sqlite => Box::new(SqliteDialect::new()),
         SqlDialectType::DuckDb => Box::new(DuckDbDialect::new()),
     }
+}
+
+/// Reads and parses source schema metadata, one object or an ordered array.
+fn load_source_schemas(path: &str) -> Result<Vec<SourceSchema>, TranspileError> {
+    let contents = std::fs::read_to_string(path).map_err(|e| {
+        TranspileError::IoError(format!("Failed to read schema file '{path}': {e}"))
+    })?;
+    let schemas: SchemaInput = serde_json::from_str(&contents).map_err(|e| {
+        TranspileError::ConfigurationError(format!("Invalid schema JSON in '{path}': {e}"))
+    })?;
+    schemas.validate().map_err(|e| {
+        TranspileError::ConfigurationError(format!("Invalid schema in '{path}': {e}"))
+    })?;
+    Ok(schemas.as_slice().to_vec())
 }
 
 /// CLI operation modes
@@ -245,6 +287,7 @@ pub struct CliConfig {
     pub validation_only: bool,
     pub verbose: bool,
     pub debug: bool,
+    pub schema_file: Option<String>,
 }
 
 impl CliConfig {
@@ -261,6 +304,7 @@ impl CliConfig {
             validation_only: args.validate_only,
             verbose: args.verbose,
             debug: args.debug,
+            schema_file: args.schema_file.clone(),
         }
     }
 
@@ -311,6 +355,7 @@ pub struct ProcessingPipeline {
     debug_logger: DebugLogger,
     signal_handler: Option<SignalHandler>,
     signal_processor: Option<SignalAwareProcessor>,
+    schemas: Vec<SourceSchema>,
 }
 
 impl ProcessingPipeline {
@@ -358,6 +403,13 @@ impl ProcessingPipeline {
             (None, None)
         };
 
+        let schema = config
+            .schema_file
+            .as_deref()
+            .map(load_source_schemas)
+            .transpose()?
+            .unwrap_or_default();
+
         Ok(Self {
             config,
             transpiler,
@@ -368,6 +420,7 @@ impl ProcessingPipeline {
             debug_logger,
             signal_handler,
             signal_processor,
+            schemas: schema,
         })
     }
 
@@ -516,6 +569,10 @@ impl ProcessingPipeline {
         self.debug_logger
             .debug(&format!("Input to transpile: {}", input.trim()));
 
+        if !self.schemas.is_empty() {
+            return self.transpile_with_schemas(input);
+        }
+
         // Parse dplyr code to AST
         self.debug_logger.debug("Starting lexical analysis...");
         let ast = self.transpiler.parse_dplyr(input)?;
@@ -545,6 +602,51 @@ impl ProcessingPipeline {
                 Ok(self.json_formatter.format_transpile_result(&sql, &metadata))
             }
             _ => Ok(self.output_formatter.format(&sql)?),
+        }
+    }
+
+    /// Compile the pipeline against a known source schema.
+    fn transpile_with_schemas(&mut self, input: &str) -> Result<String, TranspileError> {
+        self.debug_logger
+            .verbose("Schema-aware compilation enabled");
+        for schema in &self.schemas {
+            self.debug_logger.debug(&format!(
+                "Schema source '{}' with {} columns",
+                schema.source,
+                schema.columns.len()
+            ));
+        }
+
+        self.debug_logger.reset_step_timer();
+        let compiled = self
+            .transpiler
+            .transpile_with_schemas(input, &self.schemas)?;
+        self.debug_logger.timing("Schema compilation");
+        self.debug_logger
+            .verbose(&format!("Compiled {} stage(s)", compiled.stages));
+
+        let sql = &compiled.sql;
+        self.debug_logger
+            .log_sql_generation(sql, &self.config.dialect.to_string());
+        self.debug_logger
+            .verbose("Schema-aware transpilation completed successfully");
+
+        match self.config.output_format {
+            OutputFormat::Json => {
+                let metadata = TranspileMetadata::transpilation_success(
+                    &self.config.dialect,
+                    self.debug_logger.elapsed(),
+                    input,
+                    sql,
+                );
+                Ok(self.json_formatter.format_schema_transpile_result(
+                    sql,
+                    &metadata,
+                    &compiled.columns,
+                    compiled.stages,
+                ))
+            }
+            _ => Ok(self.output_formatter.format(sql)?),
         }
     }
 
@@ -691,6 +793,7 @@ mod tests {
             debug: false,
             compact: false,
             json_output: false,
+            schema_file: None,
         }
     }
 

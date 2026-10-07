@@ -1,7 +1,7 @@
 // Mutate-related helpers.
 
 use super::QueryParts;
-use super::{ColumnExpr, Expr, GenerationResult, SqlGenerator};
+use super::{ColumnExpr, Expr, GenerationError, GenerationResult, SqlGenerator};
 
 impl SqlGenerator {
     /// Generates SELECT columns, inlining any columns created by previous mutate() calls.
@@ -42,7 +42,7 @@ impl SqlGenerator {
             .collect()
     }
 
-    /// Processes mutate operations with support for complex expressions and subqueries.
+    /// Processes independent mutate assignments; rejects dependencies needing a new stage.
     ///
     /// # Arguments
     ///
@@ -57,12 +57,11 @@ impl SqlGenerator {
         assignments: &[crate::parser::Assignment],
         query_parts: &mut QueryParts,
     ) -> GenerationResult<()> {
-        // Check if we need subqueries for complex expressions
-        let needs_subquery = self.mutate_needs_subquery(assignments, query_parts);
-
-        if needs_subquery {
-            // For complex cases, we'll use a simpler approach for now
-            // TODO: Implement full subquery/CTE support in future iterations
+        // R1-AC1: A SELECT alias cannot stand in for an earlier mutation stage.
+        if self.mutate_needs_subquery(assignments, query_parts) {
+            return Err(GenerationError::InvalidAst {
+                reason: "dependent mutate() assignments require a subquery".to_string(),
+            });
         }
 
         // Simple mutate - add columns to SELECT clause
@@ -75,29 +74,20 @@ impl SqlGenerator {
         assignments: &[crate::parser::Assignment],
         query_parts: &QueryParts,
     ) -> bool {
-        // Need subquery if:
-        // 1. There are existing aggregations (GROUP BY + HAVING)
-        // 2. Mutate expressions reference other mutated columns
-        // 3. Complex window functions are used
-
-        if !query_parts.group_by.is_empty() {
+        if query_parts.has_aggregation {
             return true;
         }
 
-        // Check for column dependencies within mutate
-        let mut defined_columns = std::collections::HashSet::new();
+        // Include aliases introduced by previous operations, not only this call.
+        let mut defined_columns = query_parts.derived_columns.clone();
+        defined_columns.extend(query_parts.mutated_columns.keys().cloned());
         for assignment in assignments {
-            if self.expression_references_columns(&assignment.expr, &defined_columns) {
+            if defined_columns.contains(&assignment.column)
+                || self.expression_references_columns(&assignment.expr, &defined_columns)
+            {
                 return true;
             }
             defined_columns.insert(assignment.column.clone());
-        }
-
-        // Check for window functions or complex expressions
-        for assignment in assignments {
-            if self.expression_is_complex(&assignment.expr) {
-                return true;
-            }
         }
 
         false
@@ -161,39 +151,6 @@ impl SqlGenerator {
         }
     }
 
-    /// Checks if expression is complex and might need special handling.
-    #[allow(clippy::only_used_in_recursion)]
-    pub(super) fn expression_is_complex(&self, expr: &Expr) -> bool {
-        match expr {
-            Expr::Function { name, .. } => {
-                // Window functions or complex aggregations
-                matches!(
-                    name.to_lowercase().as_str(),
-                    "row_number"
-                        | "rank"
-                        | "dense_rank"
-                        | "lag"
-                        | "lead"
-                        | "first_value"
-                        | "last_value"
-                        | "nth_value"
-                )
-            }
-            Expr::Binary { left, right, .. } => {
-                self.expression_is_complex(left) || self.expression_is_complex(right)
-            }
-            Expr::CaseWhen { branches, default } => {
-                branches.iter().any(|(condition, value)| {
-                    self.expression_is_complex(condition) || self.expression_is_complex(value)
-                }) || default
-                    .as_ref()
-                    .is_some_and(|expr| self.expression_is_complex(expr))
-            }
-            Expr::NamedArg { value, .. } => self.expression_is_complex(value),
-            _ => false,
-        }
-    }
-
     /// Generates a subquery for complex mutate operations.
     ///
     /// # Arguments
@@ -209,6 +166,11 @@ impl SqlGenerator {
         base_query: &str,
         assignments: &[crate::parser::Assignment],
     ) -> GenerationResult<String> {
+        if self.mutate_needs_subquery(assignments, &QueryParts::new()) {
+            return Err(GenerationError::InvalidAst {
+                reason: "dependent mutate() assignments require an additional subquery".to_string(),
+            });
+        }
         let mut outer_select = Vec::new();
 
         // Add all existing columns (SELECT *)

@@ -31,6 +31,20 @@ struct NamedArgFormal {
     default_sql: Option<&'static str>,
 }
 
+/// How a function call at this position must be rendered.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenderContext {
+    /// Plain scalar SQL. Aggregates are not available here.
+    Scalar,
+    /// Aggregates become window functions with an optional PARTITION BY.
+    Window,
+    /// Grouped aggregates. `OVER` is never emitted and nesting is rejected.
+    Aggregate,
+    /// Inside an aggregate's own argument list. A further aggregate here would
+    /// render as `SUM(SUM(x))`, so it is rejected instead.
+    AggregateInner,
+}
+
 const ROUND_FORMALS: &[NamedArgFormal] = &[
     NamedArgFormal {
         name: "x",
@@ -156,7 +170,109 @@ fn named_argument_formals(function: &str) -> Option<&'static [NamedArgFormal]> {
     }
 }
 
+/// Functions that only exist as window functions. They have no grouped
+/// aggregate meaning, so aggregate rendering rejects them instead of
+/// silently dropping the frame.
+fn is_window_only_function(function: &str) -> bool {
+    matches!(
+        function.to_ascii_lowercase().as_str(),
+        "row_number" | "rank" | "dense_rank" | "ntile" | "lead" | "lag" | "nth_value"
+    )
+}
+
+/// True for functions the aggregate renderer treats as grouped aggregates.
+/// `n_distinct` is handled by `render_aggregate`, not by the dialect's
+/// aggregate-name table, so it is matched explicitly.
+fn is_aggregate_function(dialect: &dyn SqlDialect, function: &str) -> bool {
+    function.eq_ignore_ascii_case("n")
+        || function.eq_ignore_ascii_case("n_distinct")
+        || dialect.translate_aggregate_function(function).is_some()
+}
+
 impl SqlGenerator {
+    pub(crate) fn dialect(&self) -> &dyn SqlDialect {
+        self.dialect.as_ref()
+    }
+
+    pub(crate) fn render_expression(
+        &self,
+        expr: &Expr,
+        partition_by: &[String],
+    ) -> GenerationResult<String> {
+        let partition = partition_by
+            .iter()
+            .map(|name| self.dialect.quote_identifier(name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.generate_expression_context(expr, &partition, RenderContext::Window)
+    }
+
+    /// Renders an arbitrary expression inside a grouped aggregate projection.
+    ///
+    /// Aggregate math and scalar calls are allowed and recurse, but a window
+    /// clause is never emitted: an aggregate here belongs to the enclosing
+    /// GROUP BY, not to a window frame. Nested aggregates and window-only
+    /// functions are rejected rather than silently mis-rendered.
+    pub(crate) fn render_aggregate_expression(&self, expr: &Expr) -> GenerationResult<String> {
+        self.generate_expression_context(expr, "", RenderContext::Aggregate)
+    }
+
+    /// Renders a bare aggregate call in aggregate context.
+    ///
+    /// R1-AC1: n_distinct keeps its existing NULL-inclusive expansion.
+    pub(crate) fn render_aggregate_expression_call(
+        &self,
+        function: &str,
+        args: &[Expr],
+    ) -> GenerationResult<String> {
+        let argument = match args {
+            [] => None,
+            [arg] => Some(arg),
+            _ => {
+                return Err(GenerationError::InvalidAst {
+                    reason: format!("invalid arguments for {function}()"),
+                })
+            }
+        };
+        self.render_aggregate(function, argument)
+    }
+
+    pub(crate) fn render_aggregate(
+        &self,
+        function: &str,
+        argument: Option<&Expr>,
+    ) -> GenerationResult<String> {
+        let is_n = function.eq_ignore_ascii_case("n");
+        if is_n != argument.is_none() {
+            return Err(GenerationError::InvalidAst {
+                reason: format!(
+                    "{function}() requires {} arguments",
+                    if is_n { "zero" } else { "one" }
+                ),
+            });
+        }
+        let distinct = function.eq_ignore_ascii_case("n_distinct");
+        let name = self
+            .dialect
+            .translate_aggregate_function(if distinct { "count" } else { function })
+            .ok_or_else(|| GenerationError::UnsupportedAggregateFunction {
+                function: function.to_string(),
+                dialect: self.dialect.dialect_name().to_string(),
+            })?;
+        let argument = match argument {
+            Some(expr) => {
+                self.generate_expression_context(expr, "", RenderContext::AggregateInner)?
+            }
+            None => "*".to_string(),
+        };
+        if distinct {
+            // R1-AC1: Preserve the existing NULL-inclusive n_distinct contract.
+            Ok(format!("({name}(DISTINCT {argument}) + CASE WHEN {name}(*) > {name}({argument}) THEN 1 ELSE 0 END)"))
+        } else {
+            Ok(format!("{name}({argument})"))
+        }
+    }
+
     /// Creates a new SQL generator instance.
     ///
     /// # Arguments
@@ -253,6 +369,24 @@ impl SqlGenerator {
             });
         }
 
+        // R1-AC1: Preserve stage order.
+        // ponytail: reject extra query stages until subquery lowering is implemented.
+        if query_parts.set_operation.is_some() {
+            return Err(GenerationError::InvalidAst {
+                reason: "operations after a set operation require a subquery".to_string(),
+            });
+        }
+        if query_parts.has_aggregation
+            && !matches!(
+                operation,
+                DplyrOperation::Arrange { .. } | DplyrOperation::GroupBy { .. }
+            )
+        {
+            return Err(GenerationError::InvalidAst {
+                reason: "operations after aggregation require a subquery".to_string(),
+            });
+        }
+
         match operation {
             DplyrOperation::Select { columns, .. } => {
                 query_parts
@@ -317,18 +451,17 @@ impl SqlGenerator {
                 query_parts.select_columns = select_columns;
                 query_parts.has_aggregation = true;
             }
+            // R1-AC2: a compound summary cannot be expressed as one SELECT here:
+            // QueryParts has no subquery lowering, so any later operation would
+            // silently attach to the aggregated projection instead of the summary.
+            // Only the schema-aware path can honour it.
+            DplyrOperation::SummariseExpressions { .. } => {
+                return Err(GenerationError::UnsupportedOperation {
+                    operation: "summarise() with expressions; use a schema source".to_string(),
+                    dialect: self.dialect.dialect_name().to_string(),
+                });
+            }
             DplyrOperation::Count { columns, .. } => {
-                if query_parts.has_aggregation {
-                    return Err(GenerationError::InvalidAst {
-                        reason: "count()/tally() after aggregation requires a subquery".to_string(),
-                    });
-                }
-                if query_parts.set_operation.is_some() {
-                    return Err(GenerationError::InvalidAst {
-                        reason: "count()/tally() after a set operation requires a subquery"
-                            .to_string(),
-                    });
-                }
                 if !columns.is_empty() && !query_parts.joins.is_empty() {
                     return Err(GenerationError::InvalidAst {
                         reason: "count() keys after a join require qualified columns".to_string(),
@@ -612,6 +745,15 @@ impl SqlGenerator {
         expr: &Expr,
         partition_by: &str,
     ) -> GenerationResult<String> {
+        self.generate_expression_context(expr, partition_by, RenderContext::Scalar)
+    }
+
+    fn generate_expression_context(
+        &self,
+        expr: &Expr,
+        partition_by: &str,
+        context: RenderContext,
+    ) -> GenerationResult<String> {
         match expr {
             Expr::Identifier(name) => Ok(self.dialect.quote_identifier(name)),
             Expr::Literal(literal) => self.generate_literal(literal),
@@ -620,29 +762,32 @@ impl SqlGenerator {
                 operator,
                 right,
             } => {
-                let left_sql =
-                    self.generate_expression_with_window_partition(left, partition_by)?;
-                let right_sql =
-                    self.generate_expression_with_window_partition(right, partition_by)?;
+                let left_sql = self.generate_expression_context(left, partition_by, context)?;
+                let right_sql = self.generate_expression_context(right, partition_by, context)?;
+                // R sums divide as floating point; SQL divides integers as
+                // integers. Only the aggregate/window paths need this, and
+                // legacy scalar SQL is left byte-identical.
+                if matches!(operator, BinaryOp::Divide) && !matches!(context, RenderContext::Scalar)
+                {
+                    return Ok(format!("(({left_sql} * 1.0) / {right_sql})"));
+                }
                 let op_sql = self.generate_binary_operator(operator);
                 Ok(format!("({left_sql} {op_sql} {right_sql})"))
             }
             Expr::Function { name, args } => {
-                self.generate_function_expression_with_window_partition(name, args, partition_by)
+                self.generate_function_expression_context(name, args, partition_by, context)
             }
             Expr::CaseWhen { branches, default } => {
                 let mut sql = String::from("CASE");
                 for (condition, value) in branches {
                     let condition_sql =
-                        self.generate_expression_with_window_partition(condition, partition_by)?;
+                        self.generate_expression_context(condition, partition_by, context)?;
                     let value_sql =
-                        self.generate_expression_with_window_partition(value, partition_by)?;
+                        self.generate_expression_context(value, partition_by, context)?;
                     sql.push_str(&format!(" WHEN {condition_sql} THEN {value_sql}"));
                 }
                 let default_sql = match default {
-                    Some(expr) => {
-                        self.generate_expression_with_window_partition(expr, partition_by)?
-                    }
+                    Some(expr) => self.generate_expression_context(expr, partition_by, context)?,
                     None => "NULL".to_string(),
                 };
                 sql.push_str(&format!(" ELSE {default_sql} END"));
@@ -654,18 +799,55 @@ impl SqlGenerator {
         }
     }
 
-    fn generate_function_expression_with_window_partition(
+    fn generate_function_expression_context(
         &self,
         name: &str,
         args: &[Expr],
         partition_by: &str,
+        context: RenderContext,
     ) -> GenerationResult<String> {
         if name.eq_ignore_ascii_case("paste") {
-            return self.generate_paste_expression_with_window_partition(name, args, partition_by);
+            return self.generate_paste_expression_context(name, args, partition_by, context);
+        }
+
+        let is_aggregate = is_aggregate_function(self.dialect.as_ref(), name);
+        // Legacy scalar rendering (mutate/filter) keeps its original fallthrough
+        // so an out-of-context aggregate still reports the dialect's error.
+        if is_aggregate && context == RenderContext::AggregateInner {
+            return Err(GenerationError::InvalidAst {
+                reason: format!("aggregate {name}() cannot be nested inside another aggregate"),
+            });
+        }
+        if is_aggregate && context != RenderContext::Scalar {
+            let aggregate = self.render_aggregate_expression_call(name, args)?;
+            return match context {
+                RenderContext::Aggregate | RenderContext::AggregateInner => Ok(aggregate),
+                RenderContext::Window | RenderContext::Scalar => {
+                    let window = if partition_by.is_empty() {
+                        String::new()
+                    } else {
+                        format!("PARTITION BY {partition_by}")
+                    };
+                    Ok(format!("{aggregate} OVER ({window})"))
+                }
+            };
+        }
+
+        // Window-only functions have no meaning inside a grouped aggregate, and
+        // translating them here would drop the frame rather than report the
+        // mismatch. AggregateInner is included so SUM(lag(x)) is rejected too.
+        if matches!(
+            context,
+            RenderContext::Aggregate | RenderContext::AggregateInner
+        ) && is_window_only_function(name)
+        {
+            return Err(GenerationError::InvalidAst {
+                reason: format!("window function {name}() is not allowed in a grouped aggregate"),
+            });
         }
 
         let args_str =
-            self.generate_function_arguments_with_window_partition(name, args, partition_by)?;
+            self.generate_function_arguments_context(name, args, partition_by, context)?;
 
         if let Some(translated) =
             self.dialect
@@ -680,17 +862,18 @@ impl SqlGenerator {
         })
     }
 
-    fn generate_function_arguments_with_window_partition(
+    fn generate_function_arguments_context(
         &self,
         function: &str,
         args: &[Expr],
         partition_by: &str,
+        context: RenderContext,
     ) -> GenerationResult<Vec<String>> {
         let has_named_args = args.iter().any(|arg| matches!(arg, Expr::NamedArg { .. }));
         if !has_named_args {
             return args
                 .iter()
-                .map(|arg| self.generate_expression_with_window_partition(arg, partition_by))
+                .map(|arg| self.generate_expression_context(arg, partition_by, context))
                 .collect();
         }
 
@@ -735,10 +918,10 @@ impl SqlGenerator {
                     }
 
                     slots[index] =
-                        Some(self.generate_expression_with_window_partition(value, partition_by)?);
+                        Some(self.generate_expression_context(value, partition_by, context)?);
                 }
                 _ => {
-                    let sql = self.generate_expression_with_window_partition(arg, partition_by)?;
+                    let sql = self.generate_expression_context(arg, partition_by, context)?;
                     while next_positional < slots.len() && slots[next_positional].is_some() {
                         next_positional += 1;
                     }
@@ -775,11 +958,12 @@ impl SqlGenerator {
         Ok(normalized)
     }
 
-    fn generate_paste_expression_with_window_partition(
+    fn generate_paste_expression_context(
         &self,
         name: &str,
         args: &[Expr],
         partition_by: &str,
+        context: RenderContext,
     ) -> GenerationResult<String> {
         let mut positional_args = Vec::new();
         let mut separator = self.dialect.quote_string(" ");
@@ -797,8 +981,7 @@ impl SqlGenerator {
                             dialect: self.dialect.dialect_name().to_string(),
                         });
                     }
-                    separator =
-                        self.generate_expression_with_window_partition(value, partition_by)?;
+                    separator = self.generate_expression_context(value, partition_by, context)?;
                     seen_separator = true;
                 }
                 Expr::NamedArg { name: arg_name, .. } => {
@@ -808,8 +991,11 @@ impl SqlGenerator {
                         dialect: self.dialect.dialect_name().to_string(),
                     });
                 }
-                _ => positional_args
-                    .push(self.generate_expression_with_window_partition(arg, partition_by)?),
+                _ => positional_args.push(self.generate_expression_context(
+                    arg,
+                    partition_by,
+                    context,
+                )?),
             }
         }
 

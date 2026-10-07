@@ -95,8 +95,8 @@ Exact partial-support and rejection boundaries are documented in
 | `group_by()` | Group rows | `group_by(dept)` |
 | `summarise()` | Aggregate data | `summarise(avg = mean(val))` |
 | `count()` / `tally()` | Count rows by identifier-only keys or current groups | `count(dept)` |
-| `*_join()` | Equality joins (inner, left, etc.) | `left_join(other, by=c("id", "left"="right"))` |
-| Set Ops | union, intersect, setdiff | `union(other)` |
+| `*_join()` | Six equality joins; `.x`/`.y` suffixes, coalesced right/full keys | `left_join(other, by=c("id", "left"="right"))` |
+| Set Ops | union, intersect, setdiff, aligned by column name | `union(other)` |
 
 ### Helper Functions
 *   **Aggregation**: `mean`, `sum`, `min`, `max`, `n`, `n_distinct`, `count`, `median`*, `mode`*
@@ -124,6 +124,45 @@ let code = r#"
     arrange(desc(avg_sal))
 "#;
 ```
+
+### Schema-Aware Multi-Source Pipelines
+
+DuckDB discovers schemas automatically for `dplyr(...)`, direct pipelines, and
+embedded `(| ... |)` pipelines, including CTEs, views, and temporary tables.
+For standalone Rust or CLI compilation, pass one schema per source. `--schema` takes a single
+source object or an array of them:
+
+```bash
+echo '[{"source":"users","columns":[{"name":"id"},{"name":"name"}]},
+       {"source":"orders","columns":[{"name":"user_id"},{"name":"qty"},{"name":"price"}]}]' > schemas.json
+
+echo 'users %>% inner_join(orders, by = c("id" = "user_id")) %>%
+       mutate(rev = price * qty) %>% group_by(name) %>%
+       summarise(total = sum(rev)) %>% filter(total > 100)' | libdplyr --schema schemas.json -d sqlite
+```
+
+In Rust the same pipeline uses `transpile_with_schemas`, which takes a slice of
+`SourceSchema`:
+
+```rust
+use libdplyr::{Transpiler, PostgreSqlDialect, SourceSchema};
+
+let schemas = vec![
+    SourceSchema::new("users", vec!["id", "name"]),
+    SourceSchema::new("orders", vec!["user_id", "qty", "price"]),
+];
+let transpiler = Transpiler::new(Box::new(PostgreSqlDialect::new()));
+let query = transpiler.transpile_with_schemas(
+    r#"users %>% inner_join(orders, by = c("id" = "user_id")) %>%
+        mutate(rev = price * qty) %>% group_by(name) %>%
+        summarise(total = sum(rev))"#,
+    &schemas,
+)?;
+println!("{}", query.sql);
+```
+
+Join keys match with SQL `=`, which never matches NULL. Exact support
+boundaries are in [the dplyr syntax support matrix](docs/dplyr-support.md).
 
 ## Error Handling & Troubleshooting
 

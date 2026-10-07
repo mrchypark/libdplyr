@@ -168,6 +168,86 @@ int dplyr_compile_with_pipe_syntax(
 );
 
 /**
+ * @brief Compile dplyr code against caller-supplied source schema metadata.
+ *
+ * @param dplyr_code Pipeline code to compile
+ * @param schema_json JSON source schema:
+ *        {"source":"tbl","columns":[{"name":"col","data_type":"integer","nullable":true}]}
+ *        or an ordered array of those objects, one per pipeline input:
+ *        [{"source":"users",...},{"source":"orders",...}]
+ * @param options Compile options, or NULL for defaults
+ * @param sql_output Receives the generated SQL on success
+ * @param error_output Receives an error message on failure
+ *
+ * The schema JSON is untrusted metadata: it is length-bounded and UTF-8 validated,
+ * parsed, then checked by the schema validator (non-empty source, non-empty and
+ * unique column names). It is not scanned by the R-code security filters, which
+ * would reject legitimate metadata. The schema source must match the pipeline's
+ * source relation, and sources in an array must be distinct.
+ *
+ * Compiled SQL is not cached, so a different schema always recompiles.
+ *
+ * Ownership, return codes, and panic behavior match dplyr_compile().
+ */
+int dplyr_compile_with_schema(
+    const char* dplyr_code,
+    const char* schema_json,
+    const DplyrOptions* options,
+    char** sql_output,
+    char** error_output
+);
+
+/**
+ * @brief Compile dplyr code against a source schema with an explicit pipe syntax.
+ *
+ * Same contract as dplyr_compile_with_schema(), but the pipe syntax comes from
+ * @p pipe_syntax (0 = magrittr, 1 = native) instead of the DPLYR_PIPE_SYNTAX
+ * environment variable, so callers get deterministic behavior.
+ *
+ * Ownership, return codes, and panic behavior match dplyr_compile().
+ */
+int dplyr_compile_with_schema_and_pipe_syntax(
+    const char* dplyr_code,
+    const char* schema_json,
+    const DplyrOptions* options,
+    uint32_t pipe_syntax,
+    char** sql_output,
+    char** error_output
+);
+
+/**
+ * @brief List the source relations a pipeline reads, for schema discovery.
+ *
+ * @param dplyr_code Pipeline code to inspect
+ * @param pipe_syntax DPLYR_PIPE_SYNTAX_MAGRITTR or DPLYR_PIPE_SYNTAX_NATIVE
+ * @param sources_json Receives a JSON array of distinct source names in input
+ *        order, for example ["users","orders"]
+ * @param error_output Receives an error message on failure
+ *
+ * This is the discovery step an embedder runs before it can supply schema
+ * metadata, so @p dplyr_code is untrusted and is length-bounded, UTF-8 checked,
+ * and scanned by the R-code security filters before parsing.
+ *
+ * A pipeline with no explicit source (for example a bare "filter(a > 1)") has
+ * no relation to report and returns an error.
+ *
+ * Ownership, return codes, and panic behavior match dplyr_compile().
+ * Free @p sources_json with dplyr_free_string().
+ */
+int dplyr_required_sources(
+    const char* dplyr_code,
+    uint32_t pipe_syntax,
+    char** sources_json,
+    char** error_output
+);
+
+/** Prepare native DuckDB SQL with pipeline compilation deferred to the current binder.
+ * Same validation, result codes, and output ownership as dplyr_compile_query_with_pipe_syntax.
+ */
+int dplyr_prepare_query_with_pipe_syntax(const char* query, const DplyrOptions* options,
+    uint32_t pipe_syntax, char** out_sql, char** out_error);
+
+/**
  * @brief Compile a full query, including embedded `(| ... |)` dplyr segments.
  *
  * Returns `DPLYR_QUERY_NOT_HANDLED` when the query does not contain a dplyr

@@ -349,6 +349,16 @@ impl DplyrValidator {
                 }
                 *complexity_score += 3;
             }
+            DplyrOperation::SummariseExpressions { assignments, .. } => {
+                operations.push("summarise".to_string());
+                *has_aggregation = true;
+                for assignment in assignments {
+                    // The output name is always known; the referenced columns
+                    // are not extracted, mirroring the Filter arm above.
+                    columns.insert(assignment.column.clone());
+                }
+                *complexity_score += 3;
+            }
             DplyrOperation::Count { columns: cols, .. } => {
                 operations.push("count/tally".to_string());
                 columns.extend(cols.iter().cloned());
