@@ -526,7 +526,10 @@ jobs:
           # DuckDB dplyr Extension ${{ github.event.release.tag_name || github.event.inputs.version }}
 
           ## 🚀 Features
-          - Native DuckDB 1.5 parser override for implicit dplyr pipeline statements
+          - Schema-aware compilation with stable column bindings and staged SQL for composed dplyr pipelines
+          - Extended grouping, selection, windows, non-equality and rolling joins, ordered slices, sampling, and tidyr transformations
+          - Rust execution protocols for snapshot validation and dynamic pivot discovery; database adapters are supplied by the caller
+          - Native DuckDB 1.5 parser integration for implicit dplyr pipeline statements
           - Caller-context execution that preserves temporary tables and transaction state
           - Database-global implicit pipe syntax with explicit per-call control through \`dplyr(query, mode)\`
           - Exact-version DuckDB 1.5.0 compatibility packages and 1.5.5 primary packages, including Windows for 1.5.5
@@ -599,17 +602,17 @@ jobs:
           - Source code is scanned with CodeQL
           - Dependencies are audited for vulnerabilities
 
-          ## 📈 Performance
-          - Simple queries: <2ms transpilation time
-          - Complex queries: <15ms transpilation time
-          - Extension loading: <50ms
-          - Memory efficient with built-in caching
-
-          ## 🐛 Known Issues
-          - None reported for this release
+          ## ⚠️ Breaking Changes and Limits
+          - Public Rust parser AST variants and fields changed; downstream exhaustive matches and struct construction may need updates
+          - Pipelines that need schemas or validation require the corresponding compilation or execution-plan API
+          - \`mutate(x = NULL)\` deletes a column; use \`NA\` to retain a column with missing values
+          - This is not a complete R evaluator or full dbplyr API implementation; DML, in-place writes, data movement, and database drivers are not bundled
+          - Validation and dynamic pivot execution require one stable snapshot; C and DuckDB SELECT entry points do not run validation plans
+          - Sampling has no seed guarantee; some tidyr combinations, moving-frame aggregates, MySQL full joins, and first/last join selection remain unsupported
+          - See the [coverage report](https://github.com/mrchypark/libdplyr/blob/${{ github.event.release.tag_name || github.event.inputs.version }}/docs/dbplyr-parity.md) for measured results and remaining limits
 
           ## 📚 Documentation
-          - [Installation Guide](INSTALL.md)
+          - [Installation Guide](https://github.com/mrchypark/libdplyr/blob/${{ github.event.release.tag_name || github.event.inputs.version }}/INSTALL.md)
           - [Usage Examples](https://github.com/mrchypark/libdplyr/tree/main/examples)
           - [API Reference](https://github.com/mrchypark/libdplyr/tree/main/docs)
 
@@ -618,7 +621,7 @@ jobs:
 
           ---
 
-          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/v0.5.0...${{ github.event.release.tag_name || github.event.inputs.version }}
+          **Full Changelog**: https://github.com/mrchypark/libdplyr/compare/v0.6.0...${{ github.event.release.tag_name || github.event.inputs.version }}
           EOF
 
       - name: Create or update release

@@ -1,7 +1,7 @@
 # dbplyr 호환 범위와 제약 해소 결과
 
 검토일: 2026-10-08. 비교 기준: dbplyr 2.6.0, dplyr 1.2.1.
-기준 HEAD는 `d32307fc61086d0bbe2c3a7a744f7edcab12dcbf`이며, 아래 결과는 현재 미커밋 구현을 포함한다.
+아래 결과는 v0.7.0 릴리즈 후보의 구현과 검증을 기준으로 한다.
 
 제안한 순서에 따라 의미 오류, 주요 동사·옵션·함수, 비등가 조인, tidyr와 실행 프로토콜을
 추가했다. 정렬된 위치 slice, 실제 조인 관계 검사, 롤링 조인, 가중·복원 표본,
@@ -92,7 +92,7 @@ SQLite에서 양쪽이 생성한 82개 중 79개를 실제 비교했다. 열 순
 - `cargo clippy --workspace --all-targets -- -D warnings`와 fmt 검사 통과.
 - SQLite·DuckDB·PostgreSQL·MySQL: 62개 결과 사례씩, **248/248** 통과.
 - 같은 네 엔진: 관계·가중치·uncount·행 변경 위반 검사 **32개** 통과.
-- DuckDB 확장: **85개** 통과. 테이블 함수와 embedded pipeline 진입점 포함.
+- DuckDB 확장: **89개** 통과. 테이블 함수와 embedded pipeline 진입점 포함.
 - 기존 SQLite relational/followup 실행 회귀 통과.
 - SQLite 두 연결의 동시 변경: 관계 검사와 피벗 탐색 각각 같은 스냅샷을 유지하는 **2개** 통과.
 - Rust 실행·피벗 테스트: 실패 시 결과 미공개, commit/rollback 순서와 오류 보존 확인.

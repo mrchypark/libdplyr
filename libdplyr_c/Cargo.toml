@@ -1,6 +1,6 @@
 [package]
 name = "libdplyr_c"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "C-compatible API for libdplyr DuckDB extension"
 license = "MIT"
@@ -24,7 +24,7 @@ serde_json = "1.0.149"
 # R9-AC1: panic 안전성을 위한 의존성
 # FFI 경계에서 panic을 catch하기 위해 std::panic 사용 (내장)
 # 추가 의존성: 해시 계산을 위한 크레이트
-lru = "0.17"
+lru = "0.18.2"
 
 # R6-AC1: 캐싱을 위한 의존성
 lazy_static = "1.5"
