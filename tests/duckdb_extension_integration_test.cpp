@@ -1132,6 +1132,86 @@ TEST_F(DuckDBExtensionTest, QueryStagesPreservePipelineMeaningAcrossEntryPoints)
 }
 
 // R1-AC2: automatic metadata must use the current native binder scope.
+TEST_F(DuckDBExtensionTest, DefaultModeSeesTempTablesForDependentMutate) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_temp(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_temp VALUES (11), (12)")->HasError());
+    auto result = safe_query("default_temp %>% mutate(a = x + 1, b = a + 1) %>% select(b) %>% arrange(b)");
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+    auto chunk = result->Fetch();
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 13);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int32_t>(), 14);
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModeSeesUncommittedRowsForDependentMutate) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE default_tx(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_tx VALUES (1)")->HasError());
+    ASSERT_FALSE(safe_query("BEGIN TRANSACTION")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_tx VALUES (2)")->HasError());
+    auto result = safe_query("default_tx %>% mutate(a = x + 1, b = a + 1) %>% select(b) %>% arrange(b)");
+    ASSERT_FALSE(safe_query("ROLLBACK")->HasError());
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+    auto chunk = result->Fetch();
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 3);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int32_t>(), 4);
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModePreparedPipelineRefreshesCatalog) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_refresh(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_refresh VALUES (2)")->HasError());
+    auto prepared = conn->Prepare("default_refresh %>% mutate(a = x + 1, b = a + 1)");
+    ASSERT_FALSE(prepared->HasError()) << prepared->GetError();
+    auto first = prepared->Execute();
+    ASSERT_FALSE(first->HasError()) << first->GetError();
+    EXPECT_EQ(first->names, (duckdb::vector<duckdb::string>{"x", "a", "b"}));
+    ASSERT_FALSE(safe_query("ALTER TABLE default_refresh ADD COLUMN y INTEGER DEFAULT 9")->HasError());
+    auto refreshed = prepared->Execute();
+    ASSERT_FALSE(refreshed->HasError()) << refreshed->GetError();
+    EXPECT_EQ(refreshed->names, (duckdb::vector<duckdb::string>{"x", "y", "a", "b"}));
+    auto chunk = refreshed->Fetch();
+    EXPECT_EQ(chunk->GetValue(1, 0).ToString(), "9");
+    EXPECT_EQ(chunk->GetValue(3, 0).ToString(), "4");
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModeStreamsAllNativeChunks) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_chunks AS SELECT i::INTEGER AS x, "
+        "CASE WHEN i % 2 = 0 THEN NULL ELSE i::INTEGER END AS n, "
+        "repeat('x', 1024) || i AS s, [i, NULL] AS nested FROM range(10000) t(i)")->HasError());
+    for (const auto &optimizer : {"enable_optimizer", "disable_optimizer"}) {
+        ASSERT_FALSE(safe_query(std::string("PRAGMA ") + optimizer)->HasError());
+        for (const auto threads : {1, 4}) {
+            ASSERT_FALSE(safe_query("SET threads = " + std::to_string(threads))->HasError());
+            auto result = safe_query("default_chunks %>% mutate(a = x + 1, b = a + 1) "
+                "%>% select(b, n, s, nested) %>% arrange(b)");
+            ASSERT_FALSE(result->HasError()) << result->GetError();
+            ASSERT_EQ(result->RowCount(), 10000);
+            auto expected = safe_query("SELECT x + 2 AS b, n, s, nested FROM default_chunks ORDER BY x");
+            ASSERT_FALSE(expected->HasError()) << expected->GetError();
+            EXPECT_EQ(result->names, expected->names);
+            EXPECT_EQ(result->types, expected->types);
+            duckdb::idx_t seen = 0;
+            while (auto chunk = result->Fetch()) {
+                for (duckdb::idx_t row = 0; row < chunk->size(); ++row, ++seen) {
+                    for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); ++column) {
+                        EXPECT_EQ(chunk->GetValue(column, row).ToString(), expected->GetValue(column, seen).ToString());
+                    }
+                }
+            }
+            EXPECT_EQ(seen, 10000);
+            auto empty = safe_query("default_chunks %>% filter(x < 0) %>% mutate(a = x + 1, b = a + 1) %>% select(b)");
+            ASSERT_FALSE(empty->HasError()) << empty->GetError();
+            EXPECT_EQ(empty->RowCount(), 0);
+        }
+    }
+}
+
 TEST_F(DuckDBExtensionTest, AutomaticSchemaPreservesComputedDependencies) {
     auto result = safe_query("SELECT * FROM dplyr('mtcars %>% mutate(a = mpg + 1, b = a + 1) %>% select(b)')");
     ASSERT_NE(result, nullptr);
@@ -1308,13 +1388,14 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
     ASSERT_FALSE(result->HasError()) << "JOIN with DPLYR should work: " << result->GetError();
     ASSERT_EQ(result->RowCount(), 2);
 
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 2);
-    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "Product A");
-    EXPECT_EQ(chunk->GetValue(1, 0).GetValue<int32_t>(), 100);
-    EXPECT_EQ(chunk->GetValue(0, 1).ToString(), "Product B");
-    EXPECT_EQ(chunk->GetValue(1, 1).GetValue<int32_t>(), 200);
+    std::vector<std::pair<std::string, int32_t>> rows;
+    while (auto chunk = result->Fetch()) {
+        for (duckdb::idx_t row = 0; row < chunk->size(); ++row) {
+            rows.emplace_back(chunk->GetValue(0, row).ToString(), chunk->GetValue(1, row).GetValue<int32_t>());
+        }
+    }
+    std::sort(rows.begin(), rows.end());
+    EXPECT_EQ(rows, (std::vector<std::pair<std::string, int32_t>>{{"Product A", 100}, {"Product B", 200}}));
 }
 
 // ============================================================================
