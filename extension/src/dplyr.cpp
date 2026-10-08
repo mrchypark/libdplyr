@@ -12,22 +12,23 @@
 #include "duckdb/common/error_data.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 #include "duckdb/parser/parser.hpp"
-// Note: Parser.hpp removed - use Connection::Query for parsing validation
 #include "duckdb/parser/statement/extension_statement.hpp"
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
+#include "duckdb/parser/tableref/basetableref.hpp"
+#include "duckdb/parser/query_node/select_node.hpp"
+#include "duckdb/parser/expression/star_expression.hpp"
 #include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/logical_operator.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/extension_callback_manager.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/table_function.hpp"
-#include "duckdb/execution/executor.hpp"
-#include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/main/client_config.hpp"
 #include "duckdb/main/client_context.hpp"
-#include "duckdb/common/types/column/column_data_collection.hpp"
 #include "../include/dplyr_extension.hpp"
 #include <cstdint>
 #include <memory>
@@ -763,18 +764,32 @@ static QueryCompileStatus CompileDplyrQueryWithCompiler(const string& query, str
     return QueryCompileStatus::Success;
 }
 
-static QueryCompileStatus CompileDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
+static QueryCompileStatus PrepareDplyrQueryWithPipeSyntax(const string& query, uint32_t pipe_syntax,
                                                           string &sql_out, string &error_out,
                                                           int *result_code_out = nullptr) {
     return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
         [&](DplyrOptions* options, char** sql_output, char** error_output) {
-            return dplyr_compile_query_with_pipe_syntax(
+            return dplyr_prepare_query_with_pipe_syntax(
                 query.c_str(),
                 options,
                 pipe_syntax,
                 sql_output,
                 error_output);
         }, result_code_out);
+}
+
+static QueryCompileStatus CompileDplyrQueryWithSchema(const string& query, const string& schema_json,
+                                                     uint32_t pipe_syntax, string &sql_out, string &error_out) {
+    return CompileDplyrQueryWithCompiler(query, sql_out, error_out,
+        [&](DplyrOptions* options, char** sql_output, char** error_output) {
+            return dplyr_compile_with_schema_and_pipe_syntax(
+                query.c_str(),
+                schema_json.c_str(),
+                options,
+                pipe_syntax,
+                sql_output,
+                error_output);
+        });
 }
 
 static string StripTrailingSemicolon(string input) {
@@ -804,7 +819,7 @@ ParserExtensionParseResult dplyr_parse(ParserExtensionInfo *info, const string& 
         }
 
         string sql;
-        auto status = CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error);
+        auto status = PrepareDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error);
         if (status == QueryCompileStatus::NotHandled) {
             return ParserExtensionParseResult();
         }
@@ -859,7 +874,7 @@ ParserOverrideResult dplyr_parser_override(ParserExtensionInfo *info, const stri
             ParserException exception(error);
             return ParserOverrideResult(exception);
         }
-        auto status = CompileDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error, &result_code);
+        auto status = PrepareDplyrQueryWithPipeSyntax(query, pipe_syntax, sql, error, &result_code);
         if (status == QueryCompileStatus::NotHandled) {
             if (options.parser_override_setting == AllowParserOverride::STRICT_OVERRIDE) {
                 try {
@@ -915,10 +930,14 @@ ParserOverrideResult dplyr_parser_override(ParserExtensionInfo *info, const stri
 
 // (Removed duplicate Load implementation)
 
-static void DplyrTableFunction(ClientContext &, TableFunctionInput &input, DataChunk &output);
-static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names);
-static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input);
+static unique_ptr<LogicalOperator> DplyrSqlTableBindOperator(ClientContext &context, TableFunctionBindInput &input,
+                                                            idx_t bind_index, vector<string> &names);
+
+static OperatorResultType DplyrQueryInOut(ExecutionContext &, TableFunctionInput &, DataChunk &input,
+                                          DataChunk &output) {
+    output.Reference(input);
+    return OperatorResultType::NEED_MORE_INPUT;
+}
 
 ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientContext& context,
                                      unique_ptr<ParserExtensionParseData> parse_data) {
@@ -934,7 +953,7 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
         if (EffectivePipeSyntax(context, pipe_syntax, error) != QueryCompileStatus::Success) {
             sql = DplyrQueryErrorParameter(error);
         } else {
-            auto status = CompileDplyrQueryWithPipeSyntax(dplyr_data->sql, pipe_syntax, sql, error);
+            auto status = PrepareDplyrQueryWithPipeSyntax(dplyr_data->sql, pipe_syntax, sql, error);
             if (status == QueryCompileStatus::NotHandled) {
                 sql = DplyrQueryErrorParameter("DPLYR parser extension requires a configured pipeline expression");
             } else if (status == QueryCompileStatus::Error || !error.empty()) {
@@ -945,13 +964,11 @@ ParserExtensionPlanResult dplyr_plan(ParserExtensionInfo * /*info*/, ClientConte
     }
 
     ParserExtensionPlanResult result;
-    // Keep bind_replace for dplyr() in FROM clauses, but use a regular table
-    // function for parser-extension statements.
-    result.function = TableFunction("dplyr_query",
-        {LogicalType::VARCHAR},
-        DplyrTableFunction,
-        DplyrSqlTableBind,
-        DplyrTableInit);
+    // ExtensionStatement requires a LogicalGet root; stream its native child plan
+    // in the caller's transaction instead of opening a second connection.
+    result.function = TableFunction("dplyr_query", {LogicalType::VARCHAR}, nullptr, nullptr);
+    result.function.bind_operator = DplyrSqlTableBindOperator;
+    result.function.in_out_function = DplyrQueryInOut;
     result.parameters.emplace_back(std::move(sql));
     result.requires_valid_transaction = true;
     result.return_type = StatementReturnType::QUERY_RESULT;
@@ -967,46 +984,6 @@ DplyrParserExtension::DplyrParserExtension(shared_ptr<DplyrParserExtensionInfo> 
     parser_info = std::move(parser_info_p);
 }
 
-struct DplyrTableFunctionData : public TableFunctionData {
-    string sql;
-    string error;
-    vector<string> names;
-    vector<LogicalType> types;
-
-    unique_ptr<FunctionData> Copy() const override {
-        auto copy = make_uniq<DplyrTableFunctionData>();
-        copy->sql = sql;
-        copy->error = error;
-        copy->names = names;
-        copy->types = types;
-        return copy;
-    }
-
-    bool Equals(const FunctionData &other) const override {
-        auto &other_data = other.Cast<DplyrTableFunctionData>();
-        return sql == other_data.sql && error == other_data.error && types == other_data.types;
-    }
-
-    // Disable statement caching for this table function since results depend on current catalog state.
-    bool SupportStatementCache() const override {
-        return false;
-    }
-};
-
-struct DplyrTableFunctionState : public GlobalTableFunctionState {
-    explicit DplyrTableFunctionState(unique_ptr<ColumnDataCollection> collection_p)
-        : collection(std::move(collection_p)) {
-        collection->InitializeScan(scan_state);
-    }
-
-    idx_t MaxThreads() const override {
-        return 1;
-    }
-
-    unique_ptr<ColumnDataCollection> collection;
-    ColumnDataScanState scan_state;
-};
-
 static string GetDplyrQuery(const TableFunctionBindInput &input) {
     if (input.inputs.empty() || input.inputs[0].IsNull()) {
         throw InvalidInputException("dplyr() requires a non-null query string");
@@ -1014,13 +991,55 @@ static string GetDplyrQuery(const TableFunctionBindInput &input) {
     return StringValue::Get(input.inputs[0]);
 }
 
-static uint32_t GetDplyrPipeSyntax(ClientContext &context, const TableFunctionBindInput &input) {
-    string error;
-    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
-    if (PipeSyntaxFromTableInput(context, input, pipe_syntax, error) != QueryCompileStatus::Success) {
-        ThrowInvalidPipeSyntaxError(context, error);
+// R1-AC2: bind metadata in the caller's scope, without executing a source or
+// acquiring ClientContext's query mutex again. Child binders inherit CTEs,
+// catalog search paths, and the current transaction from the active binder.
+static QueryCompileStatus DiscoverSourceSchemas(ClientContext &context, TableFunctionBindInput &input,
+                                                const string &code, uint32_t pipe_syntax,
+                                                string &schema_json, string &error) {
+    string sources_json;
+    auto status = CompileDplyrQueryWithCompiler(code, sources_json, error,
+        [&](DplyrOptions *, char **output, char **out_error) {
+            return dplyr_required_sources(code.c_str(), pipe_syntax, output, out_error);
+        });
+    if (status != QueryCompileStatus::Success) {
+        return status;
     }
-    return pipe_syntax;
+    if (!input.binder) {
+        throw BinderException("dplyr() requires the current query binder for schema discovery");
+    }
+    input.binder->SetAlwaysRequireRebind();
+    auto sources = StringUtil::ParseJSONMap("{\"sources\":" + sources_json + "}");
+    auto &array = sources->GetObject("sources");
+    schema_json = "[";
+    // GetValue returns an empty string past the array end; source names are
+    // nonempty because Rust has already parsed and validated the pipeline.
+    for (idx_t index = 0;; ++index) {
+        auto source = array.GetValue(index);
+        if (source.empty()) {
+            break;
+        }
+        auto node = make_uniq<SelectNode>();
+        auto table = make_uniq<BaseTableRef>();
+        table->table_name = source;
+        node->from_table = std::move(table);
+        node->select_list.push_back(make_uniq<StarExpression>());
+        auto binder = Binder::CreateBinder(context, input.binder);
+        auto bound = binder->Bind(*node);
+        string columns = "[";
+        for (idx_t column = 0; column < bound.names.size(); ++column) {
+            if (column > 0) columns += ",";
+            columns += StringUtil::ToJSONMap({{"name", bound.names[column]},
+                                              {"data_type", bound.types[column].ToString()}});
+        }
+        columns += "]";
+        auto schema = StringUtil::ToJSONMap({{"source", source}});
+        schema.insert(schema.size() - 1, ",\"columns\":" + columns);
+        if (index > 0) schema_json += ",";
+        schema_json += schema;
+    }
+    schema_json += "]";
+    return QueryCompileStatus::Success;
 }
 
 static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableFunctionBindInput &input) {
@@ -1036,7 +1055,19 @@ static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableF
 
     auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
     string sql;
-    auto status = CompileDplyrQueryWithPipeSyntax(dplyr_code, pipe_syntax, sql, error);
+    string schema_json;
+    QueryCompileStatus status;
+    try {
+        status = DiscoverSourceSchemas(context, input, dplyr_code, pipe_syntax, schema_json, error);
+    } catch (const std::exception &exception) {
+        // Native catalog/binder errors must stay in QueryResult, like compile
+        // errors; DuckDB can otherwise rethrow a nested binder's exception.
+        error = ErrorData(exception).Message();
+        status = QueryCompileStatus::Error;
+    }
+    if (status == QueryCompileStatus::Success) {
+        status = CompileDplyrQueryWithSchema(dplyr_code, schema_json, pipe_syntax, sql, error);
+    }
     if (status == QueryCompileStatus::NotHandled) {
         return PipeSyntaxErrorTableRef("dplyr() requires a configured pipeline expression", context.GetParserOptions());
     }
@@ -1052,135 +1083,99 @@ static unique_ptr<TableRef> DplyrTableBindReplace(ClientContext &context, TableF
         "dplyr() generated SQL must be a single SELECT statement");
 }
 
-static unique_ptr<FunctionData> DplyrTableBind(ClientContext &context, TableFunctionBindInput &input,
-                                               vector<LogicalType> &return_types, vector<string> &names) {
-    auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
+// dplyr_with_schema(code VARCHAR, schema_json VARCHAR[, pipe_config VARCHAR]).
+// The schema argument is caller-provided metadata and is never a pipe syntax
+// configuration, so only the optional third argument can override the pipe mode.
+static unique_ptr<TableRef> DplyrWithSchemaTableBindReplace(ClientContext &context,
+                                                            TableFunctionBindInput &input) {
+    if (input.inputs.empty() || input.inputs[0].IsNull()) {
+        return PipeSyntaxErrorTableRef("dplyr_with_schema() requires a non-null query string",
+                                       context.GetParserOptions());
+    }
+    if (input.inputs.size() < 2 || input.inputs[1].IsNull()) {
+        return PipeSyntaxErrorTableRef("dplyr_with_schema() requires a non-null schema JSON string",
+                                       context.GetParserOptions());
+    }
 
-    auto &db = DatabaseInstance::GetDatabase(context);
-    Connection conn(db);
+    string error;
+    uint32_t pipe_syntax = DPLYR_PIPE_SYNTAX_MAGRITTR;
+    if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
+        if (ParsePipeSyntaxValue(StringValue::Get(input.inputs[2]), pipe_syntax, error) !=
+            QueryCompileStatus::Success) {
+            return PipeSyntaxErrorTableRef(error, context.GetParserOptions());
+        }
+    } else if (EffectivePipeSyntax(context, pipe_syntax, error) != QueryCompileStatus::Success) {
+        return PipeSyntaxErrorTableRef(error, context.GetParserOptions());
+    }
+
+    // Only the pipeline code is trimmed; the schema JSON is forwarded unchanged.
+    auto dplyr_code = StripTrailingSemicolon(GetDplyrQuery(input));
+    auto schema_json = StringValue::Get(input.inputs[1]);
 
     string sql;
-    string error;
-    auto status = CompileDplyrQueryWithPipeSyntax(dplyr_code, GetDplyrPipeSyntax(context, input), sql, error);
+    auto status = CompileDplyrQueryWithSchema(dplyr_code, schema_json, pipe_syntax, sql, error);
     if (status == QueryCompileStatus::NotHandled) {
-        throw InvalidInputException("dplyr() requires a configured pipeline expression");
+        return PipeSyntaxErrorTableRef("dplyr_with_schema() requires a configured pipeline expression",
+                                       context.GetParserOptions());
     }
     if (status == QueryCompileStatus::Error || !error.empty()) {
-        auto guided_error = AddDuckDbPipeSyntaxGuidance(error);
-        throw InvalidInputException(
-            "dplyr() transpilation failed: %s",
-            guided_error.c_str());
+        return PipeSyntaxErrorTableRef(
+            "dplyr_with_schema() transpilation failed: " + AddDuckDbPipeSyntaxGuidance(error),
+            context.GetParserOptions());
     }
 
-    // Bind should be lightweight: infer schema without materializing rows.
-    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
-    auto schema_result = conn.Query(schema_query);
-    if (schema_result->HasError()) {
-        throw InvalidInputException(
-            "dplyr() schema inference failed: %s",
-            schema_result->GetError().c_str());
-    }
-
-    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
-
-    auto bind_data = make_uniq<DplyrTableFunctionData>();
-    bind_data->sql = std::move(sql);
-    bind_data->names = materialized.names;
-    bind_data->types = materialized.types;
-
-    names = bind_data->names;
-    return_types = bind_data->types;
-    return bind_data;
+    return SelectSubqueryTableRef(
+        sql,
+        context.GetParserOptions(),
+        "dplyr_with_schema() generated SQL must be a single SELECT statement");
 }
 
-static unique_ptr<FunctionData> DplyrSqlTableBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names) {
+// bind_replace must handle dplyr() in the caller's binder scope.
+static unique_ptr<FunctionData> DplyrTableBind(ClientContext &, TableFunctionBindInput &,
+                                               vector<LogicalType> &, vector<string> &) {
+    throw BinderException("dplyr() must be bound through bind_replace");
+}
+
+static unique_ptr<LogicalOperator> DplyrSqlTableBindOperator(ClientContext &context, TableFunctionBindInput &input,
+                                                            idx_t bind_index, vector<string> &names) {
     if (input.inputs.empty() || input.inputs[0].IsNull()) {
         throw InvalidInputException("dplyr_query() requires a non-null SQL string");
     }
-
-    string sql = StripTrailingSemicolon(StringValue::Get(input.inputs[0]));
+    auto sql = StripTrailingSemicolon(StringValue::Get(input.inputs[0]));
     if (sql.empty()) {
         throw InvalidInputException("dplyr_query() requires a non-empty SQL string");
     }
     string parser_error;
     if (TryGetDplyrQueryError(sql, parser_error)) {
-        auto bind_data = make_uniq<DplyrTableFunctionData>();
-        bind_data->error = std::move(parser_error);
-        bind_data->names = {"dplyr_error"};
-        bind_data->types = {LogicalType::VARCHAR};
-
-        names = bind_data->names;
-        return_types = bind_data->types;
-        return bind_data;
+        sql = DplyrErrorSql(parser_error);
     }
-
-    auto &db = DatabaseInstance::GetDatabase(context);
-    Connection conn(db);
-
-    string schema_query = "SELECT * FROM (" + sql + ") AS dplyr_subquery LIMIT 0";
-    auto schema_result = conn.Query(schema_query);
-    if (schema_result->HasError()) {
-        throw InvalidInputException(
-            "dplyr_query() schema inference failed: %s",
-            schema_result->GetError().c_str());
+    if (!input.binder) {
+        throw BinderException("dplyr_query() requires the current query binder");
     }
-
-    auto &materialized = schema_result->Cast<MaterializedQueryResult>();
-
-    auto bind_data = make_uniq<DplyrTableFunctionData>();
-    bind_data->sql = std::move(sql);
-    bind_data->names = materialized.names;
-    bind_data->types = materialized.types;
-
-    names = bind_data->names;
-    return_types = bind_data->types;
-    return bind_data;
+    input.binder->SetAlwaysRequireRebind();
+    auto ref = SelectSubqueryTableRef(sql, context.GetParserOptions(),
+                                     "dplyr_query() generated SQL must be a single SELECT statement");
+    auto binder = Binder::CreateBinder(context, input.binder);
+    auto &statement = static_cast<SQLStatement &>(*ref->Cast<SubqueryRef>().subquery);
+    auto bound = binder->Bind(statement);
+    names = bound.names;
+    auto get = make_uniq<LogicalGet>(bind_index, input.table_function, nullptr, bound.types, bound.names);
+    get->input_table_types = bound.types;
+    get->input_table_names = bound.names;
+    for (idx_t column = 0; column < bound.types.size(); ++column) {
+        get->AddColumnId(column);
+    }
+    get->children.push_back(std::move(bound.plan));
+    return std::move(get);
 }
 
-static unique_ptr<GlobalTableFunctionState> DplyrTableInit(ClientContext &context, TableFunctionInitInput &input) {
-    auto &data = input.bind_data->Cast<DplyrTableFunctionData>();
-    if (!data.error.empty()) {
-        Executor::Get(context).PushError(ErrorData(ExceptionType::INVALID_INPUT, data.error));
-        auto collection = make_uniq<ColumnDataCollection>(context, data.types);
-        return make_uniq<DplyrTableFunctionState>(std::move(collection));
-    }
-
-    auto &db = DatabaseInstance::GetDatabase(context);
-    Connection conn(db);
-
-    auto result = conn.SendQuery(data.sql);
-    if (result->HasError()) {
-        Executor::Get(context).PushError(result->GetErrorObject());
-        auto collection = make_uniq<ColumnDataCollection>(context, data.types);
-        return make_uniq<DplyrTableFunctionState>(std::move(collection));
-    }
-
-    // Keep the result buffer-managed; TakeCollection is not exported on Windows.
-    auto collection = make_uniq<ColumnDataCollection>(context, data.types);
-    ColumnDataAppendState append_state;
-    collection->InitializeAppend(append_state);
-    while (true) {
-        auto chunk = result->Fetch();
-        if (!chunk || chunk->size() == 0) {
-            break;
-        }
-        collection->Append(append_state, *chunk);
-    }
-    if (result->HasError()) {
-        Executor::Get(context).PushError(result->GetErrorObject());
-        auto empty_collection = make_uniq<ColumnDataCollection>(context, data.types);
-        return make_uniq<DplyrTableFunctionState>(std::move(empty_collection));
-    }
-
-    return make_uniq<DplyrTableFunctionState>(std::move(collection));
-}
-
-static void DplyrTableFunction(ClientContext & /*context*/, TableFunctionInput &input, DataChunk &output) {
-    auto &state = input.global_state->Cast<DplyrTableFunctionState>();
-    if (!state.collection->Scan(state.scan_state, output)) {
-        output.SetCardinality(0);
-    }
+// bind_replace always handles dplyr_with_schema, so this bind is unreachable; keep it
+// explicit so no schema-free compile path can exist for this function.
+static unique_ptr<FunctionData> DplyrWithSchemaTableBind(ClientContext & /*context*/,
+                                                         TableFunctionBindInput & /*input*/,
+                                                         vector<LogicalType> & /*return_types*/,
+                                                         vector<string> & /*names*/) {
+    throw BinderException("dplyr_with_schema() must be bound through bind_replace");
 }
 
 static LogicalType DplyrPipeSyntaxSettingType() {
@@ -1210,19 +1205,31 @@ void DplyrExtension::Load(ExtensionLoader& loader) {
     
     TableFunction dplyr_function("dplyr",
         {LogicalType::VARCHAR},
-        DplyrTableFunction,
-        DplyrTableBind,
-        DplyrTableInit);
+        nullptr,
+        DplyrTableBind);
     dplyr_function.bind_replace = DplyrTableBindReplace;
     loader.RegisterFunction(dplyr_function);
 
     TableFunction dplyr_function_with_config("dplyr",
         {LogicalType::VARCHAR, LogicalType::VARCHAR},
-        DplyrTableFunction,
-        DplyrTableBind,
-        DplyrTableInit);
+        nullptr,
+        DplyrTableBind);
     dplyr_function_with_config.bind_replace = DplyrTableBindReplace;
     loader.RegisterFunction(dplyr_function_with_config);
+
+    TableFunction dplyr_with_schema_function("dplyr_with_schema",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR},
+        nullptr,
+        DplyrWithSchemaTableBind);
+    dplyr_with_schema_function.bind_replace = DplyrWithSchemaTableBindReplace;
+    loader.RegisterFunction(dplyr_with_schema_function);
+
+    TableFunction dplyr_with_schema_with_config("dplyr_with_schema",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+        nullptr,
+        DplyrWithSchemaTableBind);
+    dplyr_with_schema_with_config.bind_replace = DplyrWithSchemaTableBindReplace;
+    loader.RegisterFunction(dplyr_with_schema_with_config);
 
     auto dplyr_pipe_syntax_current = ScalarFunction(
         "dplyr_pipe_syntax",

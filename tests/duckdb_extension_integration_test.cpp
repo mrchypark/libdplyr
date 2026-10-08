@@ -210,6 +210,60 @@ protected:
         expect_query_error_no_throw(*conn, query, expected_fragments);
     }
     
+    // Shared grammar fixture: one NULL value, one repeated base, and two
+    // groups so ungroup() can be compared against the grouped window.
+    void create_grammar_fixture() {
+        ASSERT_FALSE(conn->Query("CREATE TABLE grammar_src(id INTEGER, grp INTEGER, b INTEGER, val DOUBLE)")->HasError());
+        ASSERT_FALSE(conn->Query("INSERT INTO grammar_src VALUES (1, 1, 2, 2.0), (2, 1, 3, NULL), (3, 2, 2, 4.0)")->HasError());
+    }
+
+    // Checks the table-function and embedded entry points against plain-SQL
+    // semantics for one named output column. The comparison runs inside
+    // DuckDB, so it does not depend on generated SQL types or formatting, and
+    // NULL stays distinguishable from FALSE.
+    void expect_pipeline_matches_sql(const std::string &pipeline,
+                                     const std::string &column,
+                                     const std::string &baseline_sql) {
+        const std::string table_function = "SELECT * FROM dplyr('" + pipeline + "')";
+        const std::string embedded = "SELECT * FROM (| " + pipeline + " |)";
+        for (const auto &source : {table_function, embedded}) {
+            const std::string diff_query =
+                "WITH produced AS (" + source + "), expected AS (" + baseline_sql +
+                ") SELECT COUNT(*) FROM ((SELECT " + column + " FROM produced "
+                "EXCEPT ALL SELECT * FROM expected) UNION ALL (SELECT * FROM expected "
+                "EXCEPT ALL SELECT " + column + " FROM produced)) AS differences";
+            auto diff = safe_query(diff_query);
+            ASSERT_NE(diff, nullptr) << diff_query;
+            ASSERT_FALSE(diff->HasError()) << diff_query << ": " << diff->GetError();
+            auto chunk = diff->Fetch();
+            ASSERT_TRUE(chunk);
+            EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 0)
+                << pipeline << " must match baseline " << baseline_sql;
+        }
+
+        auto baseline = safe_query(baseline_sql);
+        ASSERT_FALSE(baseline->HasError()) << baseline_sql;
+        auto direct_result = safe_query(pipeline);
+        ASSERT_NE(direct_result, nullptr) << pipeline;
+        ASSERT_FALSE(direct_result->HasError()) << pipeline << ": " << direct_result->GetError();
+        EXPECT_EQ(direct_result->RowCount(), baseline->RowCount())
+            << "Direct pipeline row count must match " << baseline_sql;
+        const auto direct_column = std::find(direct_result->names.begin(), direct_result->names.end(), column);
+        ASSERT_NE(direct_column, direct_result->names.end()) << column;
+        const auto direct_index = static_cast<duckdb::idx_t>(direct_column - direct_result->names.begin());
+        const auto values = [](duckdb::QueryResult &result, duckdb::idx_t index) {
+            std::vector<std::string> output;
+            while (auto chunk = result.Fetch()) {
+                for (duckdb::idx_t row = 0; row < chunk->size(); ++row) {
+                    output.push_back(chunk->GetValue(index, row).ToString());
+                }
+            }
+            std::sort(output.begin(), output.end());
+            return output;
+        };
+        EXPECT_EQ(values(*direct_result, direct_index), values(*baseline, 0)) << pipeline;
+    }
+
     std::unique_ptr<duckdb::DuckDB> db;
     std::unique_ptr<duckdb::Connection> conn;
     std::unique_ptr<ScopedEnvironmentVariable> scoped_pipe_syntax;
@@ -408,11 +462,8 @@ TEST_F(DuckDBExtensionTest, ParserOverrideGeneratedSqlCannotBeClaimedByLegacyPar
     auto result = safe_query("mtcars %>% arrange(mpg) %>% union(mtcars)");
 
     ASSERT_NE(result, nullptr);
-    ASSERT_TRUE(result->HasError()) << "ORDER BY before UNION should remain a native parser error";
-    const auto error = result->GetError();
-    EXPECT_EQ(error.find(LEGACY_GENERATED_SQL_SENTINEL), std::string::npos) << error;
-    EXPECT_NE(error.find("syntax error"), std::string::npos) << error;
-    EXPECT_NE(error.find("UNION"), std::string::npos) << error;
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
 }
 #endif
 
@@ -584,6 +635,142 @@ TEST_F(DuckDBExtensionTest, TableFunctionNativePipeSyntaxConfig) {
     ASSERT_NE(result, nullptr);
     ASSERT_FALSE(result->HasError()) << "Native pipe table function should succeed: " << result->GetError();
     EXPECT_EQ(result->RowCount(), 3);
+}
+
+// ============================================================================
+// dplyr_with_schema(code, schema_json[, pipe_config]) tests
+// ============================================================================
+
+TEST_F(DuckDBExtensionTest, WithSchemaSupportsDependentMutate) {
+    ASSERT_FALSE(safe_query("CREATE TABLE tbl(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO tbl VALUES (2)")->HasError());
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema("
+        "'tbl %>% mutate(double_x = x * 2, quadruple = double_x * 2) %>% select(quadruple)',"
+        "'{\"source\":\"tbl\",\"columns\":[{\"name\":\"x\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "dplyr_with_schema() should compile dependent mutate: " << result->GetError();
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 8);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaMutateOverwritesExistingOutputName) {
+    ASSERT_FALSE(safe_query("CREATE TABLE overwrite_src(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO overwrite_src VALUES (5)")->HasError());
+
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema("
+        "'overwrite_src %>% mutate(x = x * 10) %>% select(x)',"
+        "'{\"source\":\"overwrite_src\",\"columns\":[{\"name\":\"x\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Overwriting an existing name should compile: " << result->GetError();
+    EXPECT_EQ(result->names[0], "x");
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 1);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 50);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaSummariseAndFilterOnTempSource) {
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE schema_temp_src(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO schema_temp_src VALUES (1), (2), (3)")->HasError());
+
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema("
+        "'schema_temp_src %>% filter(x > 1) %>% summarise(total = sum(x)) %>% filter(total >= 5)',"
+        "'{\"source\":\"schema_temp_src\",\"columns\":[{\"name\":\"x\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "dplyr_with_schema() should bind against a session TEMP table: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 1);
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 5);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaResolvesOuterCteSource) {
+    auto result = safe_query(
+        "WITH base AS (SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3) "
+        "SELECT * FROM dplyr_with_schema("
+        "'base %>% filter(id > 1) %>% summarise(total = sum(id))',"
+        "'{\"source\":\"base\",\"columns\":[{\"name\":\"id\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "dplyr_with_schema() should resolve an outer CTE source: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 1);
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 5);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaSeesUncommittedTransactionRows) {
+    ASSERT_FALSE(safe_query("CREATE TABLE schema_tx_src(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO schema_tx_src VALUES (1)")->HasError());
+    ASSERT_FALSE(safe_query("BEGIN TRANSACTION")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO schema_tx_src VALUES (2)")->HasError());
+
+    auto result = safe_query(
+        "SELECT total FROM dplyr_with_schema("
+        "'schema_tx_src %>% summarise(total = sum(x)) %>% select(total)',"
+        "'{\"source\":\"schema_tx_src\",\"columns\":[{\"name\":\"x\"}]}')");
+
+    ASSERT_FALSE(safe_query("ROLLBACK")->HasError());
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "dplyr_with_schema() should execute inside the caller transaction: " << result->GetError();
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int64_t>(), 3);
+    auto after_rollback = safe_query("SELECT SUM(x) FROM schema_tx_src");
+    ASSERT_FALSE(after_rollback->HasError());
+    EXPECT_EQ(after_rollback->Fetch()->GetValue(0, 0).GetValue<int64_t>(), 1);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaRejectsInvalidSchemaJson) {
+    expect_query_error_no_throw(
+        "SELECT * FROM dplyr_with_schema('mtcars %>% select(mpg)', 'not-json')",
+        {"dplyr_with_schema"});
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaRejectsUnknownSchemaColumn) {
+    expect_query_error_no_throw(
+        "SELECT * FROM dplyr_with_schema('mtcars %>% select(missing_col)', "
+        "'{\"source\":\"mtcars\",\"columns\":[{\"name\":\"mpg\"}]}')",
+        {"dplyr_with_schema"});
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaAcceptsExplicitNativePipeOverride) {
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema('mtcars |> select(mpg)', "
+        "'{\"source\":\"mtcars\",\"columns\":[{\"name\":\"mpg\"}]}', 'native')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Explicit native pipe override should compile: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaTwoArgFormRespectsConfiguredNativeMode) {
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'native'")->HasError());
+
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema('mtcars |> select(mpg)', "
+        "'{\"source\":\"mtcars\",\"columns\":[{\"name\":\"mpg\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError())
+        << "The two-argument form should follow the configured pipe mode: " << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+}
+
+TEST_F(DuckDBExtensionTest, WithSchemaRejectsNullSchema) {
+    expect_query_error_no_throw(
+        "SELECT * FROM dplyr_with_schema('mtcars %>% select(mpg)', NULL)",
+        {"dplyr_with_schema"});
 }
 
 TEST_F(DuckDBExtensionTest, PipeSyntaxScalarDefaultReportsConfiguredMode) {
@@ -916,6 +1103,185 @@ TEST_F(DuckDBExtensionTest, MagrittrPipeLambdaRhs) {
 // R2-AC2: Standard SQL Integration and Mixing Tests
 // ============================================================================
 
+// R1-AC2: every native entry point compiles against caller-visible metadata.
+TEST_F(DuckDBExtensionTest, QueryStagesPreservePipelineMeaningAcrossEntryPoints) {
+    const std::vector<std::pair<std::string, size_t>> pipelines = {
+        {"mtcars %>% mutate(a = mpg + 1, b = a + 1) %>% select(b)", 3},
+        {"mtcars %>% summarise(total = sum(mpg)) %>% filter(total > 3)", 1},
+        {"mtcars %>% union(mtcars) %>% intersect(mtcars)", 3}};
+    for (const auto &mode : {"default", "fallback", "strict"}) {
+        ASSERT_FALSE(safe_query(std::string("SET allow_parser_override_extension = '") + mode + "'")->HasError());
+        for (const auto &item : pipelines) {
+            const auto &pipeline = item.first;
+            for (const auto &query : {pipeline, "SELECT * FROM dplyr('" + pipeline + "')",
+                                     "SELECT * FROM (| " + pipeline + " |)"}) {
+                auto result = safe_query(query);
+                ASSERT_NE(result, nullptr);
+                ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
+                EXPECT_EQ(result->RowCount(), item.second);
+                if (pipeline.find("mutate") != std::string::npos) {
+                    auto chunk = result->Fetch();
+                    std::vector<int32_t> values;
+                    for (duckdb::idx_t row = 0; row < chunk->size(); ++row) values.push_back(chunk->GetValue(0, row).GetValue<int32_t>());
+                    std::sort(values.begin(), values.end());
+                    EXPECT_EQ(values, (std::vector<int32_t>{21, 23, 32}));
+                }
+            }
+        }
+    }
+}
+
+// R1-AC2: automatic metadata must use the current native binder scope.
+TEST_F(DuckDBExtensionTest, DefaultModeSeesTempTablesForDependentMutate) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_temp(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_temp VALUES (11), (12)")->HasError());
+    auto result = safe_query("default_temp %>% mutate(a = x + 1, b = a + 1) %>% select(b) %>% arrange(b)");
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+    auto chunk = result->Fetch();
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 13);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int32_t>(), 14);
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModeSeesUncommittedRowsForDependentMutate) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE default_tx(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_tx VALUES (1)")->HasError());
+    ASSERT_FALSE(safe_query("BEGIN TRANSACTION")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_tx VALUES (2)")->HasError());
+    auto result = safe_query("default_tx %>% mutate(a = x + 1, b = a + 1) %>% select(b) %>% arrange(b)");
+    ASSERT_FALSE(safe_query("ROLLBACK")->HasError());
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+    auto chunk = result->Fetch();
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 3);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int32_t>(), 4);
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModePreparedPipelineRefreshesCatalog) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_refresh(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO default_refresh VALUES (2)")->HasError());
+    auto prepared = conn->Prepare("default_refresh %>% mutate(a = x + 1, b = a + 1)");
+    ASSERT_FALSE(prepared->HasError()) << prepared->GetError();
+    auto first = prepared->Execute();
+    ASSERT_FALSE(first->HasError()) << first->GetError();
+    EXPECT_EQ(first->names, (duckdb::vector<duckdb::string>{"x", "a", "b"}));
+    ASSERT_FALSE(safe_query("ALTER TABLE default_refresh ADD COLUMN y INTEGER DEFAULT 9")->HasError());
+    auto refreshed = prepared->Execute();
+    ASSERT_FALSE(refreshed->HasError()) << refreshed->GetError();
+    EXPECT_EQ(refreshed->names, (duckdb::vector<duckdb::string>{"x", "y", "a", "b"}));
+    auto chunk = refreshed->Fetch();
+    EXPECT_EQ(chunk->GetValue(1, 0).ToString(), "9");
+    EXPECT_EQ(chunk->GetValue(3, 0).ToString(), "4");
+}
+
+TEST_F(DuckDBExtensionTest, DefaultModeStreamsAllNativeChunks) {
+    ASSERT_FALSE(safe_query("SET allow_parser_override_extension = 'default'")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE default_chunks AS SELECT i::INTEGER AS x, "
+        "CASE WHEN i % 2 = 0 THEN NULL ELSE i::INTEGER END AS n, "
+        "repeat('x', 1024) || i AS s, [i, NULL] AS nested FROM range(10000) t(i)")->HasError());
+    for (const auto &optimizer : {"enable_optimizer", "disable_optimizer"}) {
+        ASSERT_FALSE(safe_query(std::string("PRAGMA ") + optimizer)->HasError());
+        for (const auto threads : {1, 4}) {
+            ASSERT_FALSE(safe_query("SET threads = " + std::to_string(threads))->HasError());
+            auto result = safe_query("default_chunks %>% mutate(a = x + 1, b = a + 1) "
+                "%>% select(b, n, s, nested) %>% arrange(b)");
+            ASSERT_FALSE(result->HasError()) << result->GetError();
+            ASSERT_EQ(result->RowCount(), 10000);
+            auto expected = safe_query("SELECT x + 2 AS b, n, s, nested FROM default_chunks ORDER BY x");
+            ASSERT_FALSE(expected->HasError()) << expected->GetError();
+            EXPECT_EQ(result->names, expected->names);
+            EXPECT_EQ(result->types, expected->types);
+            duckdb::idx_t seen = 0;
+            while (auto chunk = result->Fetch()) {
+                for (duckdb::idx_t row = 0; row < chunk->size(); ++row, ++seen) {
+                    for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); ++column) {
+                        EXPECT_EQ(chunk->GetValue(column, row).ToString(), expected->GetValue(column, seen).ToString());
+                    }
+                }
+            }
+            EXPECT_EQ(seen, 10000);
+            auto empty = safe_query("default_chunks %>% filter(x < 0) %>% mutate(a = x + 1, b = a + 1) %>% select(b)");
+            ASSERT_FALSE(empty->HasError()) << empty->GetError();
+            EXPECT_EQ(empty->RowCount(), 0);
+        }
+    }
+}
+
+TEST_F(DuckDBExtensionTest, AutomaticSchemaPreservesComputedDependencies) {
+    auto result = safe_query("SELECT * FROM dplyr('mtcars %>% mutate(a = mpg + 1, b = a + 1) %>% select(b)')");
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    EXPECT_EQ(result->RowCount(), 3);
+    EXPECT_EQ(result->names[0], "b");
+}
+
+TEST_F(DuckDBExtensionTest, AutomaticSchemaSeesCallerCteAndView) {
+    auto result = safe_query("WITH local_source AS (SELECT 1 AS x UNION ALL SELECT 2) "
+        "SELECT * FROM dplyr('local_source %>% mutate(a = x + 1, b = a + 1) %>% select(b) %>% arrange(b)')");
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << result->GetError();
+    ASSERT_EQ(result->RowCount(), 2);
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    EXPECT_EQ(chunk->GetValue(0, 0).GetValue<int32_t>(), 3);
+    EXPECT_EQ(chunk->GetValue(0, 1).GetValue<int32_t>(), 4);
+    ASSERT_FALSE(safe_query("CREATE VIEW auto_schema_view AS SELECT 3 AS x")->HasError());
+    auto view = safe_query("SELECT * FROM dplyr('auto_schema_view %>% summarise(total = sum(x * 2))')");
+    ASSERT_FALSE(view->HasError()) << view->GetError();
+    EXPECT_EQ(view->RowCount(), 1);
+    EXPECT_EQ(view->Fetch()->GetValue(0, 0).ToString(), "6");
+}
+
+TEST_F(DuckDBExtensionTest, AutomaticSchemaFindsJoinAndSetInputs) {
+    auto joined = safe_query("SELECT * FROM dplyr('mtcars %>% inner_join(mtcars, by = \"mpg\") %>% group_by(mpg) %>% summarise(n = n())')");
+    ASSERT_FALSE(joined->HasError()) << joined->GetError();
+    EXPECT_EQ(joined->names.size(), 2);
+    auto combined = safe_query("SELECT * FROM dplyr('mtcars %>% union(mtcars) %>% select(mpg) %>% filter(mpg > 20)')");
+    ASSERT_FALSE(combined->HasError()) << combined->GetError();
+    EXPECT_GT(combined->RowCount(), 0);
+}
+
+TEST_F(DuckDBExtensionTest, AutomaticSchemaRefreshesAfterCatalogChanges) {
+    ASSERT_FALSE(safe_query("CREATE TABLE auto_refresh(x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO auto_refresh VALUES (2)")->HasError());
+    ASSERT_FALSE(safe_query("PREPARE auto_query AS SELECT * FROM dplyr('auto_refresh %>% mutate(a = x + 1)')")->HasError());
+    auto first = safe_query("EXECUTE auto_query");
+    ASSERT_FALSE(first->HasError()) << first->GetError();
+    ASSERT_EQ(first->names.size(), 2);
+    ASSERT_FALSE(safe_query("ALTER TABLE auto_refresh ADD COLUMN y INTEGER DEFAULT 9")->HasError());
+    auto refreshed = safe_query("EXECUTE auto_query");
+    ASSERT_FALSE(refreshed->HasError()) << refreshed->GetError();
+    EXPECT_EQ(refreshed->names, (duckdb::vector<duckdb::string>{"x", "y", "a"}));
+    auto chunk = refreshed->Fetch();
+    EXPECT_EQ(chunk->GetValue(1, 0).ToString(), "9");
+    EXPECT_EQ(chunk->GetValue(2, 0).ToString(), "3");
+}
+
+// R9-AC2: String contents are data, including punctuation and SQL-like text.
+TEST_F(DuckDBExtensionTest, QuotedFilterDataIsNotRejectedAsCode) {
+    ASSERT_FALSE(safe_query("CREATE TABLE quoted_data(x VARCHAR)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO quoted_data VALUES ('a'), ('../'), ('UNION SELECT'), ('O''Brien')")->HasError());
+    for (const auto &literal : {"a", "../", "UNION SELECT", "O'Brien"}) {
+        const std::string pipeline = std::string("quoted_data %>% filter(x == \"") + literal + "\")";
+        std::string escaped = pipeline;
+        for (size_t pos = 0; (pos = escaped.find('\'', pos)) != std::string::npos; pos += 2) {
+            escaped.insert(pos, "'");
+        }
+        auto result = safe_query("SELECT * FROM dplyr('" + escaped + "')");
+        ASSERT_NE(result, nullptr);
+        ASSERT_FALSE(result->HasError()) << result->GetError();
+        ASSERT_EQ(result->RowCount(), 1);
+        auto chunk = result->Fetch();
+        ASSERT_TRUE(chunk);
+        EXPECT_EQ(chunk->GetValue(0, 0).ToString(), literal);
+    }
+}
+
 TEST_F(DuckDBExtensionTest, StandardSqlMixingWithCTE) {
     // Test CTE with dplyr integration
     std::string query = R"(
@@ -1022,13 +1388,14 @@ TEST_F(DuckDBExtensionTest, JoinWithDplyrResults) {
     ASSERT_FALSE(result->HasError()) << "JOIN with DPLYR should work: " << result->GetError();
     ASSERT_EQ(result->RowCount(), 2);
 
-    auto chunk = result->Fetch();
-    ASSERT_TRUE(chunk);
-    ASSERT_EQ(chunk->size(), 2);
-    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "Product A");
-    EXPECT_EQ(chunk->GetValue(1, 0).GetValue<int32_t>(), 100);
-    EXPECT_EQ(chunk->GetValue(0, 1).ToString(), "Product B");
-    EXPECT_EQ(chunk->GetValue(1, 1).GetValue<int32_t>(), 200);
+    std::vector<std::pair<std::string, int32_t>> rows;
+    while (auto chunk = result->Fetch()) {
+        for (duckdb::idx_t row = 0; row < chunk->size(); ++row) {
+            rows.emplace_back(chunk->GetValue(0, row).ToString(), chunk->GetValue(1, row).GetValue<int32_t>());
+        }
+    }
+    std::sort(rows.begin(), rows.end());
+    EXPECT_EQ(rows, (std::vector<std::pair<std::string, int32_t>>{{"Product A", 100}, {"Product B", 200}}));
 }
 
 // ============================================================================
@@ -1327,6 +1694,148 @@ TEST_F(DuckDBExtensionTest, DuckDBSpecificFeatures) {
 }
 
 // ============================================================================
+// Basic grammar (unary signs, NOT, %in%, ^) and ungroup()
+// ============================================================================
+
+// Membership is TRUE/FALSE only. SQL NULL matches a list that contains NA,
+// and a list without NA gives FALSE instead of NULL.
+TEST_F(DuckDBExtensionTest, InMembershipIsBooleanAndHandlesNullAndEmptyLists) {
+    create_grammar_fixture();
+
+    expect_pipeline_matches_sql("grammar_src %>% mutate(m = id %in% c(1, 2)) %>% select(m)", "m",
+                                "SELECT id IN (1, 2) AS m FROM grammar_src");
+    // A SQL NULL is a member only when the list contains NA, so here it is
+    // FALSE. Membership never yields NULL itself.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(m = val %in% c(2.0, 4.0)) %>% select(m)", "m",
+                                "SELECT COALESCE(val IN (2.0, 4.0), FALSE) AS m FROM grammar_src");
+    // c(NA) holds one null, so only SQL NULL is a member.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(m = val %in% c(NA)) %>% select(m)", "m",
+                                "SELECT val IS NULL AS m FROM grammar_src");
+    // c(NULL) is an empty list, so nothing is a member.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(m = id %in% c(NULL)) %>% select(m)", "m",
+                                "SELECT FALSE AS m FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% mutate(m = val %in% c(NULL)) %>% select(m)", "m",
+                                "SELECT FALSE AS m FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% summarise(m = sum(val) %in% c())", "m",
+                                "SELECT FALSE AS m");
+}
+
+TEST_F(DuckDBExtensionTest, UnarySignsAndLogicalNotCompileToNonNullResults) {
+    create_grammar_fixture();
+
+    expect_pipeline_matches_sql("grammar_src %>% mutate(a = -id) %>% select(a)", "a",
+                                "SELECT -id AS a FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% mutate(p = +id) %>% select(p)", "p",
+                                "SELECT id AS p FROM grammar_src");
+    // !x %in% c(...) negates the membership result.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(n = !(id %in% c(2))) %>% select(n)", "n",
+                                "SELECT NOT (id IN (2)) AS n FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% mutate(n = !(id > 1)) %>% select(n)", "n",
+                                "SELECT NOT (id > 1) AS n FROM grammar_src");
+    // Numeric literal signs are folded, so -2 is the constant -2.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(n = id + -2) %>% select(n)", "n",
+                                "SELECT id + (-2) AS n FROM grammar_src");
+}
+
+TEST_F(DuckDBExtensionTest, PowerIsRightAssociativeAndBindsTighterThanUnaryMinus) {
+    create_grammar_fixture();
+
+    // 2^3^2 is 2^(3^2), not (2^3)^2.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(p = 2^3^2) %>% select(p)", "p",
+                                "SELECT POWER(2, POWER(3, 2)) AS p FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% mutate(p = (2^3)^2) %>% select(p)", "p",
+                                "SELECT POWER(POWER(2, 3), 2) AS p FROM grammar_src");
+    // -2^2 is -(2^2), and 2^-1 folds the sign into the exponent.
+    expect_pipeline_matches_sql("grammar_src %>% mutate(p = -2^2) %>% select(p)", "p",
+                                "SELECT -POWER(2, 2) AS p FROM grammar_src");
+    expect_pipeline_matches_sql("grammar_src %>% mutate(p = 2^-1) %>% select(p)", "p",
+                                "SELECT POWER(2, -1) AS p FROM grammar_src");
+}
+
+TEST_F(DuckDBExtensionTest, UngroupTurnsGroupedWindowsIntoGlobalWindows) {
+    create_grammar_fixture();
+    expect_pipeline_matches_sql("grammar_src %>% group_by(grp) %>% ungroup() %>% mutate(m = mean(val)) %>% select(m)", "m",
+                                "SELECT AVG(val) OVER () AS m FROM grammar_src");
+
+    // Grouped: the window frame is partitioned by grp.
+    expect_pipeline_matches_sql("grammar_src %>% group_by(grp) %>% mutate(t = row_number()) %>% select(t)", "t",
+                                "SELECT ROW_NUMBER() OVER (PARTITION BY grp) AS t FROM grammar_src");
+    // Ungrouped: the window frame is global, so numbering runs over the table.
+    expect_pipeline_matches_sql(
+        "grammar_src %>% group_by(grp) %>% ungroup() %>% mutate(t = row_number()) %>% select(t)", "t",
+        "SELECT ROW_NUMBER() OVER () AS t FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% ungroup() %>% mutate(t = row_number()) %>% select(t)", "t",
+        "SELECT ROW_NUMBER() OVER () AS t FROM grammar_src");
+}
+
+TEST_F(DuckDBExtensionTest, BasicGrammarCompilesInNativePipeMode) {
+    create_grammar_fixture();
+
+    ASSERT_FALSE(safe_query("SET GLOBAL dplyr_pipe_syntax = 'native'")->HasError());
+
+    for (const std::string &pipeline : {std::string("grammar_src |> mutate(p = -2^2) |> arrange(id) |> select(p)"),
+                                        std::string("grammar_src |> mutate(m = id %in% c(1, 2)) |> arrange(id) |> select(m)"),
+                                        std::string("grammar_src |> group_by(grp) |> ungroup() |> mutate(t = row_number()) |> arrange(id) |> select(t)")}) {
+        for (const auto &query : {pipeline,
+                                  std::string("SELECT * FROM dplyr('") + pipeline + "', 'native')",
+                                  std::string("SELECT * FROM (| ") + pipeline + " |)"}) {
+            auto result = safe_query(query);
+            ASSERT_NE(result, nullptr) << query;
+            ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
+            EXPECT_EQ(result->RowCount(), 3) << query;
+        }
+    }
+
+    auto diff = safe_query(
+        "SELECT COUNT(*) FROM (SELECT t FROM (SELECT * FROM dplyr('grammar_src |> group_by(grp) |> "
+        "ungroup() |> mutate(t = row_number()) |> select(t)', 'native')) AS produced "
+        "EXCEPT SELECT ROW_NUMBER() OVER () FROM grammar_src) AS differences");
+    ASSERT_NE(diff, nullptr);
+    ASSERT_FALSE(diff->HasError()) << diff->GetError();
+    auto diff_chunk = diff->Fetch();
+    ASSERT_TRUE(diff_chunk);
+    EXPECT_EQ(diff_chunk->GetValue(0, 0).GetValue<int64_t>(), 0)
+        << "Native pipe ungroup() must produce a global window";
+}
+
+TEST_F(DuckDBExtensionTest, BasicGrammarCompilesAgainstExplicitSchema) {
+    create_grammar_fixture();
+
+    auto result = safe_query(
+        "SELECT * FROM dplyr_with_schema("
+        "'grammar_src %>% group_by(grp) %>% ungroup() %>% mutate(p = -2^2, m = id %in% c(1, 2), n = !m) "
+        "%>% arrange(id) %>% select(p, m, n)',"
+        "'{\"source\":\"grammar_src\",\"columns\":[{\"name\":\"id\"},{\"name\":\"grp\"},"
+        "{\"name\":\"b\"},{\"name\":\"val\"}]}')");
+
+    ASSERT_NE(result, nullptr);
+    ASSERT_FALSE(result->HasError()) << "Explicit schema should compile the new grammar: " << result->GetError();
+    ASSERT_EQ(result->RowCount(), 3);
+    auto chunk = result->Fetch();
+    ASSERT_TRUE(chunk);
+    ASSERT_EQ(chunk->size(), 3);
+    EXPECT_EQ(chunk->GetValue(0, 0).ToString(), "-4.0");
+    EXPECT_EQ(chunk->GetValue(1, 0).ToString(), "true");
+    EXPECT_EQ(chunk->GetValue(2, 0).ToString(), "false");
+    EXPECT_EQ(chunk->GetValue(0, 2).ToString(), "-4.0");
+    EXPECT_EQ(chunk->GetValue(1, 2).ToString(), "false");
+    EXPECT_EQ(chunk->GetValue(2, 2).ToString(), "true");
+}
+
+// Deep unary/paren recursion must be rejected as a query error, not crash.
+TEST_F(DuckDBExtensionTest, OverdeepUnaryExpressionIsRejectedWithoutThrowing) {
+    std::string nested(200, '(');
+    nested += "1";
+    nested.append(200, ')');
+    for (const char *sign : {"-", "!", "+"}) {
+        expect_query_error_no_throw(
+            "mtcars %>% mutate(x = " + std::string(sign) + nested + ")",
+            {"E-"});
+    }
+}
+
+// ============================================================================
 // Smoke Tests (R4-AC2 compliance)
 // ============================================================================
 
@@ -1357,6 +1866,57 @@ TEST_F(DuckDBExtensionTest, SmokeTestBasicOperations) {
 }
 
 // ============================================================================
+// R3-AC3: Follow-up verbs use the same caller-context schema binding in all APIs.
+TEST_F(DuckDBExtensionTest, TidySelectionAndAcrossUseBoundSchema) {
+    create_grammar_fixture();
+    ASSERT_FALSE(conn->Query("CREATE TABLE typed_src(amount DECIMAL(12,2), amounts DECIMAL(12,2)[], items DOUBLE[])")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO typed_src VALUES (1.25, [1.25], [3.0])")->HasError());
+    expect_pipeline_matches_sql(
+        "typed_src %>% select(where(is.numeric))", "amount",
+        "SELECT amount FROM typed_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% select(id:val, -grp, -b) %>% select(val)", "val",
+        "SELECT val FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% select(where(is.double))", "val",
+        "SELECT val FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% mutate(across(c(id, b), ~ .x + id)) %>% select(b)", "b",
+        "SELECT b + id AS b FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% group_by(grp) %>% summarise(across(c(id, b), list(total = sum))) %>% select(id_total)",
+        "id_total", "SELECT SUM(id) AS id_total FROM grammar_src GROUP BY grp");
+}
+
+TEST_F(DuckDBExtensionTest, SliceVerbsMatchNativeWindows) {
+    create_grammar_fixture();
+    expect_pipeline_matches_sql(
+        "grammar_src %>% slice_min(b, n = 1) %>% select(id)", "id",
+        "SELECT id FROM grammar_src WHERE b = 2");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% group_by(grp) %>% slice_max(id, n = 1) %>% select(id)", "id",
+        "SELECT MAX(id) AS id FROM grammar_src GROUP BY grp");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% slice_min(val, n = 3, na_rm = FALSE) %>% select(id)", "id",
+        "SELECT id FROM grammar_src");
+    auto sample = safe_query("grammar_src %>% slice_sample(n = 2) %>% select(id)");
+    ASSERT_FALSE(sample->HasError()) << sample->GetError();
+    EXPECT_EQ(sample->RowCount(), 2);
+}
+
+TEST_F(DuckDBExtensionTest, JoinOptionsMatchNativeNullSafeKeys) {
+    ASSERT_FALSE(conn->Query("CREATE TABLE follow_left(id INTEGER, value INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("CREATE TABLE follow_right(id INTEGER, value INTEGER)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO follow_left VALUES (1, 10), (NULL, 20)")->HasError());
+    ASSERT_FALSE(conn->Query("INSERT INTO follow_right VALUES (1, 30), (NULL, 40)")->HasError());
+    expect_pipeline_matches_sql(
+        "follow_left %>% left_join(follow_right, by = \"id\", keep = TRUE, suffix = c(\"_l\", \"_r\"), na_matches = \"na\") %>% select(value_r)",
+        "value_r", "SELECT r.value AS value_r FROM follow_left l LEFT JOIN follow_right r ON l.id IS NOT DISTINCT FROM r.id");
+    expect_pipeline_matches_sql(
+        "follow_left %>% semi_join(follow_right, by = \"id\", na_matches = \"na\") %>% select(value)", "value",
+        "SELECT l.value FROM follow_left l WHERE EXISTS (SELECT 1 FROM follow_right r WHERE l.id IS NOT DISTINCT FROM r.id)");
+}
+
 // Main Test Runner
 // ============================================================================
 
@@ -1368,4 +1928,23 @@ int main(int argc, char** argv) {
     std::cout << "Testing requirements: R7-AC1, R7-AC3, R2-AC2" << std::endl;
     
     return RUN_ALL_TESTS();
+}
+
+TEST_F(DuckDBExtensionTest, ExtendedVerbsPreserveSchemaAndMissingValues) {
+    create_grammar_fixture();
+    expect_pipeline_matches_sql(
+        "grammar_src %>% mutate(z = mean(val), .by = grp, .keep = \"none\") %>% select(z)", "z",
+        "SELECT AVG(val) OVER (PARTITION BY grp) AS z FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% mutate(val = NA) %>% select(val)", "val",
+        "SELECT CAST(NULL AS DOUBLE) AS val FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% arrange(id) %>% slice(c(3, 1, 3)) %>% select(id)", "id",
+        "SELECT 3 AS id UNION ALL SELECT 1 AS id UNION ALL SELECT 3 AS id");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% summarise(z = median(val))", "z",
+        "SELECT MEDIAN(val) AS z FROM grammar_src");
+    expect_pipeline_matches_sql(
+        "grammar_src %>% select(id) %>% rows_append(grammar_src %>% select(id))", "id",
+        "SELECT id FROM grammar_src UNION ALL SELECT id FROM grammar_src");
 }

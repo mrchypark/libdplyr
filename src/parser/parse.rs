@@ -8,6 +8,267 @@ use crate::PipeSyntax;
 
 pub use super::ast::*;
 
+/// Maximum nesting depth allowed inside a single expression.
+///
+/// Bounds both the recursive descent in `parse_expression` and the depth of
+/// the resulting AST. Breadth is not bounded: any number of function arguments,
+/// pipeline steps, or `case_when()` branches is fine. A chain of binary
+/// operators such as `a + b + c + ...` is *not* breadth, though. It parses in a
+/// loop but still builds a left-deep tree, so each operator loop counts its own
+/// chain and rejects an over-long one before the tree is built.
+///
+/// The conservative bound also limits stack use in unoptimized recursive parsing.
+pub const MAX_EXPRESSION_DEPTH: usize = 64;
+
+fn depth_exceeded(position: usize) -> ParseError {
+    ParseError::InvalidExpression {
+        expr: format!("expression nesting depth exceeds {MAX_EXPRESSION_DEPTH}"),
+        position,
+    }
+}
+
+/// Returns the `(function, column)` pair when `expr` is exactly the shape an
+/// [`Aggregation`] can hold: `function()` or `function(identifier)`.
+///
+/// A compound argument such as `sum(x * y)`, a scalar wrapping an aggregate
+/// such as `round(sum(x), 2)`, or anything nested is deliberately rejected so
+/// it stays on the expression path.
+fn simple_aggregation(expr: &Expr) -> Option<(String, String)> {
+    let Expr::Function { name, args } = expr else {
+        return None;
+    };
+    // R3-AC1: across() is never an aggregation. Its arguments are selectors and
+    // lambdas, and the expander needs the whole call plus the empty-column
+    // sentinel that only the expression shape carries.
+    if name == "across" {
+        return None;
+    }
+    match args.as_slice() {
+        [] => Some((name.clone(), String::new())),
+        [Expr::Identifier(column)] => Some((name.clone(), column.clone())),
+        _ => None,
+    }
+}
+
+fn is_across(expr: &Expr) -> bool {
+    matches!(expr, Expr::Function { name, .. } if name == "across")
+}
+
+fn is_extended_verb(name: &str) -> bool {
+    matches!(
+        name,
+        "union_all"
+            | "bind_queries"
+            | "add_count"
+            | "add_tally"
+            | "head"
+            | "tail"
+            | "relocate"
+            | "rename_with"
+            | "window_order"
+            | "window_frame"
+            | "cross_join"
+            | "filter_out"
+            | "transmute"
+            | "pivot_longer"
+            | "pivot_wider"
+            | "fill"
+            | "expand"
+            | "complete"
+            | "dbplyr_uncount"
+            | "rows_append"
+            | "rows_insert"
+            | "rows_update"
+            | "rows_patch"
+            | "rows_upsert"
+            | "rows_delete"
+            | "slice_head"
+            | "slice_tail"
+            | "slice"
+            | "replace_na"
+    )
+}
+
+fn argument_error(verb: &str, reason: String) -> ParseError {
+    ParseError::InvalidOperation {
+        operation: format!("{verb}() {reason}"),
+        position: 0,
+    }
+}
+
+/// Returns true if any argument is a named option starting with '.'.
+fn has_advanced_options(args: &[Expr]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg, Expr::NamedArg { name, .. } if name.starts_with('.')))
+}
+
+/// Returns true if any argument is a non-identifier expression (computed).
+fn has_computed(args: &[Expr]) -> bool {
+    args.iter().any(|arg| !matches!(arg, Expr::Identifier(_)))
+}
+
+/// Signed number argument. `n` additionally has to be a whole number.
+fn number_argument(expr: &Expr, verb: &str, name: &str) -> ParseResult<f64> {
+    let signed = match expr {
+        Expr::Literal(LiteralValue::Number(value)) => *value,
+        Expr::Unary {
+            operator: UnaryOp::Minus,
+            expr,
+        } => match expr.as_ref() {
+            Expr::Literal(LiteralValue::Number(value)) => -*value,
+            _ => return Err(argument_error(verb, format!("{name} must be a number"))),
+        },
+        _ => return Err(argument_error(verb, format!("{name} must be a number"))),
+    };
+    if name == "n" {
+        if signed < 0.0 {
+            return Err(argument_error(verb, "n must be nonnegative".to_string()));
+        }
+        return Ok(signed);
+    }
+    // A share above one is legal: it truncates the group rather than failing.
+    if !signed.is_finite() || signed < 0.0 {
+        return Err(argument_error(
+            verb,
+            "prop must be a finite nonnegative number".to_string(),
+        ));
+    }
+    Ok(signed)
+}
+
+fn boolean_argument(expr: &Expr, verb: &str, name: &str) -> ParseResult<bool> {
+    match expr {
+        Expr::Literal(LiteralValue::Boolean(value)) => Ok(*value),
+        _ => Err(argument_error(
+            verb,
+            format!("{name} must be TRUE or FALSE"),
+        )),
+    }
+}
+
+/// `by` keeps one ColumnExpr per name. `c(grp, sub)` is written as
+/// `c(grp, sub = sub)`, so the named entries carry no alias.
+fn slice_by_argument(expr: &Expr) -> ParseResult<Vec<ColumnExpr>> {
+    let Expr::Function { name, args } = expr else {
+        return Ok(vec![ColumnExpr {
+            expr: expr.clone(),
+            alias: None,
+        }]);
+    };
+    if name != "c" && name != "list" {
+        return Ok(vec![ColumnExpr {
+            expr: expr.clone(),
+            alias: None,
+        }]);
+    }
+    Ok(args
+        .iter()
+        .map(|arg| ColumnExpr {
+            expr: match arg {
+                Expr::NamedArg { value, .. } => value.as_ref().clone(),
+                other => other.clone(),
+            },
+            alias: None,
+        })
+        .collect())
+}
+
+/// Resolves a `by` value into explicit keys, or leaves it as a predicate the
+/// planner extracts equalities from. A missing or NULL `by` yields no keys,
+/// which the planner reads as the natural join.
+fn join_by_argument(expr: &Expr, position: usize) -> ParseResult<(Vec<JoinKey>, Option<Expr>)> {
+    if let Expr::Function { name, args } = expr {
+        if name == "join_by" {
+            fn key(expr: &Expr, keys: &mut Vec<JoinKey>, position: usize) -> ParseResult<()> {
+                match expr {
+                    Expr::Identifier(name) => keys.push(JoinKey {
+                        left: name.clone(),
+                        right: name.clone(),
+                    }),
+                    Expr::Binary {
+                        left,
+                        operator: BinaryOp::Equal,
+                        right,
+                    } => {
+                        let (Expr::Identifier(left), Expr::Identifier(right)) =
+                            (left.as_ref(), right.as_ref())
+                        else {
+                            return Err(argument_error(
+                                "join_by",
+                                "keys must be column identifiers".to_string(),
+                            ));
+                        };
+                        keys.push(JoinKey {
+                            left: left.clone(),
+                            right: right.clone(),
+                        });
+                    }
+                    Expr::Binary {
+                        left,
+                        operator: BinaryOp::And,
+                        right,
+                    } => {
+                        key(left, keys, position)?;
+                        key(right, keys, position)?;
+                    }
+                    _ => {
+                        return Err(ParseError::InvalidOperation {
+                            operation: "join_by() supports equality keys only".to_string(),
+                            position,
+                        })
+                    }
+                }
+                Ok(())
+            }
+            if args.is_empty() {
+                return Err(argument_error(
+                    "join_by",
+                    "requires at least one equality key".to_string(),
+                ));
+            }
+            fn equality(expr: &Expr) -> bool {
+                match expr {
+                    Expr::Identifier(_) => true,
+                    Expr::Binary {
+                        operator: BinaryOp::Equal,
+                        ..
+                    } => true,
+                    Expr::Binary {
+                        left,
+                        operator: BinaryOp::And,
+                        right,
+                    } => equality(left) && equality(right),
+                    _ => false,
+                }
+            }
+            if args.iter().any(|expr| !equality(expr)) {
+                let predicate = args.iter().cloned().reduce(|left, right| Expr::Binary {
+                    left: Box::new(left),
+                    operator: BinaryOp::And,
+                    right: Box::new(right),
+                });
+                return Ok((Vec::new(), predicate));
+            }
+            let mut keys = Vec::new();
+            for expr in args {
+                key(expr, &mut keys, position)?;
+            }
+            return Ok((keys, None));
+        }
+    }
+    Ok(match expr {
+        Expr::Literal(LiteralValue::Null) => (Vec::new(), None),
+        Expr::Literal(LiteralValue::String(name)) => (
+            vec![JoinKey {
+                left: name.clone(),
+                right: name.clone(),
+            }],
+            None,
+        ),
+        other => (Vec::new(), Some(other.clone())),
+    })
+}
+
 /// Parser struct
 ///
 /// Provides functionality to parse dplyr tokens into an Abstract Syntax Tree (AST).
@@ -20,6 +281,10 @@ pub struct Parser {
     position: usize,
     line: usize,
     column: usize,
+    expression_depth: usize,
+    /// Nonzero while the arguments of an `across()` call are being parsed, so
+    /// `~` is read as a lambda rather than a case_when() formula.
+    across_depth: usize,
 }
 
 impl Parser {
@@ -54,6 +319,8 @@ impl Parser {
             position: 0,
             line: 1,
             column: 1,
+            expression_depth: 0,
+            across_depth: 0,
         })
     }
 
@@ -72,6 +339,7 @@ impl Parser {
                 position: self.position,
             });
         }
+        validate_ast_depth(&node, self.position)?;
         Ok(node)
     }
 
@@ -162,6 +430,21 @@ impl Parser {
         }
 
         // Check if we start with a data source (identifier not followed by parentheses)
+        if matches!(&self.current_token, Token::Identifier(name) if is_extended_verb(name))
+            && self.peek_token()? == Token::LeftParen
+        {
+            let mut operations = self.parse_pipeline_step()?;
+            while self.current_token == Token::Pipe {
+                self.advance()?;
+                operations.extend(self.parse_pipeline_step()?);
+            }
+            return Ok(DplyrNode::Pipeline {
+                source: None,
+                target: None,
+                operations,
+                location: start_location,
+            });
+        }
         if let Token::Identifier(name) = &self.current_token {
             let name = name.clone();
             self.advance()?;
@@ -535,9 +818,51 @@ impl Parser {
             Token::Rename => self.parse_rename(),
             Token::Arrange => self.parse_arrange(),
             Token::GroupBy => self.parse_group_by(),
+            Token::Identifier(name) if name == "ungroup" => {
+                let location = self.current_location();
+                self.advance()?;
+                self.expect_token(Token::LeftParen)?;
+                self.consume_optional_lazy_data_argument()?;
+                let mut args = Vec::new();
+                if self.current_token != Token::RightParen {
+                    args.push(self.parse_function_argument()?);
+                    while self.current_token == Token::Comma {
+                        self.advance()?;
+                        self.skip_newlines()?;
+                        if self.current_token == Token::RightParen {
+                            break;
+                        }
+                        args.push(self.parse_function_argument()?);
+                    }
+                }
+                self.expect_token(Token::RightParen)?;
+                if args.is_empty() {
+                    Ok(DplyrOperation::Ungroup { location })
+                } else {
+                    Ok(DplyrOperation::Extended {
+                        name: "ungroup".to_string(),
+                        args,
+                        location,
+                    })
+                }
+            }
+            Token::Identifier(name)
+                if matches!(name.as_str(), "slice_min" | "slice_max" | "slice_sample") =>
+            {
+                let kind = match name.as_str() {
+                    "slice_min" => SliceKind::Min,
+                    "slice_max" => SliceKind::Max,
+                    _ => SliceKind::Sample,
+                };
+                self.parse_slice(kind)
+            }
             Token::Summarise => self.parse_summarise(),
             Token::Identifier(name) if name == "count" => self.parse_count(),
             Token::Identifier(name) if name == "tally" => self.parse_tally(),
+            Token::Identifier(name) if is_extended_verb(name) => {
+                let name = name.clone();
+                self.parse_extended_verb(&name)
+            }
             Token::InnerJoin
             | Token::LeftJoin
             | Token::RightJoin
@@ -586,32 +911,44 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut columns = Vec::new();
+        let mut args = Vec::new();
         if self.current_token != Token::RightParen {
-            let Token::Identifier(column) = &self.current_token else {
-                return Err(ParseError::UnexpectedToken {
-                    expected: "column identifier".to_string(),
-                    found: format!("{}", self.current_token),
-                    position: self.position,
-                });
-            };
-            columns.push(column.clone());
-            self.advance()?;
+            args.push(self.parse_function_argument()?);
             while self.current_token == Token::Comma {
                 self.advance()?;
-                let Token::Identifier(column) = &self.current_token else {
-                    return Err(ParseError::UnexpectedToken {
-                        expected: "column identifier".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    });
-                };
-                columns.push(column.clone());
-                self.advance()?;
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_function_argument()?);
             }
         }
 
         self.expect_token(Token::RightParen)?;
+
+        // Route to Extended if advanced options or computed expressions are present
+        if has_advanced_options(&args) || has_computed(&args) {
+            return Ok(DplyrOperation::Extended {
+                name: "distinct".to_string(),
+                args,
+                location,
+            });
+        }
+
+        // Convert to column names
+        let mut columns = Vec::new();
+        for arg in args {
+            match arg {
+                Expr::Identifier(name) => columns.push(name),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "column identifier".to_string(),
+                        found: format!("{}", arg),
+                        position: self.position,
+                    })
+                }
+            }
+        }
         Ok(DplyrOperation::Distinct { columns, location })
     }
 
@@ -622,9 +959,34 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let condition = self.parse_expression()?;
+        let mut args = Vec::new();
+        if self.current_token != Token::RightParen {
+            args.push(self.parse_function_argument()?);
+            while self.current_token == Token::Comma {
+                self.advance()?;
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_function_argument()?);
+            }
+        }
 
         self.expect_token(Token::RightParen)?;
+
+        // Route to Extended if advanced options are present
+        if has_advanced_options(&args) || args.len() > 1 {
+            return Ok(DplyrOperation::Extended {
+                name: "filter".to_string(),
+                args,
+                location,
+            });
+        }
+
+        let condition = args
+            .into_iter()
+            .next()
+            .unwrap_or(Expr::Literal(LiteralValue::Boolean(true)));
         Ok(DplyrOperation::Filter {
             condition,
             location,
@@ -638,20 +1000,63 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut assignments = Vec::new();
+        let mut args = Vec::new();
 
         // First assignment
         if self.current_token != Token::RightParen {
-            assignments.push(self.parse_assignment()?);
+            args.push(self.parse_function_argument()?);
 
             // Additional assignments (comma-separated)
             while self.current_token == Token::Comma {
                 self.advance()?; // Skip comma
-                assignments.push(self.parse_assignment()?);
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_function_argument()?);
             }
         }
 
         self.expect_token(Token::RightParen)?;
+
+        if has_advanced_options(&args) {
+            return Ok(DplyrOperation::Extended {
+                name: "mutate".to_string(),
+                args,
+                location,
+            });
+        }
+
+        // Convert NamedArg to Assignment
+        let mut assignments = Vec::new();
+        for arg in args {
+            match arg {
+                Expr::NamedArg { name, value } if !is_across(&value) => {
+                    assignments.push(Assignment {
+                        column: name,
+                        expr: *value,
+                    });
+                }
+                Expr::NamedArg { value, .. } if is_across(&value) => {
+                    return Err(argument_error(
+                        "mutate",
+                        "across() must be an unnamed call".into(),
+                    ))
+                }
+                expr if is_across(&expr) => assignments.push(Assignment {
+                    column: String::new(),
+                    expr,
+                }),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "assignment (name = expr) or unnamed call to across()"
+                            .to_string(),
+                        found: "expression".to_string(),
+                        position: self.position,
+                    })
+                }
+            }
+        }
+
         Ok(DplyrOperation::Mutate {
             assignments,
             location,
@@ -714,21 +1119,101 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut columns = Vec::new();
+        let mut args = Vec::new();
 
         // First sort column
         if self.current_token != Token::RightParen {
-            columns.push(self.parse_order_expr()?);
+            args.push(self.parse_arrange_argument()?);
 
             // Additional sort columns (comma-separated)
             while self.current_token == Token::Comma {
                 self.advance()?; // Skip comma
-                columns.push(self.parse_order_expr()?);
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_arrange_argument()?);
             }
         }
 
         self.expect_token(Token::RightParen)?;
+
+        // Route to Extended if advanced options or computed expressions are present
+        if has_advanced_options(&args) || args.iter().any(|arg| !matches!(arg, Expr::Identifier(_)) && !matches!(arg, Expr::Function { name, args } if matches!(name.as_str(), "desc" | "asc") && matches!(args.as_slice(), [Expr::Identifier(_)]))) {
+            return Ok(DplyrOperation::Extended {
+                name: "arrange".to_string(),
+                args,
+                location,
+            });
+        }
+
+        // Convert to OrderExpr
+        let mut columns = Vec::new();
+        for arg in args {
+            match arg {
+                Expr::Identifier(name) => columns.push(OrderExpr {
+                    column: name,
+                    direction: OrderDirection::Asc,
+                }),
+                Expr::Function { name, args } if name == "desc" && args.len() == 1 => {
+                    match &args[0] {
+                        Expr::Identifier(col) => columns.push(OrderExpr {
+                            column: col.clone(),
+                            direction: OrderDirection::Desc,
+                        }),
+                        _ => {
+                            return Err(ParseError::UnexpectedToken {
+                                expected: "column identifier".to_string(),
+                                found: format!("{}", args[0]),
+                                position: self.position,
+                            })
+                        }
+                    }
+                }
+                Expr::Function { name, args } if name == "asc" && args.len() == 1 => {
+                    match &args[0] {
+                        Expr::Identifier(col) => columns.push(OrderExpr {
+                            column: col.clone(),
+                            direction: OrderDirection::Asc,
+                        }),
+                        _ => {
+                            return Err(ParseError::UnexpectedToken {
+                                expected: "column identifier".to_string(),
+                                found: format!("{}", args[0]),
+                                position: self.position,
+                            })
+                        }
+                    }
+                }
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "column identifier or desc()/asc()".to_string(),
+                        found: format!("{}", arg),
+                        position: self.position,
+                    })
+                }
+            }
+        }
         Ok(DplyrOperation::Arrange { columns, location })
+    }
+
+    /// Parses one arrange() argument, handling desc()/asc() keywords and named options.
+    fn parse_arrange_argument(&mut self) -> ParseResult<Expr> {
+        match &self.current_token {
+            Token::Desc | Token::Asc => {
+                let is_desc = matches!(self.current_token, Token::Desc);
+                self.advance()?;
+                self.expect_token(Token::LeftParen)?;
+                let column = self.parse_expression()?;
+                self.expect_token(Token::RightParen)?;
+                let name = if is_desc { "desc" } else { "asc" };
+                Ok(Expr::Function {
+                    name: name.to_string(),
+                    args: vec![column],
+                })
+            }
+            _ => self.parse_function_argument(),
+        }
     }
 
     /// Parses group_by() operation.
@@ -738,60 +1223,343 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut columns = Vec::new();
+        let mut args = Vec::new();
 
         // First group column
         if self.current_token != Token::RightParen {
-            if let Token::Identifier(name) = &self.current_token {
-                columns.push(name.clone());
-                self.advance()?;
+            args.push(self.parse_function_argument()?);
 
-                // Additional group columns (comma-separated)
-                while self.current_token == Token::Comma {
-                    self.advance()?; // Skip comma
-                    if let Token::Identifier(name) = &self.current_token {
-                        columns.push(name.clone());
-                        self.advance()?;
-                    } else {
-                        return Err(ParseError::UnexpectedToken {
-                            expected: "identifier".to_string(),
-                            found: format!("{}", self.current_token),
-                            position: self.position,
-                        });
-                    }
+            // Additional group columns (comma-separated)
+            while self.current_token == Token::Comma {
+                self.advance()?; // Skip comma
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
                 }
+                args.push(self.parse_function_argument()?);
             }
         }
 
         self.expect_token(Token::RightParen)?;
+
+        // Route to Extended if advanced options or computed expressions are present
+        if has_advanced_options(&args) || has_computed(&args) {
+            return Ok(DplyrOperation::Extended {
+                name: "group_by".to_string(),
+                args,
+                location,
+            });
+        }
+
+        // Convert to column names
+        let mut columns = Vec::new();
+        for arg in args {
+            match arg {
+                Expr::Identifier(name) => columns.push(name),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "column identifier".to_string(),
+                        found: format!("{}", arg),
+                        position: self.position,
+                    })
+                }
+            }
+        }
         Ok(DplyrOperation::GroupBy { columns, location })
     }
 
     /// Parses summarise() operation.
+    // R3-AC1: `n`/`prop` are mutually exclusive, `n` must be a nonnegative
+    // whole number, and `prop` only has to be finite and nonnegative. A share
+    // above one is legal because it simply truncates to the whole group.
+    fn parse_slice(&mut self, kind: SliceKind) -> ParseResult<DplyrOperation> {
+        let location = self.current_location();
+        self.advance()?;
+        self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
+
+        let verb = match kind {
+            SliceKind::Min => "slice_min",
+            SliceKind::Max => "slice_max",
+            SliceKind::Sample => "slice_sample",
+        };
+
+        // Parse all arguments first
+        let mut args = Vec::new();
+        if self.current_token != Token::RightParen {
+            loop {
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_slice_argument()?);
+                if self.current_token == Token::Comma {
+                    self.advance()?;
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect_token(Token::RightParen)?;
+
+        // For slice_sample, check if weight or replace options are present
+        if matches!(kind, SliceKind::Sample) {
+            let has_weight_or_replace = args.iter().any(|arg| {
+                matches!(arg, Expr::NamedArg { name, .. } if name == "weight_by" || name == "replace")
+            });
+            if has_weight_or_replace {
+                return Ok(DplyrOperation::Extended {
+                    name: "slice_sample".to_string(),
+                    args,
+                    location,
+                });
+            }
+        }
+
+        // Process arguments for standard slice operations
+        let mut order_by = None;
+        let mut n = None;
+        let mut prop = None;
+        let mut with_ties = !matches!(kind, SliceKind::Sample);
+        let mut na_rm = !matches!(kind, SliceKind::Sample);
+        let mut by = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+
+        for positional in args {
+            let (name, value) = match positional {
+                Expr::NamedArg { name, value } => (Some(name), value),
+                other => (None, Box::new(other)),
+            };
+
+            match name {
+                Some(name) => {
+                    if seen.contains(&name) {
+                        return Err(self.slice_error(verb, format!("{name} was given twice")));
+                    }
+                    seen.push(name.clone());
+                    match name.as_str() {
+                        "order_by" => {
+                            if matches!(kind, SliceKind::Sample) || order_by.is_some() {
+                                return Err(self.slice_error(
+                                    verb,
+                                    "order_by is not accepted here or was given twice".to_string(),
+                                ));
+                            }
+                            order_by = Some(*value);
+                        }
+                        "n" => n = Some(number_argument(&value, verb, "n")? as usize),
+                        "prop" => prop = Some(number_argument(&value, verb, "prop")?),
+                        "with_ties" if !matches!(kind, SliceKind::Sample) => {
+                            with_ties = boolean_argument(&value, verb, "with_ties")?
+                        }
+                        "na_rm" if !matches!(kind, SliceKind::Sample) => {
+                            na_rm = boolean_argument(&value, verb, "na_rm")?
+                        }
+                        "by" => by = slice_by_argument(&value)?,
+                        other => {
+                            return Err(
+                                self.slice_error(verb, format!("unknown argument '{other}'"))
+                            );
+                        }
+                    }
+                }
+                None => {
+                    if matches!(kind, SliceKind::Sample) || order_by.is_some() {
+                        return Err(
+                            self.slice_error(verb, "unexpected positional argument".to_string())
+                        );
+                    }
+                    order_by = Some(*value);
+                }
+            }
+        }
+
+        if matches!(kind, SliceKind::Min | SliceKind::Max) && order_by.is_none() {
+            return Err(self.slice_error(verb, "requires the column to order by".to_string()));
+        }
+        if n.is_some() && prop.is_some() {
+            return Err(self.slice_error(verb, "takes n or prop, not both".to_string()));
+        }
+
+        if n.is_none() && prop.is_none() {
+            n = Some(1);
+        }
+        Ok(DplyrOperation::Slice {
+            spec: SliceSpec {
+                kind,
+                order_by,
+                n,
+                prop,
+                with_ties,
+                na_rm,
+                by,
+            },
+            location,
+        })
+    }
+
+    fn slice_error(&self, verb: &str, reason: String) -> ParseError {
+        ParseError::InvalidOperation {
+            operation: format!("{verb}() {reason}"),
+            position: self.position,
+        }
+    }
+
+    /// `by = c(grp, sub)` parses as `c(grp, sub = sub)`, so the `=` cases can
+    /// never nest: the left side is always an identifier or a boolean.
+    fn parse_slice_argument(&mut self) -> ParseResult<Expr> {
+        let start = self.parse_expression()?;
+        if self.current_token != Token::Assignment {
+            return Ok(start);
+        }
+        let name = match start {
+            Expr::Identifier(name) => name,
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "named argument identifier".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
+        };
+        self.advance()?;
+        self.skip_newlines()?;
+        Ok(Expr::NamedArg {
+            name,
+            value: Box::new(self.parse_expression()?),
+        })
+    }
+
     fn parse_summarise(&mut self) -> ParseResult<DplyrOperation> {
         let location = self.current_location();
         self.advance()?; // Skip 'summarise'
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        let mut aggregations = Vec::new();
+        let mut args = Vec::new();
 
-        // First aggregation
         if self.current_token != Token::RightParen {
-            aggregations.push(self.parse_aggregation()?);
-
-            // Additional aggregations (comma-separated)
-            while self.current_token == Token::Comma {
-                self.advance()?; // Skip comma
-                aggregations.push(self.parse_aggregation()?);
+            loop {
+                args.push(self.parse_summarise_entry_as_expr()?);
+                if self.current_token != Token::Comma {
+                    break;
+                }
+                self.advance()?;
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
             }
         }
 
         self.expect_token(Token::RightParen)?;
-        Ok(DplyrOperation::Summarise {
-            aggregations,
-            location,
+
+        // Route to Extended if advanced options are present
+        if has_advanced_options(&args) {
+            return Ok(DplyrOperation::Extended {
+                name: "summarise".to_string(),
+                args,
+                location,
+            });
+        }
+
+        // Convert entries back to the original shape
+        let mut entries: Vec<SummariseEntry> = Vec::new();
+        for arg in &args {
+            entries.push(Self::expr_to_summarise_entry(arg)?);
+        }
+
+        if entries
+            .iter()
+            .any(|entry| matches!(entry, SummariseEntry::Expression(_)))
+        {
+            Ok(DplyrOperation::SummariseExpressions {
+                assignments: entries
+                    .into_iter()
+                    .map(|entry| match entry {
+                        SummariseEntry::Aggregation(aggregation) => Assignment {
+                            column: aggregation.alias.unwrap_or_else(|| {
+                                format!("{}({})", aggregation.function, aggregation.column)
+                            }),
+                            expr: if aggregation.column.is_empty() {
+                                Expr::Function {
+                                    name: aggregation.function,
+                                    args: Vec::new(),
+                                }
+                            } else {
+                                Expr::Function {
+                                    name: aggregation.function,
+                                    args: vec![Expr::Identifier(aggregation.column)],
+                                }
+                            },
+                        },
+                        SummariseEntry::Expression(assignment) => assignment,
+                    })
+                    .collect(),
+                location,
+            })
+        } else {
+            Ok(DplyrOperation::Summarise {
+                aggregations: entries
+                    .into_iter()
+                    .map(|entry| match entry {
+                        SummariseEntry::Aggregation(aggregation) => aggregation,
+                        SummariseEntry::Expression(_) => unreachable!("checked above"),
+                    })
+                    .collect(),
+                location,
+            })
+        }
+    }
+
+    /// Parses one summarise() entry as an expression (for Extended routing).
+    fn parse_summarise_entry_as_expr(&mut self) -> ParseResult<Expr> {
+        let alias = match self.current_token.clone() {
+            Token::Identifier(name) if self.peek_token()? == Token::Assignment => {
+                self.advance()?; // identifier
+                self.advance()?; // =
+                self.skip_newlines()?;
+                Some(name)
+            }
+            _ => None,
+        };
+
+        let expr = self.parse_expression()?;
+        if is_across(&expr) && alias.is_some() {
+            return Err(argument_error(
+                "summarise",
+                "across() must not have a single output name".into(),
+            ));
+        }
+        Ok(match alias {
+            Some(name) => Expr::NamedArg {
+                name,
+                value: Box::new(expr),
+            },
+            None => expr,
         })
+    }
+
+    fn expr_to_summarise_entry(expr: &Expr) -> ParseResult<SummariseEntry> {
+        let (value, alias) = match expr {
+            Expr::NamedArg { name, value } => (value.as_ref(), Some(name.clone())),
+            _ => (expr, None),
+        };
+        if let Some((function, column)) = simple_aggregation(value) {
+            return Ok(SummariseEntry::Aggregation(Aggregation {
+                function,
+                column,
+                alias,
+            }));
+        }
+        Ok(SummariseEntry::Expression(Assignment {
+            column: if is_across(value) {
+                String::new()
+            } else {
+                alias.unwrap_or_else(|| value.to_string())
+            },
+            expr: value.clone(),
+        }))
     }
 
     /// Parses the identifier-only subset of count().
@@ -802,18 +1570,36 @@ impl Parser {
         self.consume_optional_lazy_data_argument()?;
 
         let mut columns = Vec::new();
+        let mut advanced_args = Vec::new();
+
         if self.current_token != Token::RightParen {
-            let Token::Identifier(column) = &self.current_token else {
-                return Err(ParseError::UnexpectedToken {
-                    expected: "column identifier".to_string(),
-                    found: format!("{}", self.current_token),
-                    position: self.position,
-                });
-            };
-            columns.push(column.clone());
-            self.advance()?;
-            while self.current_token == Token::Comma {
-                self.advance()?;
+            loop {
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+
+                // Check for named argument (identifier followed by =)
+                if let Token::Identifier(name) = &self.current_token {
+                    let name_clone = name.clone();
+                    if matches!(self.peek_token()?, Token::Assignment) {
+                        self.advance()?; // Skip identifier
+                        self.advance()?; // Skip =
+                        self.skip_newlines()?;
+                        let value = self.parse_expression()?;
+                        advanced_args.push(Expr::NamedArg {
+                            name: name_clone,
+                            value: Box::new(value),
+                        });
+                        if self.current_token == Token::Comma {
+                            self.advance()?;
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                // Plain column identifier
                 let Token::Identifier(column) = &self.current_token else {
                     return Err(ParseError::UnexpectedToken {
                         expected: "column identifier".to_string(),
@@ -823,10 +1609,31 @@ impl Parser {
                 };
                 columns.push(column.clone());
                 self.advance()?;
+
+                if self.current_token == Token::Comma {
+                    self.advance()?;
+                    continue;
+                }
+                break;
             }
         }
 
         self.expect_token(Token::RightParen)?;
+
+        // If advanced options are present, route to Extended
+        if !advanced_args.is_empty() {
+            let mut args = columns
+                .into_iter()
+                .map(Expr::Identifier)
+                .collect::<Vec<_>>();
+            args.extend(advanced_args);
+            return Ok(DplyrOperation::Extended {
+                name: "count".to_string(),
+                args,
+                location,
+            });
+        }
+
         Ok(DplyrOperation::Count { columns, location })
     }
 
@@ -836,7 +1643,55 @@ impl Parser {
         self.advance()?;
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
+
+        let mut advanced_args = Vec::new();
+        if self.current_token != Token::RightParen {
+            loop {
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+
+                // Check for named argument (identifier followed by =)
+                if let Token::Identifier(name) = &self.current_token {
+                    let name_clone = name.clone();
+                    if matches!(self.peek_token()?, Token::Assignment) {
+                        self.advance()?; // Skip identifier
+                        self.advance()?; // Skip =
+                        self.skip_newlines()?;
+                        let value = self.parse_expression()?;
+                        advanced_args.push(Expr::NamedArg {
+                            name: name_clone,
+                            value: Box::new(value),
+                        });
+                        if self.current_token == Token::Comma {
+                            self.advance()?;
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                // tally() doesn't accept plain column arguments
+                return Err(ParseError::UnexpectedToken {
+                    expected: "named argument".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
+        }
+
         self.expect_token(Token::RightParen)?;
+
+        // If advanced options are present, route to Extended
+        if !advanced_args.is_empty() {
+            return Ok(DplyrOperation::Extended {
+                name: "tally".to_string(),
+                args: advanced_args,
+                location,
+            });
+        }
+
         Ok(DplyrOperation::Count {
             columns: Vec::new(),
             location,
@@ -878,49 +1733,169 @@ impl Parser {
             }
         };
         self.advance()?;
-
-        // Parse by parameter
-        if self.current_token != Token::RightParen && self.current_token != Token::Comma {
-            return Err(ParseError::UnexpectedToken {
-                expected: "comma or closing paren".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            });
+        let mut right_operations = Vec::new();
+        while self.current_token == Token::Pipe {
+            self.advance()?;
+            self.skip_newlines()?;
+            right_operations.push(self.parse_operation()?);
         }
 
-        self.expect_token(Token::Comma)?;
-        self.expect_identifier_name("by")?;
-        self.expect_token(Token::Assignment)?;
+        // Every argument after the table is named, so `by`, `suffix`, and the
+        // data-dependent options can appear in any order.
+        let mut by: Vec<JoinKey> = Vec::new();
+        let mut on_expr: Option<Expr> = None;
+        let mut options = JoinOptions::default();
+        let mut seen: Vec<String> = Vec::new();
 
-        // Parse by parameter - handle string literal as column name
-        let (by, on_expr) = match &self.current_token {
-            Token::String(s) => {
-                // by = "column_name" - simple join on same column name
-                let col_name = s.clone();
-                self.advance()?;
-                (
-                    vec![JoinKey {
-                        left: col_name.clone(),
-                        right: col_name,
-                    }],
-                    None,
-                )
+        while self.current_token == Token::Comma {
+            self.advance()?;
+            self.skip_newlines()?;
+            if self.current_token == Token::RightParen {
+                break;
             }
-            Token::Identifier(name) if name == "c" => (self.parse_join_key_vector()?, None),
-            Token::Identifier(_) => {
-                // Could be a column reference or complex expression
-                // For now, parse as expression
-                let expr = self.parse_expression()?;
-                (Vec::new(), Some(expr))
+            if !seen.contains(&"by".to_string()) && self.peek_token()? != Token::Assignment {
+                seen.push("by".to_string());
+                if self.current_token == Token::Identifier("c".to_string()) {
+                    by = self.parse_join_key_vector()?;
+                } else {
+                    let value = self.parse_expression()?;
+                    let (keys, expr) = join_by_argument(&value, self.position)?;
+                    by = keys;
+                    on_expr = expr;
+                }
+                continue;
             }
-            _ => {
+            let Token::Identifier(name) = self.current_token.clone() else {
                 return Err(ParseError::UnexpectedToken {
-                    expected: "string literal or identifier for join column".to_string(),
+                    expected: "named join argument".to_string(),
                     found: format!("{}", self.current_token),
                     position: self.position,
-                })
+                });
+            };
+            self.advance()?;
+            self.expect_token(Token::Assignment)?;
+            self.skip_newlines()?;
+            if seen.contains(&name) {
+                return Err(ParseError::InvalidOperation {
+                    operation: format!("join() argument {name} was given twice"),
+                    position: self.position,
+                });
             }
-        };
+            seen.push(name.clone());
+
+            match name.as_str() {
+                "by" => {
+                    if self.current_token == Token::Identifier("c".to_string()) {
+                        by = self.parse_join_key_vector()?;
+                    } else {
+                        let value = self.parse_expression()?;
+                        let (keys, expr) = join_by_argument(&value, self.position)?;
+                        by = keys;
+                        on_expr = expr;
+                    }
+                }
+                "suffix" => {
+                    if self.current_token == Token::Null {
+                        self.advance()?;
+                    } else {
+                        options.suffix = self.parse_join_suffix()?;
+                    }
+                }
+                "keep" => {
+                    // NULL means the default, so it leaves keep at false.
+                    if self.current_token != Token::Null {
+                        options.keep_explicit = true;
+                        match self.parse_expression()? {
+                            Expr::Literal(LiteralValue::Boolean(value)) => options.keep = value,
+                            other => {
+                                return Err(ParseError::InvalidOperation {
+                                    operation: format!(
+                                        "join() keep must be TRUE, FALSE, or NULL, got {other}"
+                                    ),
+                                    position: self.position,
+                                });
+                            }
+                        }
+                    } else {
+                        self.advance()?;
+                    }
+                }
+                "na_matches" => {
+                    options.na_matches = match self.parse_join_string()?.as_str() {
+                        "na" => true,
+                        "never" => false,
+                        other => {
+                            return Err(ParseError::InvalidOperation {
+                                operation: format!(
+                                    "join() na_matches must be 'na' or 'never', got '{other}'"
+                                ),
+                                position: self.position,
+                            });
+                        }
+                    };
+                }
+                // Data-dependent options. Only their no-op values are honoured;
+                // anything else needs a check the database must run, which this
+                // planner cannot promise.
+                "multiple" => match &self.current_token {
+                    Token::Null => {
+                        self.advance()?;
+                    }
+                    Token::String(value)
+                        if matches!(value.as_str(), "all" | "first" | "last" | "any") =>
+                    {
+                        options.multiple = Some(value.clone());
+                        self.advance()?;
+                    }
+                    _ => {
+                        return Err(ParseError::InvalidOperation {
+                            operation: "join() multiple has no no-op value beyond NULL and 'all'"
+                                .to_string(),
+                            position: self.position,
+                        });
+                    }
+                },
+                "unmatched" => match &self.current_token {
+                    Token::String(value) if matches!(value.as_str(), "drop" | "error") => {
+                        options.unmatched = Some(value.clone());
+                        self.advance()?;
+                    }
+                    _ => {
+                        return Err(ParseError::InvalidOperation {
+                            operation: "join() unmatched only supports 'drop'".to_string(),
+                            position: self.position,
+                        });
+                    }
+                },
+                "relationship" => match &self.current_token {
+                    Token::Null => {
+                        self.advance()?;
+                    }
+                    Token::String(value)
+                        if matches!(
+                            value.as_str(),
+                            "many-to-many" | "one-to-one" | "one-to-many" | "many-to-one"
+                        ) =>
+                    {
+                        options.relationship = Some(value.clone());
+                        self.advance()?;
+                    }
+                    _ => {
+                        return Err(ParseError::InvalidOperation {
+                            operation: "join() relationship only supports NULL and 'many-to-many'"
+                                .to_string(),
+                            position: self.position,
+                        });
+                    }
+                },
+                other => {
+                    return Err(ParseError::InvalidOperation {
+                        operation: format!("unknown join() argument '{other}'"),
+                        position: self.position,
+                    });
+                }
+            }
+        }
 
         self.expect_token(Token::RightParen)?;
 
@@ -930,9 +1905,33 @@ impl Parser {
                 table: table_name,
                 by,
                 on_expr,
+                options,
+                right_operations,
             },
             location,
         })
+    }
+
+    fn parse_join_string(&mut self) -> ParseResult<String> {
+        let Token::String(value) = self.current_token.clone() else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "string literal".to_string(),
+                found: format!("{}", self.current_token),
+                position: self.position,
+            });
+        };
+        self.advance()?;
+        Ok(value)
+    }
+
+    fn parse_join_suffix(&mut self) -> ParseResult<(String, String)> {
+        self.expect_identifier_name("c")?;
+        self.expect_token(Token::LeftParen)?;
+        let left = self.parse_join_string()?;
+        self.expect_token(Token::Comma)?;
+        let right = self.parse_join_string()?;
+        self.expect_token(Token::RightParen)?;
+        Ok((left, right))
     }
 
     fn parse_join_key_vector(&mut self) -> ParseResult<Vec<JoinKey>> {
@@ -943,9 +1942,11 @@ impl Parser {
         loop {
             let left = match &self.current_token {
                 Token::String(name) => name.clone(),
+                // `by = c(id, grp)` joins each name to itself.
+                Token::Identifier(name) => name.clone(),
                 _ => {
                     return Err(ParseError::UnexpectedToken {
-                        expected: "non-empty string join key vector".to_string(),
+                        expected: "join key name".to_string(),
                         found: format!("{}", self.current_token),
                         position: self.position,
                     })
@@ -955,14 +1956,16 @@ impl Parser {
 
             let right = if self.current_token == Token::Assignment {
                 self.advance()?;
-                let Token::String(name) = &self.current_token else {
-                    return Err(ParseError::UnexpectedToken {
-                        expected: "string join key".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    });
+                let name = match &self.current_token {
+                    Token::String(name) | Token::Identifier(name) => name.clone(),
+                    _ => {
+                        return Err(ParseError::UnexpectedToken {
+                            expected: "join key name".to_string(),
+                            found: format!("{}", self.current_token),
+                            position: self.position,
+                        });
+                    }
                 };
-                let name = name.clone();
                 self.advance()?;
                 name
             } else {
@@ -987,24 +1990,59 @@ impl Parser {
         self.expect_token(Token::LeftParen)?;
         self.consume_optional_lazy_data_argument()?;
 
-        // Parse table name
-        let right_table = match &self.current_token {
-            Token::Identifier(name) => name.clone(),
-            _ => {
-                return Err(ParseError::UnexpectedToken {
-                    expected: "table name".to_string(),
-                    found: format!("{}", self.current_token),
-                    position: self.position,
-                })
+        let mut args = vec![self.parse_function_argument()?];
+        while self.current_token == Token::Comma {
+            self.advance()?;
+            if self.current_token == Token::RightParen {
+                break;
             }
+            args.push(self.parse_function_argument()?);
+        }
+        self.expect_token(Token::RightParen)?;
+        if let [Expr::Identifier(right_table)] = args.as_slice() {
+            return Ok(DplyrOperation::SetOp {
+                operation,
+                right_table: right_table.clone(),
+                location,
+            });
+        }
+        let name = match operation {
+            SetOperation::Union => "union",
+            SetOperation::UnionAll => "union_all",
+            SetOperation::Intersect => "intersect",
+            SetOperation::SetDiff => "setdiff",
         };
-        self.advance()?;
+        Ok(DplyrOperation::Extended {
+            name: name.into(),
+            args,
+            location,
+        })
+    }
+
+    /// Parses a generic verb call into Extended.
+    fn parse_extended_verb(&mut self, name: &str) -> ParseResult<DplyrOperation> {
+        let location = self.current_location();
+        self.advance()?; // Skip function name
+        self.expect_token(Token::LeftParen)?;
+        self.consume_optional_lazy_data_argument()?;
+
+        let mut args = Vec::new();
+        if self.current_token != Token::RightParen {
+            args.push(self.parse_function_argument()?);
+            while self.current_token == Token::Comma {
+                self.advance()?;
+                self.skip_newlines()?;
+                if self.current_token == Token::RightParen {
+                    break;
+                }
+                args.push(self.parse_function_argument()?);
+            }
+        }
 
         self.expect_token(Token::RightParen)?;
-
-        Ok(DplyrOperation::SetOp {
-            operation,
-            right_table,
+        Ok(DplyrOperation::Extended {
+            name: name.to_string(),
+            args,
             location,
         })
     }
@@ -1019,284 +2057,79 @@ impl Parser {
             });
         }
 
-        // Check if this is an alias assignment (alias = expr)
-        if let Token::Identifier(first_name) = &self.current_token {
-            let first_name = first_name.clone();
-
-            // Advance past the identifier
-            self.advance()?;
-
-            // Check if next token is assignment
-            if self.current_token == Token::Assignment {
-                // This is an alias assignment: alias = expr
-                self.advance()?; // Skip =
-                let expr = self.parse_expression()?;
-                return Ok(ColumnExpr {
-                    expr,
-                    alias: Some(first_name),
-                });
-            } else if self.current_token == Token::LeftParen {
-                // This is a function call, we need to backtrack and parse as expression
-                // Put the identifier back and parse as a full expression
-                // Since we can't backtrack easily, we'll handle function call here
-                self.advance()?; // Skip (
-
-                let mut args = Vec::new();
-                if self.current_token != Token::RightParen {
-                    args.push(self.parse_function_argument()?);
-
-                    while self.current_token == Token::Comma {
-                        self.advance()?; // Skip ,
-                        args.push(self.parse_function_argument()?);
-                    }
-                }
-
-                self.expect_token(Token::RightParen)?;
-                let expr = Expr::Function {
-                    name: first_name,
-                    args,
-                };
-                return Ok(ColumnExpr { expr, alias: None });
-            } else {
-                // Not an alias or function call, treat the identifier as a regular expression
-                // We already consumed the identifier, so create an Identifier expression
-                return Ok(ColumnExpr {
-                    expr: Expr::Identifier(first_name),
-                    alias: None,
-                });
+        // Only an alias needs its own path; a bare identifier, a call, a range
+        // and a logical selector all go through the expression parser so the
+        // shared selector shapes reach the schema-aware resolver.
+        if let Token::Identifier(first_name) = self.current_token.clone() {
+            if self.peek_token()? == Token::Assignment {
+                self.advance()?; // Skip the name
+                return self.parse_aliased_column(first_name);
             }
         }
 
-        // Regular expression without alias (for non-identifier expressions)
+        // Regular expression without alias (for non-identifier expressions).
+        // R3-AC1: `select(-x)` is a tidy-select exclusion, so a leading minus
+        // reaches here unchanged and the schema decides what it means.
+        Ok(ColumnExpr {
+            expr: self.parse_expression()?,
+            alias: None,
+        })
+    }
+
+    /// Parses the right-hand side of `new = ...`.
+    ///
+    /// A chained rename such as `new = old = x` is out of scope: it leaves the
+    /// second `=` unconsumed, so the caller's loop stops and the closing paren
+    /// or comma check rejects it without recursing.
+    fn parse_aliased_column(&mut self, alias: String) -> ParseResult<ColumnExpr> {
+        self.expect_token(Token::Assignment)?;
         let expr = self.parse_expression()?;
-        Ok(ColumnExpr { expr, alias: None })
-    }
-
-    /// Parses assignment statements.
-    fn parse_assignment(&mut self) -> ParseResult<Assignment> {
-        if let Token::Identifier(column) = &self.current_token {
-            let column = column.clone();
-            self.advance()?;
-
-            self.expect_token(Token::Assignment)?;
-            let expr = self.parse_expression()?;
-
-            Ok(Assignment { column, expr })
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "column identifier".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            })
-        }
-    }
-
-    /// Parses sort expressions.
-    fn parse_order_expr(&mut self) -> ParseResult<OrderExpr> {
-        // Check for desc() or asc() functions
-        match &self.current_token {
-            Token::Desc => {
-                self.advance()?; // Skip 'desc'
-                self.expect_token(Token::LeftParen)?;
-
-                if let Token::Identifier(column) = &self.current_token {
-                    let column = column.clone();
-                    self.advance()?;
-                    self.expect_token(Token::RightParen)?;
-
-                    Ok(OrderExpr {
-                        column,
-                        direction: OrderDirection::Desc,
-                    })
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "column identifier".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            }
-            Token::Asc => {
-                self.advance()?; // Skip 'asc'
-                self.expect_token(Token::LeftParen)?;
-
-                if let Token::Identifier(column) = &self.current_token {
-                    let column = column.clone();
-                    self.advance()?;
-                    self.expect_token(Token::RightParen)?;
-
-                    Ok(OrderExpr {
-                        column,
-                        direction: OrderDirection::Asc,
-                    })
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "column identifier".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            }
-            Token::Identifier(name) => {
-                if name == "desc" {
-                    self.advance()?; // Skip 'desc'
-                    self.expect_token(Token::LeftParen)?;
-
-                    if let Token::Identifier(column) = &self.current_token {
-                        let column = column.clone();
-                        self.advance()?;
-                        self.expect_token(Token::RightParen)?;
-
-                        Ok(OrderExpr {
-                            column,
-                            direction: OrderDirection::Desc,
-                        })
-                    } else {
-                        Err(ParseError::UnexpectedToken {
-                            expected: "column identifier".to_string(),
-                            found: format!("{}", self.current_token),
-                            position: self.position,
-                        })
-                    }
-                } else if name == "asc" {
-                    self.advance()?; // Skip 'asc'
-                    self.expect_token(Token::LeftParen)?;
-
-                    if let Token::Identifier(column) = &self.current_token {
-                        let column = column.clone();
-                        self.advance()?;
-                        self.expect_token(Token::RightParen)?;
-
-                        Ok(OrderExpr {
-                            column,
-                            direction: OrderDirection::Asc,
-                        })
-                    } else {
-                        Err(ParseError::UnexpectedToken {
-                            expected: "column identifier".to_string(),
-                            found: format!("{}", self.current_token),
-                            position: self.position,
-                        })
-                    }
-                } else {
-                    // Regular column (ascending by default)
-                    let column = name.clone();
-                    self.advance()?;
-                    Ok(OrderExpr {
-                        column,
-                        direction: OrderDirection::Asc,
-                    })
-                }
-            }
-            _ => Err(ParseError::UnexpectedToken {
-                expected: "column identifier, desc(), or asc()".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            }),
-        }
-    }
-
-    /// Parses aggregation operations.
-    fn parse_aggregation(&mut self) -> ParseResult<Aggregation> {
-        // Handle alias = aggregation_function(column) format
-        if let Token::Identifier(first_name) = &self.current_token {
-            let first_name = first_name.clone();
-            self.advance()?;
-
-            // If = token exists, it's an alias
-            if self.current_token == Token::Assignment {
-                self.advance()?; // Skip =
-
-                // Aggregation function name
-                if let Token::Identifier(function) = &self.current_token {
-                    let function = function.clone();
-                    self.advance()?;
-
-                    self.expect_token(Token::LeftParen)?;
-
-                    // Handle functions with no arguments (like n())
-                    if self.current_token == Token::RightParen {
-                        self.advance()?; // Skip )
-                        Ok(Aggregation {
-                            function,
-                            column: "".to_string(), // Empty column for functions like n()
-                            alias: Some(first_name),
-                        })
-                    } else if let Token::Identifier(column) = &self.current_token {
-                        let column = column.clone();
-                        self.advance()?;
-                        self.expect_token(Token::RightParen)?;
-
-                        Ok(Aggregation {
-                            function,
-                            column,
-                            alias: Some(first_name),
-                        })
-                    } else {
-                        Err(ParseError::UnexpectedToken {
-                            expected: "column identifier or closing parenthesis".to_string(),
-                            found: format!("{}", self.current_token),
-                            position: self.position,
-                        })
-                    }
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "aggregation function name".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            } else {
-                // Function(column) format without alias
-                self.expect_token(Token::LeftParen)?;
-
-                // Handle functions with no arguments (like n())
-                if self.current_token == Token::RightParen {
-                    self.advance()?; // Skip )
-                    Ok(Aggregation {
-                        function: first_name,
-                        column: "".to_string(), // Empty column for functions like n()
-                        alias: None,
-                    })
-                } else if let Token::Identifier(column) = &self.current_token {
-                    let column = column.clone();
-                    self.advance()?;
-                    self.expect_token(Token::RightParen)?;
-
-                    Ok(Aggregation {
-                        function: first_name,
-                        column,
-                        alias: None,
-                    })
-                } else {
-                    Err(ParseError::UnexpectedToken {
-                        expected: "column identifier or closing parenthesis".to_string(),
-                        found: format!("{}", self.current_token),
-                        position: self.position,
-                    })
-                }
-            }
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "aggregation function name or alias".to_string(),
-                found: format!("{}", self.current_token),
-                position: self.position,
-            })
-        }
+        Ok(ColumnExpr {
+            expr,
+            alias: Some(alias),
+        })
     }
 
     /// Parses expressions.
     fn parse_expression(&mut self) -> ParseResult<Expr> {
-        self.parse_or_expression()
+        self.enter_expression()?;
+        self.expression_depth += 1;
+        let expr = self.parse_or_expression();
+        self.expression_depth -= 1;
+        expr
+    }
+
+    fn enter_expression(&self) -> ParseResult<()> {
+        if self.expression_depth >= MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(self.position));
+        }
+        Ok(())
+    }
+
+    /// Rejects an over-long left-deep operator chain as it is built.
+    ///
+    /// The loop below runs once per operator, so `a + b + c + ...` never
+    /// recurses and `expression_depth` never grows. The tree it produces is
+    /// still `chain` levels deep, so the bound is checked here instead of being
+    /// left to the post-parse AST walk: by then a chain of unbounded length has
+    /// already been allocated, and dropping that tree is itself a deep drop.
+    fn check_chain_depth(&self, chain: usize) -> ParseResult<()> {
+        if self.expression_depth + chain >= MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(self.position));
+        }
+        Ok(())
     }
 
     /// Parses OR expressions.
     fn parse_or_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_and_expression()?;
+        let mut chain = 0usize;
 
         while self.current_token == Token::Or {
             self.advance()?;
             let right = self.parse_and_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator: BinaryOp::Or,
@@ -1309,11 +2142,14 @@ impl Parser {
 
     /// Parses AND expressions.
     fn parse_and_expression(&mut self) -> ParseResult<Expr> {
-        let mut left = self.parse_equality_expression()?;
+        let mut left = self.parse_not_expression()?;
+        let mut chain = 0usize;
 
         while self.current_token == Token::And {
             self.advance()?;
-            let right = self.parse_equality_expression()?;
+            let right = self.parse_not_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator: BinaryOp::And,
@@ -1324,9 +2160,33 @@ impl Parser {
         Ok(left)
     }
 
+    // R2-AC1: Logical negation binds below comparisons, above AND/OR.
+    fn parse_not_expression(&mut self) -> ParseResult<Expr> {
+        if self.current_token != Token::Not {
+            return self.parse_equality_expression();
+        }
+        if self.peek_token()? == Token::Not {
+            return Err(ParseError::InvalidExpression {
+                expr: "tidy injection requires typed host bindings; use transpile_with_bindings()"
+                    .into(),
+                position: self.position,
+            });
+        }
+        self.enter_expression()?;
+        self.advance()?;
+        self.expression_depth += 1;
+        let expr = self.parse_not_expression();
+        self.expression_depth -= 1;
+        Ok(Expr::Unary {
+            operator: UnaryOp::Not,
+            expr: Box::new(expr?),
+        })
+    }
+
     /// Parses equality expressions.
     fn parse_equality_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_comparison_expression()?;
+        let mut chain = 0usize;
 
         while matches!(self.current_token, Token::Equal | Token::NotEqual) {
             let operator = match self.current_token {
@@ -1336,6 +2196,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_comparison_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1349,6 +2211,7 @@ impl Parser {
     /// Parses comparison expressions.
     fn parse_comparison_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_additive_expression()?;
+        let mut chain = 0usize;
 
         while matches!(
             self.current_token,
@@ -1366,6 +2229,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_additive_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1379,6 +2244,7 @@ impl Parser {
     /// Parses addition/subtraction expressions.
     fn parse_additive_expression(&mut self) -> ParseResult<Expr> {
         let mut left = self.parse_multiplicative_expression()?;
+        let mut chain = 0usize;
 
         while matches!(self.current_token, Token::Plus | Token::Minus) {
             let operator = match self.current_token {
@@ -1388,6 +2254,8 @@ impl Parser {
             };
             self.advance()?;
             let right = self.parse_multiplicative_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1400,16 +2268,33 @@ impl Parser {
 
     /// Parses multiplication/division expressions.
     fn parse_multiplicative_expression(&mut self) -> ParseResult<Expr> {
-        let mut left = self.parse_primary_expression()?;
+        let mut left = self.parse_membership_expression()?;
+        let mut chain = 0usize;
 
-        while matches!(self.current_token, Token::Multiply | Token::Divide) {
+        while matches!(
+            self.current_token,
+            Token::Multiply | Token::Divide | Token::Mod
+        ) {
             let operator = match self.current_token {
                 Token::Multiply => BinaryOp::Multiply,
                 Token::Divide => BinaryOp::Divide,
+                Token::Mod => {
+                    self.advance()?;
+                    let right = self.parse_membership_expression()?;
+                    chain += 1;
+                    self.check_chain_depth(chain)?;
+                    left = Expr::Function {
+                        name: "mod".to_string(),
+                        args: vec![left, right],
+                    };
+                    continue;
+                }
                 _ => unreachable!(),
             };
             self.advance()?;
-            let right = self.parse_primary_expression()?;
+            let right = self.parse_membership_expression()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
             left = Expr::Binary {
                 left: Box::new(left),
                 operator,
@@ -1420,32 +2305,195 @@ impl Parser {
         Ok(left)
     }
 
+    fn parse_membership_expression(&mut self) -> ParseResult<Expr> {
+        let mut expr = self.parse_range_expression()?;
+        let mut chain = 0;
+        while self.current_token == Token::In {
+            self.advance()?;
+            let values = self.parse_membership_values()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
+            expr = Expr::In {
+                expr: Box::new(expr),
+                values,
+            };
+        }
+        Ok(expr)
+    }
+
+    /// Only constant vectors are accepted. A column RHS requires a separate
+    /// relation rather than an SQL IN list of per-row column values.
+    fn parse_membership_values(&mut self) -> ParseResult<Vec<LiteralValue>> {
+        if self.current_token != Token::Identifier("c".to_string()) {
+            return Ok(self.parse_membership_literal()?.into_iter().collect());
+        }
+        self.advance()?;
+        self.expect_token(Token::LeftParen)?;
+        self.skip_newlines()?;
+        let mut values = Vec::new();
+        if self.current_token != Token::RightParen {
+            loop {
+                if let Some(value) = self.parse_membership_literal()? {
+                    values.push(value);
+                }
+                self.skip_newlines()?;
+                if self.current_token != Token::Comma {
+                    break;
+                }
+                self.advance()?;
+                self.skip_newlines()?;
+            }
+        }
+        self.expect_token(Token::RightParen)?;
+        Ok(values)
+    }
+
+    fn parse_membership_literal(&mut self) -> ParseResult<Option<LiteralValue>> {
+        let sign = match self.current_token {
+            Token::Minus => Some(-1.0),
+            Token::Plus => Some(1.0),
+            _ => None,
+        };
+        if sign.is_some() {
+            self.advance()?;
+        }
+        let value = match self.current_token.clone() {
+            Token::Number(value) => Some(LiteralValue::Number(value * sign.unwrap_or(1.0))),
+            Token::String(value) if sign.is_none() => Some(LiteralValue::String(value)),
+            Token::Boolean(value) if sign.is_none() => Some(LiteralValue::Boolean(value)),
+            Token::Na if sign.is_none() => Some(LiteralValue::Null),
+            // R2-AC3: c(NULL) has no elements, whereas c(NA) has a missing member.
+            Token::Null if sign.is_none() => None,
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "literal value or c(literal values) after %in%".to_string(),
+                    found: self.current_token.to_string(),
+                    position: self.position,
+                });
+            }
+        };
+        self.advance()?;
+        Ok(value)
+    }
+
+    fn parse_arithmetic_unary(&mut self) -> ParseResult<Expr> {
+        let operator = match self.current_token {
+            Token::Plus => UnaryOp::Plus,
+            Token::Minus => UnaryOp::Minus,
+            _ => return self.parse_power_expression(),
+        };
+        self.enter_expression()?;
+        self.advance()?;
+        self.expression_depth += 1;
+        let expr = self.parse_arithmetic_unary();
+        self.expression_depth -= 1;
+        Ok(Expr::Unary {
+            operator,
+            expr: Box::new(expr?),
+        })
+    }
+
+    // R2-AC1: Power binds above unary arithmetic and associates right to left.
+    fn parse_power_expression(&mut self) -> ParseResult<Expr> {
+        let left = self.parse_primary_expression()?;
+        if self.current_token != Token::Power {
+            return Ok(left);
+        }
+        self.enter_expression()?;
+        self.advance()?;
+        self.expression_depth += 1;
+        let right = self.parse_arithmetic_unary();
+        self.expression_depth -= 1;
+        Ok(Expr::Binary {
+            left: Box::new(left),
+            operator: BinaryOp::Power,
+            right: Box::new(right?),
+        })
+    }
+
+    // R3-AC1: Ranges bind above membership and below unary arithmetic.
+    fn parse_range_expression(&mut self) -> ParseResult<Expr> {
+        let mut expr = self.parse_arithmetic_unary()?;
+        let mut chain = 0;
+        while self.current_token == Token::Colon {
+            self.advance()?;
+            let end = self.parse_arithmetic_unary()?;
+            chain += 1;
+            self.check_chain_depth(chain)?;
+            expr = Expr::Function {
+                name: "__select_range".to_string(),
+                args: vec![expr, end],
+            };
+        }
+        Ok(expr)
+    }
+
     /// Parses primary expressions.
     fn parse_primary_expression(&mut self) -> ParseResult<Expr> {
         match &self.current_token {
+            Token::Desc | Token::Asc => {
+                let name = if self.current_token == Token::Desc {
+                    "desc"
+                } else {
+                    "asc"
+                };
+                self.advance()?;
+                self.expect_token(Token::LeftParen)?;
+                let args = self.parse_function_arguments()?;
+                if args.len() != 1 {
+                    return Err(argument_error(name, "requires one expression".into()));
+                }
+                Ok(Expr::Function {
+                    name: name.into(),
+                    args,
+                })
+            }
             Token::Identifier(name) => {
                 let name = name.clone();
                 self.advance()?;
 
+                if self.current_token == Token::Dollar {
+                    if !matches!(name.as_str(), ".data" | ".env") {
+                        return Err(argument_error(
+                            "member access",
+                            "only .data and .env are supported".into(),
+                        ));
+                    }
+                    self.advance()?;
+                    let member = self.parse_identifier_like("pronoun member name")?;
+                    return Ok(Expr::Function {
+                        name: if name == ".data" {
+                            "__data_column"
+                        } else {
+                            "__environment_value"
+                        }
+                        .into(),
+                        args: vec![Expr::Literal(LiteralValue::String(member))],
+                    });
+                }
                 // Check for function call
                 if self.current_token == Token::LeftParen {
+                    if name == "function" && self.across_depth > 0 {
+                        return self.parse_function_closure();
+                    }
                     self.advance()?; // Skip (
 
                     if name == "case_when" {
                         return self.parse_case_when();
                     }
 
-                    let mut args = Vec::new();
-                    if self.current_token != Token::RightParen {
-                        args.push(self.parse_function_argument()?);
-
-                        while self.current_token == Token::Comma {
-                            self.advance()?; // Skip ,
-                            args.push(self.parse_function_argument()?);
-                        }
+                    // A purrr formula is only a formula inside across(); the
+                    // depth guard keeps `~` elsewhere on the old code path.
+                    let across = matches!(name.as_str(), "across" | "if_any" | "if_all");
+                    if across {
+                        self.across_depth += 1;
                     }
+                    let parsed = self.parse_function_arguments();
+                    if across {
+                        self.across_depth -= 1;
+                    }
+                    let args = parsed?;
 
-                    self.expect_token(Token::RightParen)?;
                     Ok(Expr::Function { name, args })
                 } else {
                     Ok(Expr::Identifier(name))
@@ -1466,9 +2514,39 @@ impl Parser {
                 self.advance()?;
                 Ok(Expr::Literal(LiteralValue::Boolean(b)))
             }
+            // NA is a SQL missing value; bare NULL deletes a mutate column.
+            Token::Na => {
+                self.advance()?;
+                Ok(Expr::Function {
+                    name: "__missing_value".into(),
+                    args: Vec::new(),
+                })
+            }
             Token::Null => {
                 self.advance()?;
                 Ok(Expr::Literal(LiteralValue::Null))
+            }
+            // The magrittr pronoun. A pipeline's data argument is consumed
+            // before expression parsing starts, so a dot reaching here is the
+            // across() lambda variable.
+            Token::Dot => {
+                self.advance()?;
+                Ok(Expr::Identifier(".".to_string()))
+            }
+            // R3-AC1: `~` inside across() captures one lambda body. Elsewhere
+            // it belongs to case_when(), which reads the token itself.
+            Token::Tilde if self.across_depth > 0 => {
+                self.enter_expression()?;
+                self.advance()?;
+                self.expression_depth += 1;
+                let body = self.parse_expression();
+                self.expression_depth -= 1;
+                let body = body?;
+                check_lambda_variables(&body, self.position)?;
+                Ok(Expr::Function {
+                    name: "__across_lambda".to_string(),
+                    args: vec![body],
+                })
             }
             Token::LeftParen => {
                 self.advance()?; // Skip (
@@ -1484,14 +2562,101 @@ impl Parser {
         }
     }
 
+    /// Parses an R `function(v)` closure inside across() and converts it
+    /// to the existing `__across_lambda` marker representation.
+    fn parse_function_closure(&mut self) -> ParseResult<Expr> {
+        // Current token is the opening parenthesis after "function"
+        self.expect_token(Token::LeftParen)?;
+        self.skip_newlines()?;
+
+        // Parse the parameter name
+        let param = match &self.current_token {
+            Token::Identifier(name) => {
+                let name = name.clone();
+                self.advance()?;
+                name
+            }
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "function parameter name".to_string(),
+                    found: format!("{}", self.current_token),
+                    position: self.position,
+                });
+            }
+        };
+
+        self.skip_newlines()?;
+        self.expect_token(Token::RightParen)?;
+        self.skip_newlines()?;
+
+        // Parse the body expression
+        let mut body = self.parse_expression()?;
+        fn replace_parameter(expr: &mut Expr, param: &str) {
+            match expr {
+                Expr::Identifier(name) if name == param => *name = ".x".into(),
+                Expr::Function { args, .. } => {
+                    for arg in args {
+                        replace_parameter(arg, param);
+                    }
+                }
+                Expr::Unary { expr, .. } | Expr::In { expr, .. } => replace_parameter(expr, param),
+                Expr::NamedArg { value, .. } => replace_parameter(value, param),
+                Expr::Binary { left, right, .. } => {
+                    replace_parameter(left, param);
+                    replace_parameter(right, param);
+                }
+                Expr::CaseWhen { branches, default } => {
+                    for (a, b) in branches {
+                        replace_parameter(a, param);
+                        replace_parameter(b, param);
+                    }
+                    if let Some(value) = default {
+                        replace_parameter(value, param);
+                    }
+                }
+                _ => {}
+            }
+        }
+        replace_parameter(&mut body, &param);
+        check_lambda_variables(&body, self.position)?;
+
+        Ok(Expr::Function {
+            name: "__across_lambda".to_string(),
+            args: vec![body],
+        })
+    }
+
+    /// Parses a comma-separated argument list, with the opening parenthesis
+    /// already consumed.
+    fn parse_function_arguments(&mut self) -> ParseResult<Vec<Expr>> {
+        self.skip_newlines()?;
+        let mut args = Vec::new();
+        if self.current_token != Token::RightParen {
+            args.push(self.parse_function_argument()?);
+
+            while self.current_token == Token::Comma {
+                self.advance()?; // Skip ,
+                self.skip_newlines()?;
+                args.push(self.parse_function_argument()?);
+            }
+        }
+        self.expect_token(Token::RightParen)?;
+        Ok(args)
+    }
+
     fn parse_case_when(&mut self) -> ParseResult<Expr> {
         let mut branches = Vec::new();
         let mut default = None;
 
         while self.current_token != Token::RightParen {
-            if self.current_token == Token::Dot {
+            if self.current_token == Token::Dot
+                || self.current_token == Token::Identifier(".default".to_string())
+            {
+                let split = self.current_token == Token::Dot;
                 self.advance()?;
-                self.expect_identifier_name("default")?;
+                if split {
+                    self.expect_identifier_name("default")?;
+                }
                 self.expect_token(Token::Assignment)?;
                 default = Some(Box::new(self.parse_expression()?));
                 break;
@@ -1520,8 +2685,61 @@ impl Parser {
         Ok(Expr::CaseWhen { branches, default })
     }
 
+    /// Parses an expression that may contain pipe operators (`%>%`).
+    /// Used in function argument context to support pipeline expressions
+    /// like `source %>% verb(args)` inside function calls.
+    fn parse_pipe_tail(&mut self, source: Expr) -> ParseResult<Expr> {
+        if self.current_token != Token::Pipe {
+            return Ok(source);
+        }
+        let mut args = vec![source];
+        while self.current_token == Token::Pipe {
+            self.advance()?;
+            self.skip_newlines()?;
+            let name = match &self.current_token {
+                Token::Select => "select",
+                Token::Distinct => "distinct",
+                Token::Filter => "filter",
+                Token::Mutate => "mutate",
+                Token::Rename => "rename",
+                Token::Arrange => "arrange",
+                Token::GroupBy => "group_by",
+                Token::Summarise => "summarise",
+                Token::Union => "union",
+                Token::Intersect => "intersect",
+                Token::SetDiff => "setdiff",
+                Token::Identifier(name) => name,
+                _ => {
+                    return Err(argument_error(
+                        "pipeline",
+                        "expected a relation operation".into(),
+                    ))
+                }
+            }
+            .to_owned();
+            let DplyrOperation::Extended { args: values, .. } = self.parse_extended_verb(&name)?
+            else {
+                return Err(argument_error(
+                    "pipeline",
+                    "invalid nested operation".into(),
+                ));
+            };
+            args.push(Expr::Function { name, args: values });
+        }
+        Ok(Expr::Function {
+            name: "__pipeline".into(),
+            args,
+        })
+    }
+
     fn parse_function_argument(&mut self) -> ParseResult<Expr> {
+        self.skip_newlines()?;
         let expr = self.parse_expression()?;
+        let expr = if self.current_token == Token::Pipe {
+            self.parse_pipe_tail(expr)?
+        } else {
+            expr
+        };
         if self.current_token != Token::Assignment {
             return Ok(expr);
         }
@@ -1548,10 +2766,109 @@ impl Parser {
     }
 }
 
+/// Rejects any dot-prefixed identifier that is not the across() lambda
+/// variable, so `.y` cannot reach SQL as a bare column.
+fn check_lambda_variables(expr: &Expr, position: usize) -> ParseResult<()> {
+    let mut stack = vec![expr];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Identifier(name) if name.starts_with('.') && name != "." && name != ".x" => {
+                return Err(ParseError::InvalidExpression {
+                    expr: format!("'{name}' is not an across() lambda variable"),
+                    position,
+                });
+            }
+            Expr::Identifier(_) | Expr::Literal(_) => {}
+            Expr::Unary { expr, .. } | Expr::In { expr, .. } => stack.push(expr),
+            Expr::Binary { left, right, .. } => {
+                stack.push(left);
+                stack.push(right);
+            }
+            Expr::Function { args, .. } => stack.extend(args.iter()),
+            Expr::NamedArg { value, .. } => stack.push(value),
+            Expr::CaseWhen { branches, default } => {
+                for (condition, value) in branches {
+                    stack.push(condition);
+                    stack.push(value);
+                }
+                if let Some(default) = default {
+                    stack.push(default);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum LazyInput {
     MagrittrDot,
     NativeParameter(String),
+}
+
+/// Iteratively rejects an AST whose expressions nest deeper than the bound.
+///
+/// Left-deep chains such as `a + b + c + ...` parse in a loop, so the
+/// recursive descent counter never sees them. Their AST is still deep, and the
+/// SQL generator and the relational binder walk it recursively, so the shape is
+/// checked here with an explicit stack. Bounding the tree once, at parse time,
+/// covers consumers of parsed expressions.
+fn validate_ast_depth(node: &DplyrNode, position: usize) -> ParseResult<()> {
+    let mut roots = Vec::new();
+    if let DplyrNode::Pipeline { operations, .. } = node {
+        for operation in operations {
+            match operation {
+                DplyrOperation::Select { columns, .. } => {
+                    roots.extend(columns.iter().map(|column| &column.expr));
+                }
+                DplyrOperation::Filter { condition, .. } => roots.push(condition),
+                DplyrOperation::Mutate { assignments, .. } => {
+                    roots.extend(assignments.iter().map(|assignment| &assignment.expr));
+                }
+                DplyrOperation::SummariseExpressions { assignments, .. } => {
+                    roots.extend(assignments.iter().map(|assignment| &assignment.expr));
+                }
+                DplyrOperation::Join { spec, .. } => {
+                    if let Some(on_expr) = &spec.on_expr {
+                        roots.push(on_expr);
+                    }
+                }
+                DplyrOperation::Extended { args, .. } => {
+                    roots.extend(args.iter());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut stack: Vec<(&Expr, usize)> = roots.into_iter().map(|expr| (expr, 1)).collect();
+    while let Some((expr, depth)) = stack.pop() {
+        if depth > MAX_EXPRESSION_DEPTH {
+            return Err(depth_exceeded(position));
+        }
+        match expr {
+            Expr::Binary { left, right, .. } => {
+                stack.push((left, depth + 1));
+                stack.push((right, depth + 1));
+            }
+            Expr::Function { args, .. } => {
+                stack.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::CaseWhen { branches, default } => {
+                for (condition, value) in branches {
+                    stack.push((condition, depth + 1));
+                    stack.push((value, depth + 1));
+                }
+                if let Some(default) = default {
+                    stack.push((default, depth + 1));
+                }
+            }
+            Expr::NamedArg { value, .. } => stack.push((value, depth + 1)),
+            Expr::Unary { expr, .. } | Expr::In { expr, .. } => stack.push((expr, depth + 1)),
+            Expr::Identifier(_) | Expr::Literal(_) => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

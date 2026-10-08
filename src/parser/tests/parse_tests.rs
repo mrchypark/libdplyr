@@ -87,7 +87,7 @@ fn test_join_rejects_unknown_join_parameter_name() {
     let error = parser.parse().unwrap_err();
 
     assert!(
-        error.to_string().contains("by"),
+        error.to_string().contains("bogus"),
         "Unexpected error: {error}"
     );
 }
@@ -885,11 +885,11 @@ mod distinct_parsing_tests {
     }
 
     #[test]
-    fn test_distinct_rejects_expressions_and_options() {
+    fn test_distinct_routes_expressions_and_options() {
         for input in ["distinct(upper(name))", "distinct(.keep_all = TRUE)"] {
             let lexer = Lexer::new(input.to_string());
             let mut parser = Parser::new(lexer).unwrap();
-            assert!(parser.parse().is_err(), "{input} should be rejected");
+            assert!(parser.parse().is_ok(), "{input} should parse");
         }
     }
 }
@@ -1920,6 +1920,198 @@ mod group_by_parsing_tests {
 
 mod summarise_parsing_tests {
     use super::*;
+
+    fn parse_summarise(code: &str) -> DplyrOperation {
+        let lexer = Lexer::new(code.to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+        let ast = parser.parse().unwrap();
+        let DplyrNode::Pipeline { operations, .. } = ast else {
+            panic!("Expected Pipeline node for {code}");
+        };
+        assert_eq!(operations.len(), 1, "Expected one operation for {code}");
+        operations.into_iter().next().unwrap()
+    }
+
+    fn parse_summarise_exprs(code: &str) -> Vec<Assignment> {
+        match parse_summarise(code) {
+            DplyrOperation::SummariseExpressions { assignments, .. } => assignments,
+            other => panic!("Expected SummariseExpressions for {code}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_summarise_expression_argument_stays_compact_when_possible() {
+        // A plain identifier argument keeps the legacy Aggregation shape.
+        let DplyrOperation::Summarise { aggregations, .. } =
+            parse_summarise("summarise(total = sum(amount))")
+        else {
+            panic!("simple aggregate must stay in the Aggregation shape");
+        };
+        assert_eq!(aggregations.len(), 1);
+        assert_eq!(aggregations[0].function, "sum");
+        assert_eq!(aggregations[0].column, "amount");
+        assert_eq!(aggregations[0].alias.as_deref(), Some("total"));
+    }
+
+    #[test]
+    fn test_summarise_compound_argument_becomes_expression() {
+        let assignments = parse_summarise_exprs("summarise(total = sum(amount * rate))");
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].column, "total");
+        assert_eq!(
+            assignments[0].expr,
+            Expr::Function {
+                name: "sum".to_string(),
+                args: vec![Expr::Binary {
+                    left: Box::new(Expr::Identifier("amount".to_string())),
+                    operator: BinaryOp::Multiply,
+                    right: Box::new(Expr::Identifier("rate".to_string())),
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn test_summarise_aggregate_divided_by_n() {
+        let assignments = parse_summarise_exprs("summarise(mean_x = sum(x) / n())");
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].column, "mean_x");
+        assert!(
+            matches!(
+                &assignments[0].expr,
+                Expr::Binary {
+                    operator: BinaryOp::Divide,
+                    left,
+                    right,
+                } if matches!(&**left, Expr::Function { name, args } if name == "sum")
+                    && matches!(&**right, Expr::Function { name, args } if name == "n" && args.is_empty())
+            ),
+            "expected sum(x) / n(), got {:?}",
+            assignments[0].expr
+        );
+    }
+
+    #[test]
+    fn test_summarise_scalar_around_aggregate() {
+        let assignments = parse_summarise_exprs("summarise(flag = round(sum(x), 2))");
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].column, "flag");
+        assert!(
+            matches!(
+                &assignments[0].expr,
+                Expr::Function { name, args } if name == "round"
+            ),
+            "expected round(...), got {:?}",
+            assignments[0].expr
+        );
+    }
+
+    #[test]
+    fn test_summarise_mixed_list_preserves_source_order_and_aliases() {
+        // The simple entries are demoted to expressions because a compound one
+        // is present, and every entry must keep its original position.
+        let assignments = parse_summarise_exprs(
+            "summarise(a = mean(age), b = sum(x * y), c = n(), d = max(height))",
+        );
+        let names = assignments
+            .iter()
+            .map(|assignment| assignment.column.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["a", "b", "c", "d"]);
+        assert!(matches!(
+            &assignments[2].expr,
+            Expr::Function { name, args } if name == "n" && args.is_empty()
+        ));
+        assert!(matches!(
+            &assignments[3].expr,
+            Expr::Function { name, args } if name == "max"
+                && matches!(args.as_slice(), [Expr::Identifier(column)] if column == "height")
+        ));
+    }
+
+    #[test]
+    fn test_summarise_unaliased_expression_uses_deparsed_default_name() {
+        let assignments = parse_summarise_exprs("summarise(sum(x * y))");
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].column, "sum((x * y))");
+    }
+
+    #[test]
+    fn test_summarise_unnamed_entries_do_not_collide_on_associativity() {
+        // `x * y + 1` and `x * (y + 1)` are different trees and must not be
+        // given the same output name, or one would silently overwrite the other.
+        let flat = parse_summarise_exprs("summarise(sum(x * y + 1))");
+        let grouped = parse_summarise_exprs("summarise(sum(x * (y + 1)))");
+        assert_ne!(flat[0].column, grouped[0].column);
+    }
+
+    #[test]
+    fn test_summarise_unnamed_entries_distinguish_literals_and_names() {
+        let cases = [
+            ("summarise(f(TRUE))", "f(TRUE)"),
+            ("summarise(f(\"sep\"))", "f(\"sep\")"),
+            ("summarise(f(NULL))", "f(NULL)"),
+        ];
+        for (code, expected) in cases {
+            let assignments = parse_summarise_exprs(code);
+            assert_eq!(assignments[0].column, expected, "for {code}");
+        }
+    }
+
+    #[test]
+    fn test_summarise_accepts_trailing_comma() {
+        let lexer = Lexer::new("summarise(total = sum(x),)".to_string());
+        let mut parser = Parser::new(lexer).unwrap();
+        assert!(parser.parse().is_ok(), "trailing comma must parse");
+    }
+
+    /// Deep nesting inside a summarise() expression must be rejected the same
+    /// way it is inside mutate(). `parse_summarise_entry` routes entries through
+    /// `parse_expression`, and `validate_ast_depth` walks the new variant, so
+    /// neither the recursive descent nor the resulting tree can grow unbounded.
+    fn nested_summarise_parens(n: usize) -> String {
+        format!(
+            "summarise(total = sum({}x{}))",
+            "(".repeat(n),
+            ")".repeat(n)
+        )
+    }
+
+    #[test]
+    fn test_summarise_expression_within_the_depth_limit_parses() {
+        let lexer = Lexer::new(nested_summarise_parens(MAX_EXPRESSION_DEPTH - 8));
+        let mut parser = Parser::new(lexer).unwrap();
+        parser
+            .parse()
+            .unwrap_or_else(|e| panic!("shallow nesting must parse: {e:?}"));
+    }
+
+    #[test]
+    fn test_summarise_expression_above_the_depth_limit_is_rejected() {
+        let lexer = Lexer::new(nested_summarise_parens(MAX_EXPRESSION_DEPTH * 4));
+        let mut parser = Parser::new(lexer).unwrap();
+        match parser.parse() {
+            Err(ParseError::InvalidExpression { .. }) => {}
+            Err(other) => panic!("expected InvalidExpression, got {other:?}"),
+            Ok(_) => panic!("expected InvalidExpression, but parsing succeeded"),
+        }
+    }
+
+    #[test]
+    fn test_summarise_long_addition_chain_above_the_depth_limit_is_rejected() {
+        // A chain that parses in a loop still builds a left-deep tree, so the
+        // post-parse AST walk has to catch it inside a summarise() expression.
+        let terms = (0..=MAX_EXPRESSION_DEPTH * 2)
+            .map(|i| format!("c{i}"))
+            .collect::<Vec<_>>();
+        let lexer = Lexer::new(format!("summarise(s = sum({}))", terms.join(" + ")));
+        let mut parser = Parser::new(lexer).unwrap();
+        match parser.parse() {
+            Err(ParseError::InvalidExpression { .. }) => {}
+            Err(other) => panic!("expected InvalidExpression, got {other:?}"),
+            Ok(_) => panic!("expected InvalidExpression, but parsing succeeded"),
+        }
+    }
 
     #[test]
     fn test_summarise_single_aggregation_with_alias() {
@@ -3342,7 +3534,7 @@ mod pipeline_parsing_tests {
                     Err(ParseError::UnexpectedToken {
                         expected, found, ..
                     }) => {
-                        assert!(expected.contains("="));
+                        assert!(expected.contains(")"));
                         assert_eq!(found, "age");
                     }
                     other => panic!("Expected UnexpectedToken error, got: {other:?}"),
@@ -3351,18 +3543,11 @@ mod pipeline_parsing_tests {
 
             #[test]
             fn test_empty_filter_condition() {
-                let lexer = Lexer::new("filter()".to_string());
-                let mut parser = Parser::new(lexer).unwrap();
-
-                match parser.parse() {
-                    Err(ParseError::UnexpectedToken {
-                        expected, found, ..
-                    }) => {
-                        assert!(expected.contains("expression") || expected.contains("identifier"));
-                        assert_eq!(found, ")");
-                    }
-                    other => panic!("Expected UnexpectedToken error, got: {other:?}"),
-                }
+                let mut parser = Parser::new(Lexer::new("filter()".into())).expect("parser");
+                let ast = parser.parse().expect("empty filter is identity");
+                assert!(
+                    matches!(ast, DplyrNode::Pipeline { operations, .. } if matches!(&operations[0], DplyrOperation::Filter { condition: Expr::Literal(LiteralValue::Boolean(true)), .. }))
+                );
             }
 
             #[test]
@@ -3404,7 +3589,7 @@ mod pipeline_parsing_tests {
                     Err(ParseError::UnexpectedToken {
                         expected, found, ..
                     }) => {
-                        assert!(expected.contains("column identifier"));
+                        assert!(expected.contains("expression"));
                         assert_eq!(found, ")");
                     }
                     other => panic!("Expected UnexpectedToken error, got: {other:?}"),

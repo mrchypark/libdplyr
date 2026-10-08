@@ -26,7 +26,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! libdplyr = "0.6.0"
+//! libdplyr = "0.7.0"
 //! ```
 //!
 //! Basic usage:
@@ -274,10 +274,13 @@
 //! This project is licensed under the MIT License - see the LICENSE file for details.
 
 pub mod error;
+pub mod execution;
 pub mod lexer;
 pub mod parser;
 pub mod performance;
 pub mod pipe_syntax;
+pub mod pivot_execution;
+pub mod relational;
 pub mod sql_generator;
 
 // CLI module (excluded on wasm targets - no signal handling or terminal support)
@@ -286,12 +289,19 @@ pub mod cli;
 
 // Re-export public API
 pub use crate::error::{GenerationError, LexError, ParseError, TranspileError};
+pub use crate::execution::{
+    execute, ExecutionError, ExecutionPlan, SnapshotExecutor, ValidationQuery,
+};
 pub use crate::lexer::{Lexer, Token};
 pub use crate::parser::{DplyrNode, DplyrOperation, Parser};
 pub use crate::performance::{
     BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
 };
 pub use crate::pipe_syntax::{PipeSyntax, PIPE_SYNTAX_ENV_VAR};
+pub use crate::pivot_execution::{
+    execute_with_pivot_discovery, PivotExecutionError, PivotExecutor,
+};
+pub use crate::relational::{CompiledQuery, SchemaColumn, SchemaInput, SourceSchema};
 pub use crate::sql_generator::{
     DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqlGenerator,
     SqliteDialect,
@@ -435,6 +445,69 @@ impl Transpiler {
     pub fn transpile(&self, dplyr_code: &str) -> Result<String, TranspileError> {
         let ast = self.parse_dplyr(dplyr_code)?;
         Ok(self.generate_sql(&ast)?)
+    }
+
+    /// Compiles a pipeline with an ordered source schema and preserves query stages.
+    ///
+    /// This additive API supports dependencies between computed columns and operations
+    /// after aggregation. The schema must describe the pipeline's input relation.
+    pub fn transpile_with_schema(
+        &self,
+        dplyr_code: &str,
+        schema: &relational::SourceSchema,
+    ) -> Result<relational::CompiledQuery, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile(&ast, schema, &self.generator)?)
+    }
+
+    /// Compiles a pipeline using metadata for every source, join, and set input.
+    pub fn transpile_with_schemas(
+        &self,
+        dplyr_code: &str,
+        schemas: &[relational::SourceSchema],
+    ) -> Result<relational::CompiledQuery, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile_with_schemas(
+            &ast,
+            schemas,
+            &self.generator,
+        )?)
+    }
+
+    /// Compiles with external constants. Visible column names take precedence.
+    pub fn transpile_with_bindings(
+        &self,
+        dplyr_code: &str,
+        schemas: &[SourceSchema],
+        bindings: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<CompiledQuery, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile_with_bindings(
+            &ast,
+            schemas,
+            &self.generator,
+            bindings,
+        )?)
+    }
+
+    /// Builds a query and relationship checks for one stable database snapshot.
+    pub fn plan_with_schemas(
+        &self,
+        dplyr_code: &str,
+        schemas: &[SourceSchema],
+    ) -> Result<ExecutionPlan, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::compile_for_execution(
+            &ast,
+            schemas,
+            &self.generator,
+        )?)
+    }
+
+    /// Lists distinct source names in input order for database schema discovery.
+    pub fn required_sources(&self, dplyr_code: &str) -> Result<Vec<String>, TranspileError> {
+        let ast = self.parse_dplyr(dplyr_code)?;
+        Ok(relational::required_sources(&ast)?)
     }
 
     /// Parses dplyr code to generate an Abstract Syntax Tree (AST).

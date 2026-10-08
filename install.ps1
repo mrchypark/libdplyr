@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $REPO = "mrchypark/libdplyr"
 $BINARY_NAME = "libdplyr.exe"
-$DEFAULT_VERSION = "0.6.0"
+$DEFAULT_VERSION = "0.7.0"
 
 function Write-Info { param([string]$Message); Write-Host "[INFO] $Message" -ForegroundColor Blue }
 function Write-Success { param([string]$Message); Write-Host "[SUCCESS] $Message" -ForegroundColor Green }

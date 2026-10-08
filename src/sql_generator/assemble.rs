@@ -40,14 +40,11 @@ impl SqlGenerator {
         &self,
         operations: &[DplyrOperation],
     ) -> GenerationResult<String> {
-        // Process nested operations recursively
-        let mut nested_parts = QueryParts::new();
-
-        for operation in operations {
-            self.process_operation(operation, &mut nested_parts, "data")?;
+        if operations.is_empty() {
+            return self.assemble_query(&None, &QueryParts::new());
         }
-
-        self.assemble_query(&None, &nested_parts)
+        // R1-AC1: Share stage validation and grouping normalization with the main API.
+        self.generate_pipeline(&None, &None, operations)
     }
 
     /// Assembles the final SQL query.

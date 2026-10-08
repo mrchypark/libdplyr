@@ -564,7 +564,8 @@ fn test_if_else_named_true_false_arguments() {
     );
 
     let normalized = normalize_sql(&result.unwrap());
-    assert!(normalized.contains(r#"CASE WHEN "OK" THEN 'YES' ELSE 'NO' END AS "V""#));
+    assert!(normalized
+        .contains(r#"CASE WHEN "OK" IS NULL THEN NULL WHEN "OK" THEN 'YES' ELSE 'NO' END AS "V""#));
 }
 
 #[test]

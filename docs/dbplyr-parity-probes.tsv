@@ -1,0 +1,405 @@
+case	dialect	pipeline	dbplyr_generation	libdplyr_generation	classification	libdplyr_execution	sqlite_comparison	sqlite_equal	baseline_libdplyr_generation	baseline_classification	required_api
+basic_filter	sqlite	data %>% filter(x > 0)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+filter_empty	sqlite	data %>% filter()	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+filter_multi	sqlite	data %>% filter(x > 0, y > 0)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+filter_by	sqlite	data %>% filter(x > mean(x), .by = grp)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+filter_out	sqlite	data %>% filter_out(x > 0)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+relocate	sqlite	data %>% relocate(y, .before = x)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+rename_with	sqlite	"data %>% rename_with(toupper, starts_with(""x""))"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+select_named_vector	sqlite	"data %>% select(all_of(c(a = ""x"", b = ""y"")))"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+select_where	sqlite	data %>% select(where(is.numeric))	rejected	generated	extension	executed	not_compared	not_compared	generated	extension	schema_compile
+select_num_range	sqlite	data %>% select(1:3)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+select_empty	sqlite	data %>% select()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+select_regex	sqlite	"data %>% select(matches(""^(x|y)$""))"	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+transmute	sqlite	data %>% transmute(z = x + y)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+mutate_sequential	sqlite	data %>% mutate(z = x + 1, w = z * 2)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+mutate_by	sqlite	data %>% mutate(z = mean(x), .by = grp)	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+mutate_keep	sqlite	"data %>% mutate(z = x + 1, .keep = ""used"")"	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+mutate_before	sqlite	data %>% mutate(z = x + 1, .before = y)	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+mutate_delete	sqlite	data %>% mutate(x = NULL)	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+mutate_group_key	sqlite	data %>% group_by(grp) %>% mutate(grp = toupper(grp))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+mutate_order_frame	sqlite	data %>% mutate(z = sum(x), .by = grp, .order = id, .frame = c(-1, 0))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+arrange_expr	sqlite	data %>% arrange(desc(x + y))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+arrange_by_group	sqlite	data %>% group_by(grp) %>% arrange(x, .by_group = TRUE)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+group_computed	sqlite	data %>% group_by(g = x + y) %>% summarise(n = n())	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+group_add	sqlite	data %>% group_by(grp) %>% group_by(id, .add = TRUE) %>% summarise(n = n())	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+ungroup_subset	sqlite	data %>% group_by(grp, id) %>% ungroup(id) %>% summarise(n = n())	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+summary_by	sqlite	data %>% summarise(z = sum(x), .by = grp)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+summary_groups	sqlite	"data %>% group_by(grp, id) %>% summarise(z = sum(x), .groups = ""keep"")"	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+summary_sequential	sqlite	data %>% summarise(z = mean(x), w = z + 1)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+summary_constant	sqlite	data %>% summarise(z = 1)	generated	generated	semantic_difference	executed	column order and row multiset	false	generated	semantic_difference	schema_compile
+summary_distinct_null	sqlite	data %>% summarise(z = n_distinct(x))	generated	generated	semantic_difference	executed	column order and row multiset	false	generated	semantic_difference	schema_compile
+summary_na_false	sqlite	data %>% summarise(z = sum(x, na.rm = FALSE))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+summary_na_true	sqlite	data %>% summarise(z = sum(x, na.rm = TRUE))	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+summary_sd	sqlite	data %>% summarise(z = sd(x))	generated	generated	both_generate	executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_median	sqlite	data %>% summarise(z = median(x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+distinct_keep	sqlite	data %>% distinct(grp, .keep_all = TRUE)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+distinct_expr	sqlite	data %>% distinct(z = x + y)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+count_weight	sqlite	"data %>% count(grp, wt = x, sort = TRUE, name = ""total"")"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+add_count	sqlite	data %>% add_count(grp)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+add_tally	sqlite	data %>% add_tally(wt = x)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+tally_weight	sqlite	data %>% tally(wt = x)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+head	sqlite	data %>% arrange(id) %>% head(2)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+row_slice	sqlite	data %>% arrange(id) %>% slice(1:2)	rejected	generated	extension	executed	not_compared	not_compared	rejected	both_reject	schema_compile
+slice_min	sqlite	data %>% slice_min(x, n = 2)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+slice_min_fractional_n	sqlite	data %>% slice_min(x, n = 1.5)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+slice_min_tuple	sqlite	data %>% slice_min(tibble(x, y), n = 2)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+slice_min_prop	sqlite	data %>% slice_min(x, prop = 0.5)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+slice_min_prop_noties	sqlite	data %>% slice_min(x, prop = 0.5, with_ties = FALSE)	rejected	generated	extension	executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_na_false	sqlite	data %>% slice_min(x, n = 2, na_rm = FALSE)	rejected	generated	extension	executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_negative	sqlite	data %>% slice_min(x, n = -2)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+slice_sample_default	sqlite	data %>% slice_sample()	generated	generated	both_generate	executed	sample cardinality and columns only	true	generated	both_generate	schema_compile
+slice_sample_n	sqlite	data %>% slice_sample(n = 2)	generated	generated	both_generate	executed	sample cardinality and columns only	true	generated	both_generate	schema_compile
+slice_sample_prop	sqlite	data %>% slice_sample(prop = 0.5)	rejected	generated	extension	executed	not_compared	not_compared	generated	extension	schema_compile
+slice_sample_weights	sqlite	data %>% slice_sample(n = 2, weight_by = y)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+slice_sample_replace	sqlite	data %>% slice_sample(n = 2, replace = TRUE)	rejected	generated	extension	executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_equal	sqlite	"data %>% left_join(other, by = ""id"")"	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+join_suffix_null	sqlite	"data %>% left_join(other, by = ""id"", suffix = NULL)"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+join_inequality	sqlite	data %>% left_join(other, by = join_by(x >= y))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+join_between	sqlite	data %>% left_join(other, by = join_by(between(x, x, y)))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+join_closest	sqlite	data %>% left_join(other, by = join_by(closest(x >= y)))	rejected	generated	extension	executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_rhs_pipeline	sqlite	"data %>% left_join(other %>% filter(y > 0), by = ""id"")"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+cross_join	sqlite	data %>% cross_join(other)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+join_relationship	sqlite	"data %>% left_join(other, by = ""id"", relationship = ""many-to-one"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+join_multiple	sqlite	"data %>% left_join(other, by = ""id"", multiple = ""first"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+union_basic	sqlite	data %>% union(other)	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+union_all	sqlite	data %>% union_all(other)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+bind_queries	sqlite	bind_queries(data, other %>% select(id, grp, x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+window_lag_order	sqlite	data %>% arrange(desc(id)) %>% mutate(z = lag(x))	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+window_lag_explicit	sqlite	data %>% mutate(z = lag(x, order_by = id))	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+window_rank_null	sqlite	data %>% mutate(z = rank(x))	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+window_ntile	sqlite	data %>% mutate(z = ntile(x, 2))	generated	generated	semantic_difference	executed	column order and row multiset	false	generated	semantic_difference	schema_compile
+window_n_distinct	sqlite	data %>% group_by(grp) %>% mutate(z = n_distinct(x))	generated	generated	both_generate	executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_cumsum	sqlite	data %>% arrange(id) %>% mutate(z = cumsum(x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+window_min_rank	sqlite	data %>% mutate(z = min_rank(x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+window_percent_rank	sqlite	data %>% mutate(z = percent_rank(x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+window_frame	sqlite	data %>% window_order(id) %>% window_frame(-1, 0) %>% mutate(z = sum(x))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+if_any	sqlite	data %>% filter(if_any(c(x, y), ~ .x > 0))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+if_all	sqlite	data %>% filter(if_all(c(x, y), ~ .x > 0))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+across	sqlite	data %>% mutate(across(c(x, y), ~ .x * 2))	generated	generated	both_generate	executed	column order and row multiset	true	generated	both_generate	schema_compile
+across_function	sqlite	data %>% mutate(across(c(x, y), function(v) v * 2))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+pick	sqlite	data %>% mutate(z = rowSums(pick(c(x, y))))	rejected	generated	extension	failed	not_compared	not_compared	rejected	both_reject	schema_compile
+division	sqlite	data %>% mutate(z = x / y)	generated	generated	semantic_difference	executed	column order and row multiset	false	generated	semantic_difference	schema_compile
+ifelse_null	sqlite	data %>% mutate(z = ifelse(x > 0, 1, 0))	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+if_else_missing	sqlite	data %>% mutate(z = if_else(x > 0, 1, 0, missing = -1))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+nzchar_null	sqlite	data %>% mutate(z = nzchar(grp))	generated	generated	both_generate	executed	column order and row multiset	true	generated	semantic_difference	schema_compile
+na_if	sqlite	data %>% mutate(z = na_if(x, 0))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+logical_and	sqlite	data %>% filter(x > 0 && y > 0)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+modulo	sqlite	data %>% mutate(z = x %% 3)	generated	generated	semantic_difference	executed	column order and row multiset	false	rejected	local_gap	schema_compile
+date_cast	sqlite	data %>% mutate(z = as.Date(grp))	generated	generated	semantic_difference	executed	column order and row multiset	false	rejected	local_gap	schema_compile
+db_function	sqlite	data %>% mutate(z = MY_CUSTOM_DB_FUNCTION(x))	generated	generated	both_generate	failed	not_compared	not_compared	rejected	local_gap	schema_compile
+raw_sql	sqlite	"data %>% mutate(z = sql(""ABS(x)""))"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+env_literal	sqlite	data %>% filter(x > threshold)	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	typed_bindings
+pivot_longer	sqlite	"data %>% pivot_longer(c(x, y), names_to = ""key"", values_to = ""val"")"	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+fill	sqlite	data %>% arrange(id) %>% fill(x)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+expand	sqlite	data %>% expand(grp, id)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+complete	sqlite	data %>% complete(grp, id)	generated	generated	semantic_difference	executed	column order and row multiset	false	rejected	local_gap	schema_compile
+replace_na_verb	sqlite	data %>% replace_na(list(x = 0, y = 0))	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+rows_append	sqlite	data %>% rows_append(other)	generated	generated	both_generate	executed	column order and row multiset	true	rejected	local_gap	schema_compile
+rows_patch	sqlite	"data %>% rows_patch(other, by = ""id"", unmatched = ""ignore"")"	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	execution_plan
+reframe	sqlite	data %>% reframe(z = x)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+rowwise	sqlite	data %>% rowwise()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+nest_join	sqlite	"data %>% nest_join(other, by = ""id"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+basic_filter	postgresql	data %>% filter(x > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+filter_empty	postgresql	data %>% filter()	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_multi	postgresql	data %>% filter(x > 0, y > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_by	postgresql	data %>% filter(x > mean(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_out	postgresql	data %>% filter_out(x > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+relocate	postgresql	data %>% relocate(y, .before = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rename_with	postgresql	"data %>% rename_with(toupper, starts_with(""x""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+select_named_vector	postgresql	"data %>% select(all_of(c(a = ""x"", b = ""y"")))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+select_where	postgresql	data %>% select(where(is.numeric))	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+select_num_range	postgresql	data %>% select(1:3)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+select_empty	postgresql	data %>% select()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+select_regex	postgresql	"data %>% select(matches(""^(x|y)$""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+transmute	postgresql	data %>% transmute(z = x + y)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+mutate_sequential	postgresql	data %>% mutate(z = x + 1, w = z * 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_by	postgresql	data %>% mutate(z = mean(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_keep	postgresql	"data %>% mutate(z = x + 1, .keep = ""used"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_before	postgresql	data %>% mutate(z = x + 1, .before = y)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_delete	postgresql	data %>% mutate(x = NULL)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_group_key	postgresql	data %>% group_by(grp) %>% mutate(grp = toupper(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+mutate_order_frame	postgresql	data %>% mutate(z = sum(x), .by = grp, .order = id, .frame = c(-1, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+arrange_expr	postgresql	data %>% arrange(desc(x + y))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+arrange_by_group	postgresql	data %>% group_by(grp) %>% arrange(x, .by_group = TRUE)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+group_computed	postgresql	data %>% group_by(g = x + y) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+group_add	postgresql	data %>% group_by(grp) %>% group_by(id, .add = TRUE) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+ungroup_subset	postgresql	data %>% group_by(grp, id) %>% ungroup(id) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_by	postgresql	data %>% summarise(z = sum(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_groups	postgresql	"data %>% group_by(grp, id) %>% summarise(z = sum(x), .groups = ""keep"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_sequential	postgresql	data %>% summarise(z = mean(x), w = z + 1)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+summary_constant	postgresql	data %>% summarise(z = 1)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_distinct_null	postgresql	data %>% summarise(z = n_distinct(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_na_false	postgresql	data %>% summarise(z = sum(x, na.rm = FALSE))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_na_true	postgresql	data %>% summarise(z = sum(x, na.rm = TRUE))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_sd	postgresql	data %>% summarise(z = sd(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_median	postgresql	data %>% summarise(z = median(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+distinct_keep	postgresql	data %>% distinct(grp, .keep_all = TRUE)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+distinct_expr	postgresql	data %>% distinct(z = x + y)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+count_weight	postgresql	"data %>% count(grp, wt = x, sort = TRUE, name = ""total"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+add_count	postgresql	data %>% add_count(grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+add_tally	postgresql	data %>% add_tally(wt = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+tally_weight	postgresql	data %>% tally(wt = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+head	postgresql	data %>% arrange(id) %>% head(2)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+row_slice	postgresql	data %>% arrange(id) %>% slice(1:2)	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+slice_min	postgresql	data %>% slice_min(x, n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_min_fractional_n	postgresql	data %>% slice_min(x, n = 1.5)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+slice_min_tuple	postgresql	data %>% slice_min(tibble(x, y), n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+slice_min_prop	postgresql	data %>% slice_min(x, prop = 0.5)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_min_prop_noties	postgresql	data %>% slice_min(x, prop = 0.5, with_ties = FALSE)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_na_false	postgresql	data %>% slice_min(x, n = 2, na_rm = FALSE)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_negative	postgresql	data %>% slice_min(x, n = -2)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+slice_sample_default	postgresql	data %>% slice_sample()	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_sample_n	postgresql	data %>% slice_sample(n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_sample_prop	postgresql	data %>% slice_sample(prop = 0.5)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_sample_weights	postgresql	data %>% slice_sample(n = 2, weight_by = y)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+slice_sample_replace	postgresql	data %>% slice_sample(n = 2, replace = TRUE)	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_equal	postgresql	"data %>% left_join(other, by = ""id"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+join_suffix_null	postgresql	"data %>% left_join(other, by = ""id"", suffix = NULL)"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_inequality	postgresql	data %>% left_join(other, by = join_by(x >= y))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_between	postgresql	data %>% left_join(other, by = join_by(between(x, x, y)))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_closest	postgresql	data %>% left_join(other, by = join_by(closest(x >= y)))	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_rhs_pipeline	postgresql	"data %>% left_join(other %>% filter(y > 0), by = ""id"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+cross_join	postgresql	data %>% cross_join(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_relationship	postgresql	"data %>% left_join(other, by = ""id"", relationship = ""many-to-one"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+join_multiple	postgresql	"data %>% left_join(other, by = ""id"", multiple = ""first"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+union_basic	postgresql	data %>% union(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+union_all	postgresql	data %>% union_all(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+bind_queries	postgresql	bind_queries(data, other %>% select(id, grp, x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_lag_order	postgresql	data %>% arrange(desc(id)) %>% mutate(z = lag(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_lag_explicit	postgresql	data %>% mutate(z = lag(x, order_by = id))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_rank_null	postgresql	data %>% mutate(z = rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_ntile	postgresql	data %>% mutate(z = ntile(x, 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_n_distinct	postgresql	data %>% group_by(grp) %>% mutate(z = n_distinct(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_cumsum	postgresql	data %>% arrange(id) %>% mutate(z = cumsum(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_min_rank	postgresql	data %>% mutate(z = min_rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_percent_rank	postgresql	data %>% mutate(z = percent_rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_frame	postgresql	data %>% window_order(id) %>% window_frame(-1, 0) %>% mutate(z = sum(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+if_any	postgresql	data %>% filter(if_any(c(x, y), ~ .x > 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+if_all	postgresql	data %>% filter(if_all(c(x, y), ~ .x > 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+across	postgresql	data %>% mutate(across(c(x, y), ~ .x * 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+across_function	postgresql	data %>% mutate(across(c(x, y), function(v) v * 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+pick	postgresql	data %>% mutate(z = rowSums(pick(c(x, y))))	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+division	postgresql	data %>% mutate(z = x / y)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+ifelse_null	postgresql	data %>% mutate(z = ifelse(x > 0, 1, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+if_else_missing	postgresql	data %>% mutate(z = if_else(x > 0, 1, 0, missing = -1))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+nzchar_null	postgresql	data %>% mutate(z = nzchar(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+na_if	postgresql	data %>% mutate(z = na_if(x, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+logical_and	postgresql	data %>% filter(x > 0 && y > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+modulo	postgresql	data %>% mutate(z = x %% 3)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+date_cast	postgresql	data %>% mutate(z = as.Date(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+db_function	postgresql	data %>% mutate(z = MY_CUSTOM_DB_FUNCTION(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+raw_sql	postgresql	"data %>% mutate(z = sql(""ABS(x)""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+env_literal	postgresql	data %>% filter(x > threshold)	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	typed_bindings
+pivot_longer	postgresql	"data %>% pivot_longer(c(x, y), names_to = ""key"", values_to = ""val"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+fill	postgresql	data %>% arrange(id) %>% fill(x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+expand	postgresql	data %>% expand(grp, id)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+complete	postgresql	data %>% complete(grp, id)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+replace_na_verb	postgresql	data %>% replace_na(list(x = 0, y = 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rows_append	postgresql	data %>% rows_append(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rows_patch	postgresql	"data %>% rows_patch(other, by = ""id"", unmatched = ""ignore"")"	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	execution_plan
+reframe	postgresql	data %>% reframe(z = x)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+rowwise	postgresql	data %>% rowwise()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+nest_join	postgresql	"data %>% nest_join(other, by = ""id"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+basic_filter	mysql	data %>% filter(x > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+filter_empty	mysql	data %>% filter()	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_multi	mysql	data %>% filter(x > 0, y > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_by	mysql	data %>% filter(x > mean(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+filter_out	mysql	data %>% filter_out(x > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+relocate	mysql	data %>% relocate(y, .before = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rename_with	mysql	"data %>% rename_with(toupper, starts_with(""x""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+select_named_vector	mysql	"data %>% select(all_of(c(a = ""x"", b = ""y"")))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+select_where	mysql	data %>% select(where(is.numeric))	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+select_num_range	mysql	data %>% select(1:3)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+select_empty	mysql	data %>% select()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+select_regex	mysql	"data %>% select(matches(""^(x|y)$""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+transmute	mysql	data %>% transmute(z = x + y)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+mutate_sequential	mysql	data %>% mutate(z = x + 1, w = z * 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_by	mysql	data %>% mutate(z = mean(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_keep	mysql	"data %>% mutate(z = x + 1, .keep = ""used"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_before	mysql	data %>% mutate(z = x + 1, .before = y)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_delete	mysql	data %>% mutate(x = NULL)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+mutate_group_key	mysql	data %>% group_by(grp) %>% mutate(grp = toupper(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+mutate_order_frame	mysql	data %>% mutate(z = sum(x), .by = grp, .order = id, .frame = c(-1, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+arrange_expr	mysql	data %>% arrange(desc(x + y))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+arrange_by_group	mysql	data %>% group_by(grp) %>% arrange(x, .by_group = TRUE)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+group_computed	mysql	data %>% group_by(g = x + y) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+group_add	mysql	data %>% group_by(grp) %>% group_by(id, .add = TRUE) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+ungroup_subset	mysql	data %>% group_by(grp, id) %>% ungroup(id) %>% summarise(n = n())	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_by	mysql	data %>% summarise(z = sum(x), .by = grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_groups	mysql	"data %>% group_by(grp, id) %>% summarise(z = sum(x), .groups = ""keep"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_sequential	mysql	data %>% summarise(z = mean(x), w = z + 1)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+summary_constant	mysql	data %>% summarise(z = 1)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_distinct_null	mysql	data %>% summarise(z = n_distinct(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_na_false	mysql	data %>% summarise(z = sum(x, na.rm = FALSE))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_na_true	mysql	data %>% summarise(z = sum(x, na.rm = TRUE))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+summary_sd	mysql	data %>% summarise(z = sd(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+summary_median	mysql	data %>% summarise(z = median(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+distinct_keep	mysql	data %>% distinct(grp, .keep_all = TRUE)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+distinct_expr	mysql	data %>% distinct(z = x + y)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+count_weight	mysql	"data %>% count(grp, wt = x, sort = TRUE, name = ""total"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+add_count	mysql	data %>% add_count(grp)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+add_tally	mysql	data %>% add_tally(wt = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+tally_weight	mysql	data %>% tally(wt = x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+head	mysql	data %>% arrange(id) %>% head(2)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+row_slice	mysql	data %>% arrange(id) %>% slice(1:2)	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+slice_min	mysql	data %>% slice_min(x, n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_min_fractional_n	mysql	data %>% slice_min(x, n = 1.5)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+slice_min_tuple	mysql	data %>% slice_min(tibble(x, y), n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+slice_min_prop	mysql	data %>% slice_min(x, prop = 0.5)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_min_prop_noties	mysql	data %>% slice_min(x, prop = 0.5, with_ties = FALSE)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_na_false	mysql	data %>% slice_min(x, n = 2, na_rm = FALSE)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_min_negative	mysql	data %>% slice_min(x, n = -2)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+slice_sample_default	mysql	data %>% slice_sample()	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_sample_n	mysql	data %>% slice_sample(n = 2)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+slice_sample_prop	mysql	data %>% slice_sample(prop = 0.5)	rejected	generated	extension	not_executed	not_compared	not_compared	generated	extension	schema_compile
+slice_sample_weights	mysql	data %>% slice_sample(n = 2, weight_by = y)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+slice_sample_replace	mysql	data %>% slice_sample(n = 2, replace = TRUE)	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_equal	mysql	"data %>% left_join(other, by = ""id"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+join_suffix_null	mysql	"data %>% left_join(other, by = ""id"", suffix = NULL)"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_inequality	mysql	data %>% left_join(other, by = join_by(x >= y))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_between	mysql	data %>% left_join(other, by = join_by(between(x, x, y)))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_closest	mysql	data %>% left_join(other, by = join_by(closest(x >= y)))	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+join_rhs_pipeline	mysql	"data %>% left_join(other %>% filter(y > 0), by = ""id"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+cross_join	mysql	data %>% cross_join(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+join_relationship	mysql	"data %>% left_join(other, by = ""id"", relationship = ""many-to-one"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	execution_plan
+join_multiple	mysql	"data %>% left_join(other, by = ""id"", multiple = ""first"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+union_basic	mysql	data %>% union(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+union_all	mysql	data %>% union_all(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+bind_queries	mysql	bind_queries(data, other %>% select(id, grp, x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_lag_order	mysql	data %>% arrange(desc(id)) %>% mutate(z = lag(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_lag_explicit	mysql	data %>% mutate(z = lag(x, order_by = id))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_rank_null	mysql	data %>% mutate(z = rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_ntile	mysql	data %>% mutate(z = ntile(x, 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+window_n_distinct	mysql	data %>% group_by(grp) %>% mutate(z = n_distinct(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_cumsum	mysql	data %>% arrange(id) %>% mutate(z = cumsum(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_min_rank	mysql	data %>% mutate(z = min_rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_percent_rank	mysql	data %>% mutate(z = percent_rank(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+window_frame	mysql	data %>% window_order(id) %>% window_frame(-1, 0) %>% mutate(z = sum(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+if_any	mysql	data %>% filter(if_any(c(x, y), ~ .x > 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+if_all	mysql	data %>% filter(if_all(c(x, y), ~ .x > 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+across	mysql	data %>% mutate(across(c(x, y), ~ .x * 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+across_function	mysql	data %>% mutate(across(c(x, y), function(v) v * 2))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+pick	mysql	data %>% mutate(z = rowSums(pick(c(x, y))))	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+division	mysql	data %>% mutate(z = x / y)	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+ifelse_null	mysql	data %>% mutate(z = ifelse(x > 0, 1, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+if_else_missing	mysql	data %>% mutate(z = if_else(x > 0, 1, 0, missing = -1))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+nzchar_null	mysql	data %>% mutate(z = nzchar(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	generated	both_generate	schema_compile
+na_if	mysql	data %>% mutate(z = na_if(x, 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+logical_and	mysql	data %>% filter(x > 0 && y > 0)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+modulo	mysql	data %>% mutate(z = x %% 3)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+date_cast	mysql	data %>% mutate(z = as.Date(grp))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+db_function	mysql	data %>% mutate(z = MY_CUSTOM_DB_FUNCTION(x))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+raw_sql	mysql	"data %>% mutate(z = sql(""ABS(x)""))"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+env_literal	mysql	data %>% filter(x > threshold)	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	typed_bindings
+pivot_longer	mysql	"data %>% pivot_longer(c(x, y), names_to = ""key"", values_to = ""val"")"	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+fill	mysql	data %>% arrange(id) %>% fill(x)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+expand	mysql	data %>% expand(grp, id)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+complete	mysql	data %>% complete(grp, id)	rejected	generated	extension	not_executed	not_compared	not_compared	rejected	both_reject	schema_compile
+replace_na_verb	mysql	data %>% replace_na(list(x = 0, y = 0))	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rows_append	mysql	data %>% rows_append(other)	generated	generated	both_generate	not_executed	not_compared	not_compared	rejected	local_gap	schema_compile
+rows_patch	mysql	"data %>% rows_patch(other, by = ""id"", unmatched = ""ignore"")"	generated	rejected	local_gap	not_executed	not_compared	not_compared	rejected	local_gap	execution_plan
+reframe	mysql	data %>% reframe(z = x)	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+rowwise	mysql	data %>% rowwise()	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+nest_join	mysql	"data %>% nest_join(other, by = ""id"")"	rejected	rejected	both_reject	not_executed	not_compared	not_compared	rejected	both_reject	unsupported
+basic_filter	duckdb	data %>% filter(x > 0)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+filter_empty	duckdb	data %>% filter()	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+filter_multi	duckdb	data %>% filter(x > 0, y > 0)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+filter_by	duckdb	data %>% filter(x > mean(x), .by = grp)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+filter_out	duckdb	data %>% filter_out(x > 0)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+relocate	duckdb	data %>% relocate(y, .before = x)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+rename_with	duckdb	"data %>% rename_with(toupper, starts_with(""x""))"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+select_named_vector	duckdb	"data %>% select(all_of(c(a = ""x"", b = ""y"")))"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+select_where	duckdb	data %>% select(where(is.numeric))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+select_num_range	duckdb	data %>% select(1:3)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+select_empty	duckdb	data %>% select()	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+select_regex	duckdb	"data %>% select(matches(""^(x|y)$""))"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+transmute	duckdb	data %>% transmute(z = x + y)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+mutate_sequential	duckdb	data %>% mutate(z = x + 1, w = z * 2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+mutate_by	duckdb	data %>% mutate(z = mean(x), .by = grp)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+mutate_keep	duckdb	"data %>% mutate(z = x + 1, .keep = ""used"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+mutate_before	duckdb	data %>% mutate(z = x + 1, .before = y)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+mutate_delete	duckdb	data %>% mutate(x = NULL)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+mutate_group_key	duckdb	data %>% group_by(grp) %>% mutate(grp = toupper(grp))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+mutate_order_frame	duckdb	data %>% mutate(z = sum(x), .by = grp, .order = id, .frame = c(-1, 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+arrange_expr	duckdb	data %>% arrange(desc(x + y))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+arrange_by_group	duckdb	data %>% group_by(grp) %>% arrange(x, .by_group = TRUE)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+group_computed	duckdb	data %>% group_by(g = x + y) %>% summarise(n = n())	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+group_add	duckdb	data %>% group_by(grp) %>% group_by(id, .add = TRUE) %>% summarise(n = n())	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+ungroup_subset	duckdb	data %>% group_by(grp, id) %>% ungroup(id) %>% summarise(n = n())	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+summary_by	duckdb	data %>% summarise(z = sum(x), .by = grp)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+summary_groups	duckdb	"data %>% group_by(grp, id) %>% summarise(z = sum(x), .groups = ""keep"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+summary_sequential	duckdb	data %>% summarise(z = mean(x), w = z + 1)	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+summary_constant	duckdb	data %>% summarise(z = 1)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+summary_distinct_null	duckdb	data %>% summarise(z = n_distinct(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+summary_na_false	duckdb	data %>% summarise(z = sum(x, na.rm = FALSE))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+summary_na_true	duckdb	data %>% summarise(z = sum(x, na.rm = TRUE))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+summary_sd	duckdb	data %>% summarise(z = sd(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+summary_median	duckdb	data %>% summarise(z = median(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+distinct_keep	duckdb	data %>% distinct(grp, .keep_all = TRUE)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+distinct_expr	duckdb	data %>% distinct(z = x + y)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+count_weight	duckdb	"data %>% count(grp, wt = x, sort = TRUE, name = ""total"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+add_count	duckdb	data %>% add_count(grp)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+add_tally	duckdb	data %>% add_tally(wt = x)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+tally_weight	duckdb	data %>% tally(wt = x)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+head	duckdb	data %>% arrange(id) %>% head(2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+row_slice	duckdb	data %>% arrange(id) %>% slice(1:2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+slice_min	duckdb	data %>% slice_min(x, n = 2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_min_fractional_n	duckdb	data %>% slice_min(x, n = 1.5)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+slice_min_tuple	duckdb	data %>% slice_min(tibble(x, y), n = 2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+slice_min_prop	duckdb	data %>% slice_min(x, prop = 0.5)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_min_prop_noties	duckdb	data %>% slice_min(x, prop = 0.5, with_ties = FALSE)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_min_na_false	duckdb	data %>% slice_min(x, n = 2, na_rm = FALSE)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_min_negative	duckdb	data %>% slice_min(x, n = -2)	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+slice_sample_default	duckdb	data %>% slice_sample()	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_sample_n	duckdb	data %>% slice_sample(n = 2)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_sample_prop	duckdb	data %>% slice_sample(prop = 0.5)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+slice_sample_weights	duckdb	data %>% slice_sample(n = 2, weight_by = y)	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	execution_plan
+slice_sample_replace	duckdb	data %>% slice_sample(n = 2, replace = TRUE)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_equal	duckdb	"data %>% left_join(other, by = ""id"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+join_suffix_null	duckdb	"data %>% left_join(other, by = ""id"", suffix = NULL)"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_inequality	duckdb	data %>% left_join(other, by = join_by(x >= y))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_between	duckdb	data %>% left_join(other, by = join_by(between(x, x, y)))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_closest	duckdb	data %>% left_join(other, by = join_by(closest(x >= y)))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_rhs_pipeline	duckdb	"data %>% left_join(other %>% filter(y > 0), by = ""id"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+cross_join	duckdb	data %>% cross_join(other)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+join_relationship	duckdb	"data %>% left_join(other, by = ""id"", relationship = ""many-to-one"")"	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	execution_plan
+join_multiple	duckdb	"data %>% left_join(other, by = ""id"", multiple = ""first"")"	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+union_basic	duckdb	data %>% union(other)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+union_all	duckdb	data %>% union_all(other)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+bind_queries	duckdb	bind_queries(data, other %>% select(id, grp, x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+window_lag_order	duckdb	data %>% arrange(desc(id)) %>% mutate(z = lag(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+window_lag_explicit	duckdb	data %>% mutate(z = lag(x, order_by = id))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+window_rank_null	duckdb	data %>% mutate(z = rank(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+window_ntile	duckdb	data %>% mutate(z = ntile(x, 2))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+window_n_distinct	duckdb	data %>% group_by(grp) %>% mutate(z = n_distinct(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+window_cumsum	duckdb	data %>% arrange(id) %>% mutate(z = cumsum(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+window_min_rank	duckdb	data %>% mutate(z = min_rank(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+window_percent_rank	duckdb	data %>% mutate(z = percent_rank(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+window_frame	duckdb	data %>% window_order(id) %>% window_frame(-1, 0) %>% mutate(z = sum(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+if_any	duckdb	data %>% filter(if_any(c(x, y), ~ .x > 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+if_all	duckdb	data %>% filter(if_all(c(x, y), ~ .x > 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+across	duckdb	data %>% mutate(across(c(x, y), ~ .x * 2))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+across_function	duckdb	data %>% mutate(across(c(x, y), function(v) v * 2))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+pick	duckdb	data %>% mutate(z = rowSums(pick(c(x, y))))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+division	duckdb	data %>% mutate(z = x / y)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+ifelse_null	duckdb	data %>% mutate(z = ifelse(x > 0, 1, 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+if_else_missing	duckdb	data %>% mutate(z = if_else(x > 0, 1, 0, missing = -1))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+nzchar_null	duckdb	data %>% mutate(z = nzchar(grp))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	generated	not_compared	schema_compile
+na_if	duckdb	data %>% mutate(z = na_if(x, 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+logical_and	duckdb	data %>% filter(x > 0 && y > 0)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+modulo	duckdb	data %>% mutate(z = x %% 3)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+date_cast	duckdb	data %>% mutate(z = as.Date(grp))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+db_function	duckdb	data %>% mutate(z = MY_CUSTOM_DB_FUNCTION(x))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+raw_sql	duckdb	"data %>% mutate(z = sql(""ABS(x)""))"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+env_literal	duckdb	data %>% filter(x > threshold)	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	typed_bindings
+pivot_longer	duckdb	"data %>% pivot_longer(c(x, y), names_to = ""key"", values_to = ""val"")"	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+fill	duckdb	data %>% arrange(id) %>% fill(x)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+expand	duckdb	data %>% expand(grp, id)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+complete	duckdb	data %>% complete(grp, id)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+replace_na_verb	duckdb	data %>% replace_na(list(x = 0, y = 0))	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+rows_append	duckdb	data %>% rows_append(other)	not_compared	generated	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	schema_compile
+rows_patch	duckdb	"data %>% rows_patch(other, by = ""id"", unmatched = ""ignore"")"	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	execution_plan
+reframe	duckdb	data %>% reframe(z = x)	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+rowwise	duckdb	data %>% rowwise()	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported
+nest_join	duckdb	"data %>% nest_join(other, by = ""id"")"	not_compared	rejected	not_compared	not_executed	not_compared	not_compared	rejected	not_compared	unsupported

@@ -2,6 +2,8 @@
 //!
 //! This module defines the AST (Abstract Syntax Tree) nodes produced by the parser.
 
+use std::borrow::Cow;
+
 /// Source code location information
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
@@ -103,9 +105,25 @@ pub enum DplyrOperation {
         columns: Vec<String>,
         location: SourceLocation,
     },
+    /// Clear grouping metadata for subsequent operations.
+    Ungroup { location: SourceLocation },
+    /// Row slicing: `slice_min()`, `slice_max()`, or `slice_sample()`.
+    Slice {
+        spec: SliceSpec,
+        location: SourceLocation,
+    },
     /// Aggregation operation
     Summarise {
         aggregations: Vec<Aggregation>,
+        location: SourceLocation,
+    },
+    /// Aggregation operation whose entries are arbitrary expressions.
+    ///
+    /// Used when at least one entry is not the `function(identifier)` or
+    /// `function()` shape that [`Aggregation`] can represent, such as
+    /// `sum(x * y)`, `sum(x) / n()`, or a scalar wrapping an aggregate.
+    SummariseExpressions {
+        assignments: Vec<Assignment>,
         location: SourceLocation,
     },
     /// Count rows, optionally adding identifier-only grouping keys.
@@ -123,6 +141,12 @@ pub enum DplyrOperation {
     SetOp {
         operation: SetOperation,
         right_table: String,
+        location: SourceLocation,
+    },
+    /// Advanced query forms the relational planner compiles generically.
+    Extended {
+        name: String,
+        args: Vec<Expr>,
         location: SourceLocation,
     },
 }
@@ -145,31 +169,44 @@ impl DplyrOperation {
             Self::Rename { location, .. } => location,
             Self::Arrange { location, .. } => location,
             Self::GroupBy { location, .. } => location,
+            Self::Ungroup { location } => location,
+            Self::Slice { location, .. } => location,
             Self::Summarise { location, .. } => location,
+            Self::SummariseExpressions { location, .. } => location,
             Self::Count { location, .. } => location,
             Self::Join { location, .. } => location,
             Self::SetOp { location, .. } => location,
+            Self::Extended { location, .. } => location,
         }
     }
 
     /// Returns the operation name as a string.
-    pub const fn operation_name(&self) -> &'static str {
+    pub fn operation_name(&self) -> Cow<'static, str> {
         match self {
-            Self::Select { .. } => "select",
-            Self::Distinct { .. } => "distinct",
-            Self::Filter { .. } => "filter",
-            Self::Mutate { .. } => "mutate",
-            Self::Rename { .. } => "rename",
-            Self::Arrange { .. } => "arrange",
-            Self::GroupBy { .. } => "group_by",
-            Self::Summarise { .. } => "summarise",
-            Self::Count { .. } => "count/tally",
-            Self::Join { .. } => "join",
-            Self::SetOp { operation, .. } => match operation {
-                SetOperation::Intersect => "intersect",
-                SetOperation::Union => "union",
-                SetOperation::SetDiff => "setdiff",
+            Self::Select { .. } => Cow::Borrowed("select"),
+            Self::Distinct { .. } => Cow::Borrowed("distinct"),
+            Self::Filter { .. } => Cow::Borrowed("filter"),
+            Self::Mutate { .. } => Cow::Borrowed("mutate"),
+            Self::Rename { .. } => Cow::Borrowed("rename"),
+            Self::Arrange { .. } => Cow::Borrowed("arrange"),
+            Self::GroupBy { .. } => Cow::Borrowed("group_by"),
+            Self::Ungroup { .. } => Cow::Borrowed("ungroup"),
+            Self::Slice { spec, .. } => match spec.kind {
+                SliceKind::Min => Cow::Borrowed("slice_min"),
+                SliceKind::Max => Cow::Borrowed("slice_max"),
+                SliceKind::Sample => Cow::Borrowed("slice_sample"),
             },
+            Self::Summarise { .. } => Cow::Borrowed("summarise"),
+            Self::SummariseExpressions { .. } => Cow::Borrowed("summarise"),
+            Self::Count { .. } => Cow::Borrowed("count/tally"),
+            Self::Join { .. } => Cow::Borrowed("join"),
+            Self::SetOp { operation, .. } => match operation {
+                SetOperation::Intersect => Cow::Borrowed("intersect"),
+                SetOperation::Union => Cow::Borrowed("union"),
+                SetOperation::UnionAll => Cow::Borrowed("union_all"),
+                SetOperation::SetDiff => Cow::Borrowed("setdiff"),
+            },
+            Self::Extended { name, .. } => Cow::Owned(name.clone()),
         }
     }
 }
@@ -187,6 +224,13 @@ pub enum Expr {
         operator: BinaryOp,
         right: Box<Expr>,
     },
+    /// Unary arithmetic or logical negation.
+    Unary { operator: UnaryOp, expr: Box<Expr> },
+    /// Membership in a constant vector. NULL members represent R's NA.
+    In {
+        expr: Box<Expr>,
+        values: Vec<LiteralValue>,
+    },
     /// Function call
     Function { name: String, args: Vec<Expr> },
     /// Ordered `case_when()` formulas with an optional default.
@@ -196,6 +240,95 @@ pub enum Expr {
     },
     /// Named function argument, e.g. `sep = " "`.
     NamedArg { name: String, value: Box<Expr> },
+}
+
+/// Renders an expression as a readable label for use as an output column name.
+///
+/// This is a *label*, not a round-trippable R deparse: booleans print in SQL
+/// spelling (`TRUE`), and strings are escaped only enough to stay unambiguous
+/// rather than to be re-lexable. It guarantees one distinct label per distinct
+/// expression tree, which is what naming an unnamed `summarise()` entry needs.
+///
+/// Every `Binary` is parenthesized. That is more parentheses than R precedence
+/// strictly requires, but it keeps `x * y + 1` and `x * (y + 1)` distinct, so
+/// two structurally different unnamed entries can never collide on one name.
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Identifier(name) => write!(f, "{name}"),
+            Self::Literal(LiteralValue::String(value)) => {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                write!(f, "\"{escaped}\"")
+            }
+            Self::Literal(LiteralValue::Number(value)) => write!(f, "{value}"),
+            Self::Literal(LiteralValue::Boolean(value)) => {
+                f.write_str(if *value { "TRUE" } else { "FALSE" })
+            }
+            Self::Literal(LiteralValue::Null) => write!(f, "NULL"),
+            Self::Binary {
+                left,
+                operator,
+                right,
+            } => write!(f, "({left} {operator} {right})"),
+            Self::Unary { operator, expr } => write!(f, "({operator}{expr})"),
+            Self::In { expr, values } => {
+                write!(f, "({expr} %in% c(")?;
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", Self::Literal(value.clone()))?;
+                }
+                write!(f, "))")
+            }
+            Self::Function { name, args } if name == "__missing_value" && args.is_empty() => {
+                f.write_str("NA")
+            }
+            Self::Function { name, args } => {
+                write!(f, "{name}(")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            Self::CaseWhen { branches, default } => {
+                write!(f, "case_when(")?;
+                for (condition, value) in branches {
+                    write!(f, "{condition} ~ {value}, ")?;
+                }
+                match default {
+                    Some(default) => write!(f, "default = {default}"),
+                    None => f.write_str("default = NULL"),
+                }?;
+                write!(f, ")")
+            }
+            Self::NamedArg { name, value } => write!(f, "{name} = {value}"),
+        }
+    }
+}
+
+impl std::fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::LessThan => "<",
+            Self::LessThanOrEqual => "<=",
+            Self::GreaterThan => ">",
+            Self::GreaterThanOrEqual => ">=",
+            Self::And => "&&",
+            Self::Or => "||",
+            Self::Plus => "+",
+            Self::Minus => "-",
+            Self::Multiply => "*",
+            Self::Divide => "/",
+            Self::Power => "^",
+        };
+        f.write_str(text)
+    }
 }
 
 /// Literal value types
@@ -227,6 +360,25 @@ pub enum BinaryOp {
     Minus,
     Multiply,
     Divide,
+    Power,
+}
+
+/// Unary operators retain their distinct precedence in the parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnaryOp {
+    Plus,
+    Minus,
+    Not,
+}
+
+impl std::fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Plus => "+",
+            Self::Minus => "-",
+            Self::Not => "!",
+        })
+    }
 }
 
 /// Column expression (with alias support)
@@ -265,6 +417,12 @@ pub struct Aggregation {
     pub alias: Option<String>,
 }
 
+/// One `summarise()` entry, kept in its narrowest representable form.
+pub(crate) enum SummariseEntry {
+    Aggregation(Aggregation),
+    Expression(Assignment),
+}
+
 /// Join type for different join operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinType {
@@ -284,6 +442,70 @@ pub struct JoinSpec {
     pub by: Vec<JoinKey>,
     /// Fallback: general expression for complex joins
     pub on_expr: Option<Expr>,
+    /// Rendering options that change the join output.
+    pub options: JoinOptions,
+    /// Optional RHS pipeline operations (e.g., `right %>% filter(...)`)
+    pub right_operations: Vec<DplyrOperation>,
+}
+
+/// Join options that the SQL layer can honour exactly.
+///
+/// Options whose effect depends on row data (`multiple`, `unmatched`,
+/// `relationship`) are validated in the parser and then discarded, because
+/// either their accepted values are a no-op or they need validation the
+/// database must perform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinOptions {
+    /// Suffixes for the left and right copies of a colliding column name.
+    pub suffix: (String, String),
+    /// Keep the right-hand key column in the output.
+    pub keep: bool,
+    /// Whether `keep` was explicitly specified by the user.
+    pub keep_explicit: bool,
+    /// Treat NULL as a matching join key.
+    pub na_matches: bool,
+    /// Documented relationship assertion; preserved for future planning.
+    pub relationship: Option<String>,
+    /// Documented multiple-match policy; preserved for future planning.
+    pub multiple: Option<String>,
+    /// Documented unmatched-row policy; preserved for future planning.
+    pub unmatched: Option<String>,
+}
+
+impl Default for JoinOptions {
+    fn default() -> Self {
+        Self {
+            suffix: (".x".to_string(), ".y".to_string()),
+            keep: false,
+            keep_explicit: false,
+            na_matches: false,
+            relationship: None,
+            multiple: None,
+            unmatched: None,
+        }
+    }
+}
+
+/// Which rows a slice keeps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SliceKind {
+    Min,
+    Max,
+    Sample,
+}
+
+/// One `slice_*()` call, already validated for mutual exclusivity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SliceSpec {
+    pub kind: SliceKind,
+    /// Tie-breaker expression; when present it fully determines the cut.
+    pub order_by: Option<Expr>,
+    pub n: Option<usize>,
+    pub prop: Option<f64>,
+    pub with_ties: bool,
+    pub na_rm: bool,
+    /// Per-group slicing selector.
+    pub by: Vec<ColumnExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -304,6 +526,7 @@ pub struct Join {
 pub enum SetOperation {
     Intersect,
     Union,
+    UnionAll,
     SetDiff, // EXCEPT in SQL
 }
 
