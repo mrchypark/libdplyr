@@ -239,6 +239,9 @@ fn inspect_ast(ast: &DplyrNode) {
 
             for (i, op) in operations.iter().enumerate() {
                 match op {
+                    libdplyr::DplyrOperation::Extended { name, args, .. } => {
+                        println!("     {}. {}: {} arguments", i + 1, name, args.len())
+                    }
                     libdplyr::DplyrOperation::Select { columns, .. } => {
                         println!("     {}. Select: {} columns", i + 1, columns.len());
                     }
@@ -267,6 +270,9 @@ fn inspect_ast(ast: &DplyrNode) {
                     libdplyr::DplyrOperation::GroupBy { columns, .. } => {
                         println!("     {}. GroupBy: {} columns", i + 1, columns.len());
                     }
+                    libdplyr::DplyrOperation::Ungroup { .. } => {
+                        println!("     {}. Ungroup: grouping cleared", i + 1);
+                    }
                     libdplyr::DplyrOperation::Summarise { aggregations, .. } => {
                         println!(
                             "     {}. Summarise: {} aggregations",
@@ -280,6 +286,9 @@ fn inspect_ast(ast: &DplyrNode) {
                             i + 1,
                             assignments.len()
                         );
+                    }
+                    libdplyr::DplyrOperation::Slice { spec, .. } => {
+                        println!("     {}. Slice: {:?}", i + 1, spec.kind);
                     }
                     libdplyr::DplyrOperation::Join {
                         join_type, spec, ..
@@ -309,6 +318,7 @@ fn inspect_ast(ast: &DplyrNode) {
                             match operation {
                                 SetOperation::Intersect => "INTERSECT",
                                 SetOperation::Union => "UNION",
+                                SetOperation::UnionAll => "UNION ALL",
                                 SetOperation::SetDiff => "EXCEPT",
                             },
                             right_table

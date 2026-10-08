@@ -283,6 +283,20 @@ impl DplyrValidator {
         use crate::DplyrOperation;
 
         match operation {
+            DplyrOperation::Extended { name, args, .. } => {
+                operations.push(name.clone());
+                *has_aggregation |=
+                    matches!(name.as_str(), "summarise" | "summarize" | "count" | "tally");
+                *has_grouping |= name == "group_by";
+                for argument in args {
+                    if let crate::parser::Expr::NamedArg { name, .. } = argument {
+                        if !name.starts_with('.') {
+                            columns.insert(name.clone());
+                        }
+                    }
+                }
+                *complexity_score = complexity_score.saturating_add(2);
+            }
             DplyrOperation::Select { columns: cols, .. } => {
                 operations.push("select".to_string());
                 for col in cols {
@@ -336,6 +350,9 @@ impl DplyrValidator {
                 }
                 *complexity_score += 2;
             }
+            DplyrOperation::Ungroup { .. } => {
+                operations.push("ungroup".to_string());
+            }
             DplyrOperation::Summarise { aggregations, .. } => {
                 operations.push("summarise".to_string());
                 *has_aggregation = true;
@@ -365,6 +382,10 @@ impl DplyrValidator {
                 *has_aggregation = true;
                 *complexity_score += 3;
             }
+            DplyrOperation::Slice { .. } => {
+                operations.push("slice".to_string());
+                *complexity_score += 2;
+            }
             DplyrOperation::Join { .. } => {
                 operations.push("join".to_string());
                 *complexity_score += 2;
@@ -373,6 +394,7 @@ impl DplyrValidator {
                 operations.push(match operation {
                     crate::parser::SetOperation::Intersect => "intersect".to_string(),
                     crate::parser::SetOperation::Union => "union".to_string(),
+                    crate::parser::SetOperation::UnionAll => "union_all".to_string(),
                     crate::parser::SetOperation::SetDiff => "setdiff".to_string(),
                 });
                 *complexity_score += 2;

@@ -45,7 +45,7 @@ lazy_static::lazy_static! {
         m.insert("false", Token::Boolean(false));
         m.insert("NULL", Token::Null);
         m.insert("null", Token::Null);
-        m.insert("NA", Token::Null);
+        m.insert("NA", Token::Na);
         m
     };
 }
@@ -93,6 +93,12 @@ pub enum Token {
     Minus,              // -
     Multiply,           // *
     Divide,             // /
+    Colon,              // : (tidy-select range)
+    Power,              // ^
+    Not,                // !
+    Dollar,             // .data/.env member
+    In,                 // %in%
+    Mod,                // %%
     Tilde,              // ~ (case_when formula)
 
     // Literals
@@ -100,7 +106,8 @@ pub enum Token {
     String(String),
     Number(f64),
     Boolean(bool),
-    Null, // NULL, NA
+    Null, // NULL
+    Na,   // NA differs from NULL inside a constant vector
 
     // Structural tokens
     LeftParen,  // (
@@ -155,12 +162,19 @@ impl std::fmt::Display for Token {
             Self::Minus => write!(f, "-"),
             Self::Multiply => write!(f, "*"),
             Self::Divide => write!(f, "/"),
+            Self::Colon => write!(f, ":"),
+            Self::Power => write!(f, "^"),
+            Self::Not => write!(f, "!"),
+            Self::Dollar => write!(f, "$"),
+            Self::In => write!(f, "%in%"),
+            Self::Mod => write!(f, "%%"),
             Self::Tilde => write!(f, "~"),
             Self::Identifier(name) => write!(f, "{name}"),
             Self::String(s) => write!(f, "\"{s}\""),
             Self::Number(n) => write!(f, "{n}"),
             Self::Boolean(b) => write!(f, "{b}"),
             Self::Null => write!(f, "NULL"),
+            Self::Na => write!(f, "NA"),
             Self::LeftParen => write!(f, "("),
             Self::RightParen => write!(f, ")"),
             Self::LeftBrace => write!(f, "{{"),
@@ -251,6 +265,10 @@ impl Lexer {
                         if let Some(next_char) = self.input.get(self.position + 1) {
                             if next_char.is_ascii_digit() {
                                 self.read_number()
+                            } else if next_char.is_ascii_alphabetic() || *next_char == '_' {
+                                // A dot-prefixed name: the magrittr pronoun stays
+                                // `Dot`, but `.x`, `.cols`, `.names`, ... are names.
+                                self.read_dotted_identifier()
                             } else {
                                 self.advance();
                                 Ok(Token::Dot)
@@ -281,6 +299,14 @@ impl Lexer {
                         self.advance();
                         Ok(Token::Divide)
                     }
+                    ':' => {
+                        self.advance();
+                        Ok(Token::Colon)
+                    }
+                    '^' => {
+                        self.advance();
+                        Ok(Token::Power)
+                    }
                     '~' => {
                         self.advance();
                         Ok(Token::Tilde)
@@ -298,13 +324,17 @@ impl Lexer {
                             Ok(Token::Assignment)
                         }
                     }
+                    '$' => {
+                        self.advance();
+                        Ok(Token::Dollar)
+                    }
                     '!' => {
                         self.advance();
                         if self.current_char == Some('=') {
                             self.advance();
                             Ok(Token::NotEqual)
                         } else {
-                            Err(LexError::UnexpectedCharacter(ch, self.position))
+                            Ok(Token::Not)
                         }
                     }
                     '<' => {
@@ -330,6 +360,9 @@ impl Lexer {
                     }
                     '&' => {
                         self.advance();
+                        if self.current_char == Some('&') {
+                            self.advance();
+                        }
                         Ok(Token::And)
                     }
                     '|' => {
@@ -337,11 +370,24 @@ impl Lexer {
                             return self.read_native_pipe_operator();
                         }
                         self.advance();
+                        if self.current_char == Some('|') {
+                            self.advance();
+                        }
                         Ok(Token::Or)
                     }
                     '%' => {
-                        // Handle pipe operator %>%
-                        self.read_pipe_operator()
+                        if self.input[self.position..].starts_with(&['%', 'i', 'n', '%']) {
+                            for _ in 0..4 {
+                                self.advance();
+                            }
+                            Ok(Token::In)
+                        } else if self.input[self.position..].starts_with(&['%', '%']) {
+                            self.advance();
+                            self.advance();
+                            Ok(Token::Mod)
+                        } else {
+                            self.read_pipe_operator()
+                        }
                     }
                     '"' | '\'' => self.read_string(),
                     '\n' => {
@@ -511,6 +557,25 @@ impl Lexer {
             .unwrap_or(Token::Identifier(identifier));
 
         Ok(token)
+    }
+
+    /// Reads a leading-dot identifier such as `.x` or `.cols`.
+    ///
+    /// A bare `.` is the magrittr pronoun and stays [`Token::Dot`]; anything
+    /// starting with a letter or underscore after the dot is a name, which is
+    /// how dplyr spells `.x`, `.cols`, `.fns`, and `.names`.
+    fn read_dotted_identifier(&mut self) -> LexResult<Token> {
+        let mut identifier = String::from(".");
+        self.advance();
+        while let Some(ch) = self.current_char {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+                identifier.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(Token::Identifier(identifier))
     }
 }
 
@@ -767,7 +832,7 @@ mod tests {
         fn test_null_literals() {
             assert_tokens("NULL", vec![Token::Null, Token::EOF]);
             assert_tokens("null", vec![Token::Null, Token::EOF]);
-            assert_tokens("NA", vec![Token::Null, Token::EOF]);
+            assert_tokens("NA", vec![Token::Na, Token::EOF]);
         }
     }
 
@@ -1049,7 +1114,7 @@ mod tests {
 
         #[test]
         fn test_unexpected_character_symbols() {
-            let test_cases = vec!['@', '#', '$', '^', '`', '[', ']'];
+            let test_cases = vec!['@', '#', '`', '[', ']'];
 
             for ch in test_cases {
                 let mut lexer = Lexer::new(ch.to_string());
@@ -1076,10 +1141,7 @@ mod tests {
         #[test]
         fn test_exclamation_without_equals() {
             let mut lexer = Lexer::new("!".to_string());
-            match lexer.next_token() {
-                Err(LexError::UnexpectedCharacter('!', _)) => {}
-                other => panic!("Expected UnexpectedCharacter error for '!', got: {other:?}"),
-            }
+            assert_eq!(lexer.next_token().expect("logical negation"), Token::Not);
         }
 
         #[test]

@@ -81,21 +81,23 @@ fn set_operation_aligns_a_reordered_right_source_by_name() {
 }
 
 #[test]
-fn set_operation_requires_matching_column_names() {
+fn set_operation_aligns_missing_column_names() {
     let schemas = vec![
         SourceSchema::new("set_a", vec!["key", "val"]),
         SourceSchema::new("set_b", vec!["key", "other"]),
     ];
-    assert!(compile("set_a %>% union(set_b)", &schemas).is_err());
+    let q = compile("set_a %>% union(set_b)", &schemas).expect("NULL column alignment");
+    assert!(q.sql.contains("NULL"));
 }
 
 #[test]
-fn set_operation_requires_matching_column_counts() {
+fn set_operation_aligns_missing_column_counts() {
     let schemas = vec![
         SourceSchema::new("set_a", vec!["key", "val"]),
         SourceSchema::new("set_b", vec!["key", "val", "extra"]),
     ];
-    assert!(compile("set_a %>% union(set_b)", &schemas).is_err());
+    let q = compile("set_a %>% union(set_b)", &schemas).expect("NULL column alignment");
+    assert!(q.sql.contains("NULL"));
 }
 
 #[test]

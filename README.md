@@ -41,6 +41,12 @@ echo "select(name, age) %>% filter(age > 18)" | libdplyr --pretty
 
 ## Usage
 
+Schema-aware compilation includes verb options, window order/frames, non-equality
+and rolling joins, tidyr operations, positional slicing, and row transformations.
+Weighted/replacement sampling and relationship checks use an execution plan.
+See [the supported forms and runtime contract](docs/dplyr-support.md) and
+[the dbplyr parity report](docs/dbplyr-parity.md) for measured coverage and limits.
+
 ### As a CLI Tool
 
 The most efficient way to use libdplyr is through stdin/stdout pipelines:
@@ -95,8 +101,14 @@ Exact partial-support and rejection boundaries are documented in
 | `group_by()` | Group rows | `group_by(dept)` |
 | `summarise()` | Aggregate data | `summarise(avg = mean(val))` |
 | `count()` / `tally()` | Count rows by identifier-only keys or current groups | `count(dept)` |
-| `*_join()` | Six equality joins; `.x`/`.y` suffixes, coalesced right/full keys | `left_join(other, by=c("id", "left"="right"))` |
+| `*_join()` | Six equality joins; common-key discovery, `suffix`, `keep`, `na_matches` | `left_join(other, by=c("id", "left"="right"))` |
 | Set Ops | union, intersect, setdiff, aligned by column name | `union(other)` |
+
+Schema-aware compilation also supports tidy-select ranges, exclusions and
+helpers, `across()` in mutate/summarise, and `slice_min/max/sample()`.
+DuckDB discovers the required schema automatically. See the
+[support details](docs/dplyr-support.md#tidy-selection-and-across) for options
+and limits.
 
 ### Helper Functions
 *   **Aggregation**: `mean`, `sum`, `min`, `max`, `n`, `n_distinct`, `count`, `median`*, `mode`*
@@ -163,6 +175,18 @@ println!("{}", query.sql);
 
 Join keys match with SQL `=`, which never matches NULL. Exact support
 boundaries are in [the dplyr syntax support matrix](docs/dplyr-support.md).
+
+Basic expressions include unary `+` / `-`, logical `!`, right-associative `^`,
+and literal membership with `%in% c(...)`. Membership handles `NA` and empty
+vectors without returning SQL NULL. `ungroup()` clears grouping for subsequent
+summaries, windows, selections, and mutations:
+
+```r
+sales %>% filter(!(region %in% c("blocked", NA))) %>%
+  mutate(adjusted = -amount, squared = amount^2) %>%
+  group_by(region) %>% summarise(total = sum(squared)) %>%
+  ungroup() %>% summarise(grand_total = sum(total))
+```
 
 ## Error Handling & Troubleshooting
 

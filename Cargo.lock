@@ -553,6 +553,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "pretty_assertions",
+ "regex",
  "serde",
  "serde_json",
  "signal-hook",

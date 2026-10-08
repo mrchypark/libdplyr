@@ -109,6 +109,18 @@ SET_B_ROWS = [(2, "q"), (3, "r"), (None, "n"), (3, "r")]
 SET_C_ROWS = [(1, "p"), (2, "q")]
 SET_D_ROWS = [(1, "p", 9), (2, "q", 8)]
 
+# Expression fixture for unary/binary operators and `%in%`. `n` is NULL on one
+# row and `flag` is NULL on another, so NULL propagation through `!` and through
+# membership is observable; `n` also holds a negative value and a zero.
+EXPR_SOURCE = "expr_data"
+EXPR_ROWS = [
+    (1, True, 2, "a"),
+    (2, False, -2, "b"),
+    (3, True, 0, "a"),
+    (4, None, None, "c"),
+    (5, False, 3, "b"),
+]
+
 
 def _schema(source, columns):
     return {
@@ -154,6 +166,10 @@ SCHEMAS = {
     SET_C_SOURCE: _schema(SET_C_SOURCE, [("key", "integer"), ("other", "text")]),
     SET_D_SOURCE: _schema(
         SET_D_SOURCE, [("key", "integer"), ("val", "text"), ("extra", "integer")]
+    ),
+    EXPR_SOURCE: _schema(
+        EXPR_SOURCE,
+        [("id", "integer"), ("flag", "boolean"), ("n", "integer"), ("s", "text")],
     ),
 }
 
@@ -245,6 +261,7 @@ def make_connection():
         (SET_B_SOURCE, SET_B_ROWS),
         (SET_C_SOURCE, SET_C_ROWS),
         (SET_D_SOURCE, SET_D_ROWS),
+        (EXPR_SOURCE, EXPR_ROWS),
     ):
         columns = [(column["name"], column["data_type"].upper()) for column in SCHEMAS[source]["columns"]]
         # set_b declares its schema in a different order than its storage order.
@@ -427,9 +444,9 @@ CASES = [
         ordered=True,
     ),
     Case(
-        "n_distinct_window_is_rejected",
+        "n_distinct_window_filters",
         "data %>% filter(n_distinct(x) > 1)",
-        None,
+        'SELECT * FROM "data"',
     ),
     Case(
         "join_is_rejected",
@@ -716,15 +733,15 @@ SET_CASES = [
         sources=(SET_A_SOURCE, SET_B_SOURCE),
     ),
     Case(
-        "mismatched_column_names_are_rejected",
+        "missing_column_names_are_null_aligned",
         "%s %%>%% union(%s)" % (SET_A_SOURCE, SET_C_SOURCE),
-        None,
+        'SELECT key, val, NULL AS other FROM set_a UNION SELECT key, NULL AS val, other FROM set_c',
         sources=(SET_A_SOURCE, SET_C_SOURCE),
     ),
     Case(
-        "mismatched_column_count_is_rejected",
+        "missing_column_counts_are_null_aligned",
         "%s %%>%% union(%s)" % (SET_A_SOURCE, SET_D_SOURCE),
-        None,
+        'SELECT key, val, NULL AS extra FROM set_a UNION SELECT key, val, extra FROM set_d',
         sources=(SET_A_SOURCE, SET_D_SOURCE),
     ),
     Case(
@@ -814,6 +831,405 @@ AGG_CASES = [
         'SELECT "v" AS "v", "v" * 1.0 / 2 AS "half" FROM "%s" WHERE "v" > 1'
         % RATIO_SOURCE,
         sources=(RATIO_SOURCE,),
+    ),
+]
+
+
+# --- Unary, power, membership and ungroup ---------------------------------
+# Every expectation below is hand-written SQL over EXPR_ROWS, written from R
+# semantics rather than from compiler output, so a wrong generator shape shows
+# up as a value mismatch rather than a rewritten expectation. Expectations use
+# COALESCE instead of assuming one particular NULL-guard spelling: the contract
+# fixes the observable values (membership is never NULL), not the SQL form.
+
+EXPR_CASES = [
+    # Signed arithmetic: unary minus on a NULL stays NULL, and the sign binds
+    # tighter than any binary operator.
+    Case(
+        "unary_minus_negates_and_keeps_null",
+        '%s %%>%% mutate(m = -n) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", -"n" AS "m" FROM "%s" ORDER BY "id"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "unary_plus_is_identity",
+        '%s %%>%% mutate(m = +n) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", +"n" AS "m" FROM "%s" ORDER BY "id"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "unary_minus_on_a_literal_expression",
+        '%s %%>%% mutate(m = -(3 - 5)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", -(3 - 5) AS "m" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # Power: `^` binds tighter than `*`, and chains associate to the right.
+    Case(
+        "power_of_two_literals",
+        '%s %%>%% mutate(p = 2^3) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", POWER(2, 3) AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "power_binds_tighter_than_multiply_on_the_right",
+        '%s %%>%% mutate(p = 2 * 3^2) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", 2 * POWER(3, 2) AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "power_binds_tighter_than_multiply_on_the_left",
+        '%s %%>%% mutate(p = 2^2 * 3) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", POWER(2, 2) * 3 AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # R reads -2^2 as -(2^2), not (-2)^2.
+    Case(
+        "unary_minus_binds_looser_than_power",
+        '%s %%>%% mutate(p = -2^2) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", -(POWER(2, 2)) AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "power_is_right_associative",
+        '%s %%>%% mutate(p = 2^3^2) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", POWER(2, POWER(3, 2)) AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "power_of_a_column_keeps_null",
+        '%s %%>%% mutate(p = n^2) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", POWER("n", 2) AS "p" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # NOT: propagates NULL rather than coercing it to TRUE or FALSE.
+    Case(
+        "not_of_a_boolean_column_keeps_null",
+        '%s %%>%% mutate(neg = !flag) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", NOT "flag" AS "neg" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "not_applies_to_a_parenthesised_comparison",
+        '%s %%>%% mutate(b = !(n == 2)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", NOT ("n" = 2) AS "b" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "filter_on_not_drops_the_null_row",
+        '%s %%>%% filter(!flag) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s" FROM "%s" WHERE NOT "flag" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # Membership: homogeneous numeric lists, and NULL never leaks out.
+    Case(
+        "numeric_membership_without_na_never_returns_null",
+        '%s %%>%% mutate(m = n %%in%% c(0, 3)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", COALESCE("n" IN (0, 3), FALSE) AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "numeric_membership_with_na_is_true_for_null",
+        '%s %%>%% mutate(m = n %%in%% c(2, NA)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", '
+        'CASE WHEN "n" IS NULL THEN TRUE ELSE "n" IN (2) END AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_scalar_right_hand_side",
+        '%s %%>%% mutate(m = n %%in%% 3) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", COALESCE("n" IN (3), FALSE) AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "empty_list_is_always_false",
+        '%s %%>%% mutate(m = n %%in%% c()) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", FALSE AS "m" FROM "%s" ORDER BY "id"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "c_null_is_empty_and_always_false",
+        '%s %%>%% mutate(m = n %%in%% c(NULL)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", FALSE AS "m" FROM "%s" ORDER BY "id"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "bare_na_is_a_one_null_vector",
+        '%s %%>%% mutate(m = n %%in%% NA) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", "n" IS NULL AS "m" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "string_membership",
+        '%s %%>%% mutate(m = s %%in%% c("a", "b")) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", "s" IN (\'a\', \'b\') AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # flag has a NULL row and the list has no NA, so every row must come back
+    # non-NULL; the NULL row is simply not a member.
+    Case(
+        "boolean_membership_covers_null_without_na",
+        '%s %%>%% mutate(m = flag %%in%% c(TRUE, FALSE)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", COALESCE("flag" IN (TRUE, FALSE), FALSE) '
+        'AS "m" FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "boolean_membership_with_na_is_true_for_null",
+        '%s %%>%% mutate(m = flag %%in%% c(TRUE, NA)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", '
+        'CASE WHEN "flag" IS NULL THEN TRUE ELSE "flag" IN (TRUE) END AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "filter_on_membership_drops_the_null_row",
+        '%s %%>%% filter(n %%in%% c(0, 3)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s" FROM "%s" WHERE "n" IN (0, 3) '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # `!` must wrap the whole membership test, not bind to the subject alone.
+    Case(
+        "not_binds_around_the_whole_membership_test",
+        '%s %%>%% mutate(m = !(n %%in%% c(0, 3))) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", NOT COALESCE("n" IN (0, 3), FALSE) AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "not_around_membership_with_na_never_returns_null",
+        '%s %%>%% mutate(m = !(n %%in%% c(2, NA))) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", '
+        'NOT (CASE WHEN "n" IS NULL THEN TRUE ELSE "n" IN (2) END) AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # Membership composed with other verbs.
+    Case(
+        "membership_inside_case_when",
+        '%s %%>%% mutate(k = case_when(n %%in%% c(0, 2) ~ 1)) %%>%% arrange(id)'
+        % EXPR_SOURCE,
+        # A case_when with no matching branch is NULL, not FALSE, so the NULL
+        # row stays NULL here even though membership itself never returns NULL.
+        'SELECT "id", "flag", "n", "s", CASE WHEN COALESCE("n" IN (0, 2), FALSE) '
+        'THEN 1 ELSE NULL END AS "k" FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_inside_case_when_with_na_branch",
+        '%s %%>%% mutate(k = case_when(n %%in%% c(NA) ~ 1)) %%>%% arrange(id)'
+        % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", CASE WHEN "n" IS NULL THEN 1 ELSE NULL END '
+        'AS "k" FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_inside_a_multi_branch_case_when_with_default",
+        '%s %%>%% mutate(k = case_when(n %%in%% c(0, 2) ~ 1, n %%in%% c(3) ~ 2, '
+        '.default = 9)) %%>%% arrange(id)' % EXPR_SOURCE,
+        # First matching branch wins (n = 2 matches branch 1, not the c(0, 2)
+        # overlap elsewhere), and the NULL row falls through both branches to
+        # the .default literal because membership is FALSE rather than NULL.
+        'SELECT "id", "flag", "n", "s", CASE WHEN COALESCE("n" IN (0, 2), FALSE) '
+        'THEN 1 WHEN COALESCE("n" IN (3), FALSE) THEN 2 ELSE 9 END AS "k" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_inside_a_summary",
+        '%s %%>%% summarise(hits = sum(case_when(n %%in%% c(0, 3, NA) ~ 1)))'
+        % EXPR_SOURCE,
+        # sum() ignores the NULL that non-members contribute, so this counts the
+        # three member rows: n = 0, n = 3 and the NULL row.
+        'SELECT SUM(CASE WHEN CASE WHEN "n" IS NULL THEN TRUE ELSE "n" IN (0, 3) '
+        'END THEN 1 ELSE NULL END) AS "hits" FROM "%s"' % EXPR_SOURCE,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_inside_a_grouped_window",
+        '%s %%>%% group_by(s) %%>%% '
+        'mutate(hits = sum(case_when(n %%in%% c(0, NA) ~ 1))) '
+        '%%>%% arrange(s, id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", SUM(CASE WHEN CASE WHEN "n" IS NULL '
+        'THEN TRUE ELSE "n" IN (0) END THEN 1 ELSE NULL END) OVER (PARTITION BY "s") '
+        'AS "hits" FROM "%s" ORDER BY "s", "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # ungroup(): the grouping keys stop steering the downstream verbs.
+    Case(
+        "grouped_summarise_without_ungroup_is_per_group",
+        '%s %%>%% group_by(s) %%>%% summarise(t = sum(n)) %%>%% arrange(s)'
+        % EXPR_SOURCE,
+        'SELECT "s", SUM("n") AS "t" FROM "%s" GROUP BY "s" ORDER BY "s"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "ungroup_before_summarise_collapses_to_one_row",
+        '%s %%>%% group_by(s) %%>%% ungroup() %%>%% summarise(t = sum(n))' % EXPR_SOURCE,
+        'SELECT SUM("n") AS "t" FROM "%s"' % EXPR_SOURCE,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "ungroup_drops_the_group_key_from_a_grouped_select",
+        '%s %%>%% group_by(s) %%>%% ungroup() %%>%% select(id, n)' % EXPR_SOURCE,
+        'SELECT "id", "n" FROM "%s"' % EXPR_SOURCE,
+        sources=(EXPR_SOURCE,),
+    ),
+    # mean(n) is 0.75 ungrouped, versus 1.0 / 0.5 / NULL per group.
+    Case(
+        "ungroup_before_window_mutate_unpartitions_the_window",
+        '%s %%>%% group_by(s) %%>%% ungroup() %%>%% mutate(m = mean(n)) '
+        '%%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", "m" FROM (SELECT "id", "flag", "n", '
+        '"s", AVG("n") OVER () AS "m" FROM "%s") ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # Rejections: the RHS must be a constant vector of one type.
+    # A bare scalar RHS behaves like a one-element list: NULL is the empty
+    # list, NA is a one-null list.
+    Case(
+        "scalar_null_right_hand_side_is_the_empty_list",
+        '%s %%>%% mutate(m = n %%in%% NULL) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", FALSE AS "m" FROM "%s" ORDER BY "id"'
+        % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "scalar_na_right_hand_side_is_a_one_null_list",
+        '%s %%>%% mutate(m = n %%in%% NA) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", "n" IS NULL AS "m" FROM "%s" '
+        'ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # A NULL left operand against a list with no NA is FALSE, never NULL, and
+    # negating it is therefore TRUE. `n` is NULL on row 4.
+    Case(
+        "null_subject_against_a_na_free_list_is_false",
+        '%s %%>%% mutate(m = n %%in%% c(1, 2, 3)) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", '
+        'CASE WHEN "n" IS NULL THEN FALSE ELSE "n" IN (1, 2, 3) END AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "negating_a_null_subject_against_a_na_free_list_is_true",
+        '%s %%>%% mutate(m = !(n %%in%% c(1, 2, 3))) %%>%% arrange(id)'
+        % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s", '
+        'NOT (CASE WHEN "n" IS NULL THEN FALSE ELSE "n" IN (1, 2, 3) END) AS "m" '
+        'FROM "%s" ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "filter_on_a_null_subject_against_a_na_free_list_drops_it",
+        '%s %%>%% filter(!(n %%in%% c(1, 2, 3))) %%>%% arrange(id)' % EXPR_SOURCE,
+        'SELECT "id", "flag", "n", "s" FROM "%s" WHERE NOT COALESCE('
+        '"n" IN (1, 2, 3), FALSE) ORDER BY "id"' % EXPR_SOURCE,
+        ordered=True,
+        sources=(EXPR_SOURCE,),
+    ),
+    # Cardinality: summarise() evaluates once, so an empty membership list
+    # yields exactly one FALSE row regardless of how many inputs were scanned.
+    # On the empty source the aggregate is NULL, and NULL %in% c() must still
+    # be the single FALSE row rather than a NULL or a per-input row. The scalar
+    # subquery in the expectation is deliberate: it asserts one row, so a
+    # per-input-row generator would fail the row count here.
+    Case(
+        "summarise_membership_in_empty_list_is_one_false_row",
+        "data %>% summarise(m = sum(x) %in% c())",
+        'SELECT (SELECT FALSE) AS "m"',
+    ),
+    Case(
+        "summarise_membership_in_empty_list_on_empty_input_is_one_false_row",
+        EMPTY_SOURCE + " %>% summarise(m = sum(x) %in% c())",
+        'SELECT (SELECT FALSE) AS "m"',
+        empty=True,
+        sources=(EMPTY_SOURCE,),
+    ),
+    Case(
+        "summarise_membership_in_na_list_on_empty_input_is_one_null_row",
+        EMPTY_SOURCE + " %>% summarise(m = sum(x) %in% c(NA))",
+        # sum() over zero rows is NULL, and NULL is a member of c(NA).
+        'SELECT (SELECT TRUE) AS "m"',
+        empty=True,
+        sources=(EMPTY_SOURCE,),
+    ),
+    Case(
+        "membership_with_a_column_right_hand_side_is_rejected",
+        'data %>% filter(x %in% y)',
+        None,
+    ),
+    Case(
+        "membership_with_a_computed_vector_is_rejected",
+        '%s %%>%% filter(n %%in%% c(n + 1, 4))' % EXPR_SOURCE,
+        None,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_with_a_mixed_number_string_list_is_rejected",
+        '%s %%>%% filter(n %%in%% c(1, "a"))' % EXPR_SOURCE,
+        None,
+        sources=(EXPR_SOURCE,),
+    ),
+    Case(
+        "membership_with_a_mixed_boolean_number_list_is_rejected",
+        '%s %%>%% filter(flag %%in%% c(TRUE, 1))' % EXPR_SOURCE,
+        None,
+        sources=(EXPR_SOURCE,),
     ),
 ]
 
@@ -921,7 +1337,7 @@ def main(argv):
                 run_case(case, binary, single_schema, conn, failures)
         for case in EMPTY_CASES:
             run_case(case, binary, empty_schema, conn, failures)
-        for group in (JOIN_CASES, SET_CASES, AGG_CASES):
+        for group in (JOIN_CASES, SET_CASES, AGG_CASES, EXPR_CASES):
             for case in group:
                 if case.min_sqlite and sqlite3.sqlite_version_info < case.min_sqlite:
                     skipped.append(
@@ -938,7 +1354,10 @@ def main(argv):
                 if case.expected_sql is None:
                     run_rejection(case, binary, path, failures)
                 else:
-                    run_case(case, binary, path, conn, failures)
+                    if case.empty:
+                        run_case(case, binary, empty_schema, conn, failures)
+                    else:
+                        run_case(case, binary, path, conn, failures)
     finally:
         conn.close()
 

@@ -16,6 +16,37 @@ impl SqlGenerator {
         columns
             .iter()
             .map(|col| {
+                // R3-AC2: Selection expressions need ordered source metadata.
+                let selection = match &col.expr {
+                    Expr::Literal(_) | Expr::Unary { .. } => col.alias.is_none(),
+                    Expr::Binary { operator, .. } => {
+                        col.alias.is_none()
+                            && matches!(
+                                operator,
+                                crate::parser::BinaryOp::And | crate::parser::BinaryOp::Or
+                            )
+                    }
+                    Expr::Function { name, .. } => matches!(
+                        name.as_str(),
+                        "__select_range"
+                            | "c"
+                            | "everything"
+                            | "starts_with"
+                            | "ends_with"
+                            | "contains"
+                            | "matches"
+                            | "all_of"
+                            | "any_of"
+                            | "last_col"
+                            | "where"
+                    ),
+                    _ => false,
+                };
+                if selection {
+                    return Err(GenerationError::InvalidAst {
+                        reason: "tidy selection requires source schema metadata".to_string(),
+                    });
+                }
                 let (expr_sql, implicit_alias) = match &col.expr {
                     Expr::Identifier(name) if name == "*" => ("*".to_string(), None),
                     Expr::Identifier(name) => {
@@ -147,6 +178,8 @@ impl SqlGenerator {
                     .is_some_and(|expr| self.expression_references_columns(expr, columns))
             }
             Expr::NamedArg { value, .. } => self.expression_references_columns(value, columns),
+            Expr::Unary { expr, .. } => self.expression_references_columns(expr, columns),
+            Expr::In { expr, .. } => self.expression_references_columns(expr, columns),
             Expr::Literal(_) => false,
         }
     }

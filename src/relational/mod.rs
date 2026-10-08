@@ -4,21 +4,33 @@
 //! This path binds every reference before rendering SQL and never substitutes
 //! a computed expression for a reference to an earlier stage.
 
+mod across;
+mod bindings;
+mod discovery;
+mod distinct_window;
+mod extended;
+mod join;
+mod native;
+mod rows;
 pub mod schema;
+mod selection;
+mod slice;
 mod sql;
+mod statistics;
+mod tidyr;
 
 pub use schema::{SchemaColumn, SchemaInput, SourceSchema};
 
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
-    BinaryOp, DplyrNode, DplyrOperation, Expr, JoinKey, JoinSpec, JoinType, LiteralValue,
-    OrderDirection, OrderExpr, SetOperation,
+    BinaryOp, DplyrNode, DplyrOperation, Expr, JoinType, LiteralValue, OrderDirection, OrderExpr,
+    SetOperation, SliceSpec, UnaryOp,
 };
 use crate::sql_generator::SqlGenerator;
 use sql::{SelectExpression, SelectItem, SqlQuery, SqlSource};
 
 /// SQL and the ordered, visible output schema of a compiled pipeline.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CompiledQuery {
     pub sql: String,
     pub columns: Vec<SchemaColumn>,
@@ -40,41 +52,51 @@ struct Column {
 enum BoundExpr {
     Column(ColumnId),
     Literal(LiteralValue),
+    Unary(UnaryOp, Box<BoundExpr>),
+    In(Box<BoundExpr>, Vec<LiteralValue>),
     Binary(Box<BoundExpr>, BinaryOp, Box<BoundExpr>),
     Function(String, Vec<BoundExpr>),
     CaseWhen(Vec<(BoundExpr, BoundExpr)>, Option<Box<BoundExpr>>),
     NamedArg(String, Box<BoundExpr>),
 }
 
+#[derive(Clone)]
 struct Projection {
     column: Column,
     expression: BoundExpr,
 }
 
+#[derive(Clone)]
 struct Measure {
     column: Column,
     expression: BoundExpr,
 }
 
+#[derive(Clone)]
 struct JoinProjection {
     column: Column,
     left: Option<ColumnId>,
     right: Option<ColumnId>,
 }
 
+#[derive(Clone)]
 struct Relation {
     node: RelNode,
     columns: Vec<Column>,
     groups: Vec<ColumnId>,
     order: Vec<(ColumnId, OrderDirection)>,
+    frame: Option<(i64, i64)>,
 }
 
+#[derive(Clone)]
 enum RelNode {
     Scan(String),
+    Query(Box<SqlQuery>),
     Project {
         input: Box<Relation>,
         items: Vec<Projection>,
         partition: Vec<ColumnId>,
+        frame: Option<(i64, i64)>,
     },
     Filter {
         input: Box<Relation>,
@@ -86,12 +108,20 @@ enum RelNode {
         measures: Vec<Measure>,
     },
     Distinct(Box<Relation>),
+    Slice {
+        input: Box<Relation>,
+        spec: SliceSpec,
+        by: Vec<ColumnId>,
+    },
     Join {
         left: Box<Relation>,
         right: Box<Relation>,
         join_type: JoinType,
         keys: Vec<(ColumnId, ColumnId)>,
+        predicates: Vec<(ColumnId, BinaryOp, ColumnId)>,
+        closest: Option<(ColumnId, BinaryOp, ColumnId)>,
         items: Vec<JoinProjection>,
+        na_matches: bool,
     },
     Set {
         left: Box<Relation>,
@@ -105,6 +135,8 @@ struct Planner<'a> {
     schemas: &'a [SourceSchema],
     next_id: usize,
     stages: usize,
+    checks: Option<Vec<crate::execution::ValidationQuery>>,
+    bindings: &'a std::collections::HashMap<String, serde_json::Value>,
 }
 
 fn invalid(reason: impl Into<String>) -> GenerationError {
@@ -133,39 +165,6 @@ fn add_suffixes(names: Vec<String>, reserved: &[String], suffix: &str) -> Vec<St
     }
 }
 
-fn equality_keys(expr: &Expr, keys: &mut Vec<JoinKey>) -> GenerationResult<()> {
-    match expr {
-        Expr::Identifier(name) => keys.push(JoinKey {
-            left: name.clone(),
-            right: name.clone(),
-        }),
-        Expr::Binary {
-            left,
-            operator: BinaryOp::And,
-            right,
-        } => {
-            equality_keys(left, keys)?;
-            equality_keys(right, keys)?;
-        }
-        Expr::Binary {
-            left,
-            operator: BinaryOp::Equal,
-            right,
-        } => {
-            let (Expr::Identifier(left), Expr::Identifier(right)) = (left.as_ref(), right.as_ref())
-            else {
-                return Err(invalid("join comparisons require column identifiers"));
-            };
-            keys.push(JoinKey {
-                left: left.clone(),
-                right: right.clone(),
-            });
-        }
-        _ => return Err(invalid("join predicates currently require equality keys")),
-    }
-    Ok(())
-}
-
 fn visible_column<'a>(columns: &'a [Column], name: &str) -> GenerationResult<&'a Column> {
     columns
         .iter()
@@ -188,6 +187,13 @@ impl BoundExpr {
         Ok(match expr {
             Expr::Identifier(name) => Self::Column(visible_column(columns, name)?.id),
             Expr::Literal(value) => Self::Literal(value.clone()),
+            Expr::Unary { operator, expr } => {
+                Self::Unary(operator.clone(), Box::new(Self::bind(expr, columns)?))
+            }
+            // `values` are constants, so only the operand can reference columns.
+            Expr::In { expr, values } => {
+                Self::In(Box::new(Self::bind(expr, columns)?), values.clone())
+            }
             Expr::Binary {
                 left,
                 operator,
@@ -225,6 +231,14 @@ impl BoundExpr {
         Ok(match self {
             Self::Column(id) => Expr::Identifier(column_by_id(columns, *id)?.schema.name.clone()),
             Self::Literal(value) => Expr::Literal(value.clone()),
+            Self::Unary(operator, expr) => Expr::Unary {
+                operator: operator.clone(),
+                expr: Box::new(expr.to_expr(columns)?),
+            },
+            Self::In(expr, values) => Expr::In {
+                expr: Box::new(expr.to_expr(columns)?),
+                values: values.clone(),
+            },
             Self::Binary(left, operator, right) => Expr::Binary {
                 left: Box::new(left.to_expr(columns)?),
                 operator: operator.clone(),
@@ -278,6 +292,7 @@ impl Planner<'_> {
             columns,
             groups: Vec::new(),
             order: Vec::new(),
+            frame: None,
         })
     }
 
@@ -348,16 +363,19 @@ impl Planner<'_> {
         let groups = input.groups.clone();
         let order = input.order.clone();
         let partition = groups.clone();
+        let frame = input.frame;
         self.stage()?;
         Ok(Relation {
             node: RelNode::Project {
                 input: Box::new(input),
                 items,
                 partition,
+                frame,
             },
             columns,
             groups,
             order,
+            frame,
         })
     }
 
@@ -390,6 +408,13 @@ impl Planner<'_> {
                     | "last"
                     | "last_value"
                     | "nth_value"
+                    | "min_rank"
+                    | "percent_rank"
+                    | "cume_dist"
+                    | "cumsum"
+                    | "cummean"
+                    | "cummin"
+                    | "cummax"
             )
     }
 
@@ -399,6 +424,8 @@ impl Planner<'_> {
                 self.is_window(name) || args.iter().any(|arg| self.has_window(arg))
             }
             Expr::Binary { left, right, .. } => self.has_window(left) || self.has_window(right),
+            Expr::Unary { expr, .. } => self.has_window(expr),
+            Expr::In { expr, .. } => self.has_window(expr),
             Expr::CaseWhen { branches, default } => {
                 branches
                     .iter()
@@ -429,6 +456,8 @@ impl Planner<'_> {
                 self.validate_expression(left)?;
                 self.validate_expression(right)?;
             }
+            Expr::Unary { expr, .. } => self.validate_expression(expr)?,
+            Expr::In { expr, .. } => self.validate_expression(expr)?,
             Expr::CaseWhen { branches, default } => {
                 for (a, b) in branches {
                     self.validate_expression(a)?;
@@ -490,6 +519,8 @@ impl Planner<'_> {
                 self.validate_summary(left, input, inside_aggregate)?;
                 self.validate_summary(right, input, inside_aggregate)?;
             }
+            Expr::Unary { expr, .. } => self.validate_summary(expr, input, inside_aggregate)?,
+            Expr::In { expr, .. } => self.validate_summary(expr, input, inside_aggregate)?,
             Expr::CaseWhen { branches, default } => {
                 for (condition, value) in branches {
                     self.validate_summary(condition, input, inside_aggregate)?;
@@ -509,7 +540,7 @@ impl Planner<'_> {
 
     fn summarise(
         &mut self,
-        input: Relation,
+        mut input: Relation,
         assignments: Vec<(String, Expr)>,
     ) -> GenerationResult<Relation> {
         let keys = input.groups.clone();
@@ -520,6 +551,9 @@ impl Planner<'_> {
         let mut measures = Vec::new();
         let mut has_aggregate = false;
         for (name, expr) in assignments {
+            let expr = self.resolve_expression(&expr, &input)?;
+            let (next, expr) = self.summary_statistics(input, &expr)?;
+            input = next;
             self.validate_summary(&expr, &input, false)?;
             has_aggregate |= self.has_window(&expr);
             let expression = BoundExpr::bind(&expr, &input.columns)?;
@@ -554,6 +588,7 @@ impl Planner<'_> {
             columns,
             groups,
             order: Vec::new(),
+            frame: None,
         };
         if result.columns.iter().any(|column| column.hidden) {
             let visible = result
@@ -568,212 +603,106 @@ impl Planner<'_> {
         }
     }
 
-    fn join(
-        &mut self,
-        left: Relation,
-        join_type: &JoinType,
-        spec: &JoinSpec,
-    ) -> GenerationResult<Relation> {
-        let mut by = spec.by.clone();
-        if let Some(expr) = &spec.on_expr {
-            equality_keys(expr, &mut by)?;
-        }
-        if by.is_empty() {
-            return Err(invalid("join requires at least one equality key"));
-        }
-        self.stage()?;
-        let right = self.scan(&spec.table)?;
-        let mut left_keys = std::collections::HashSet::new();
-        let mut right_keys = std::collections::HashSet::new();
-        let keys = by
-            .iter()
-            .map(|key| {
-                let left_id = visible_column(&left.columns, &key.left)?.id;
-                let right_id = visible_column(&right.columns, &key.right)?.id;
-                if !left_keys.insert(left_id.0) || !right_keys.insert(right_id.0) {
-                    return Err(invalid("join keys must be unique on each side"));
-                }
-                Ok((left_id, right_id))
-            })
-            .collect::<GenerationResult<Vec<_>>>()?;
-        let filtering = matches!(join_type, JoinType::Semi | JoinType::Anti);
-        let right_visible = right
-            .columns
-            .iter()
-            .filter(|column| !column.hidden && !right_keys.contains(&column.id.0))
-            .collect::<Vec<_>>();
-        // Equality keys retain left names. Suffix all other names together,
-        // so a generated suffix and an existing suffix are repaired in input order.
-        let left_names = left
-            .columns
-            .iter()
-            .map(|column| column.schema.name.clone())
-            .collect::<Vec<_>>();
-        let left_aux = left
-            .columns
-            .iter()
-            .filter(|column| !column.hidden && !left_keys.contains(&column.id.0))
-            .collect::<Vec<_>>();
-        let key_names = by.iter().map(|key| key.left.clone()).collect::<Vec<_>>();
-        let mut reserved = key_names.clone();
-        reserved.extend(
-            left.columns
-                .iter()
-                .filter(|column| column.hidden)
-                .map(|column| column.schema.name.clone()),
-        );
-        reserved.extend(
-            right_visible
-                .iter()
-                .filter(|column| !key_names.contains(&column.schema.name))
-                .map(|column| column.schema.name.clone()),
-        );
-        let left_output = add_suffixes(
-            left_aux
-                .iter()
-                .map(|column| column.schema.name.clone())
-                .collect(),
-            &reserved,
-            ".x",
-        );
-        let right_output = add_suffixes(
-            right_visible
-                .iter()
-                .map(|column| column.schema.name.clone())
-                .collect(),
-            &left_names,
-            ".y",
-        );
-        let mut items = Vec::new();
-        for source in &left.columns {
-            let mut column = source.clone();
-            if !filtering {
-                if let Some(index) = left_aux.iter().position(|item| item.id == source.id) {
-                    column.schema.name.clone_from(&left_output[index]);
-                }
-            }
-            let coalesced = if matches!(join_type, JoinType::Right | JoinType::Full) {
-                keys.iter()
-                    .find(|(id, _)| *id == source.id)
-                    .map(|(_, id)| *id)
-            } else {
-                None
-            };
-            if let Some(id) = coalesced {
-                let metadata = &column_by_id(&right.columns, id)?.schema;
-                if column.schema.data_type != metadata.data_type {
-                    column.schema.data_type = None;
-                }
-                column.schema.nullable = match (column.schema.nullable, metadata.nullable) {
-                    (Some(false), Some(false)) => Some(false),
-                    (Some(true), _) | (_, Some(true)) => Some(true),
-                    _ => None,
-                };
-            } else if matches!(join_type, JoinType::Right | JoinType::Full) {
-                column.schema.nullable = Some(true);
-            }
-            items.push(JoinProjection {
-                column,
-                left: Some(source.id),
-                right: coalesced,
-            });
-        }
-        if !filtering {
-            for (index, source) in right_visible.iter().enumerate() {
-                let mut column = (*source).clone();
-                column.schema.name.clone_from(&right_output[index]);
-                if matches!(join_type, JoinType::Left | JoinType::Full) {
-                    column.schema.nullable = Some(true);
-                }
-                items.push(JoinProjection {
-                    column,
-                    left: None,
-                    right: Some(source.id),
-                });
-            }
-        }
-        let columns = items
-            .iter()
-            .map(|item| item.column.clone())
-            .collect::<Vec<_>>();
-        self.validate_output(&columns)?;
-        self.stage()?;
-        Ok(Relation {
-            columns,
-            groups: left.groups.clone(),
-            order: left.order.clone(),
-            node: RelNode::Join {
-                left: Box::new(left),
-                right: Box::new(right),
-                join_type: join_type.clone(),
-                keys,
-                items,
-            },
-        })
-    }
-
     fn set(
         &mut self,
-        mut left: Relation,
+        left: Relation,
         operation: &SetOperation,
         right_table: &str,
     ) -> GenerationResult<Relation> {
-        // Set equality uses visible values only; a prior sort cannot change membership.
-        left.order.clear();
-        if left.columns.iter().any(|column| column.hidden) {
-            let visible = left
-                .columns
-                .iter()
-                .filter(|column| !column.hidden)
-                .cloned()
-                .collect::<Vec<_>>();
-            left = self.project(left, Self::identities(&visible))?;
-        }
-        self.stage()?;
         let right = self.scan(right_table)?;
-        if left.columns.len() != right.columns.len() {
-            return Err(invalid("set inputs must have the same column names"));
+        self.set_relations(left, right, operation)
+    }
+
+    fn across_schema(&self, input: &Relation) -> Vec<SchemaColumn> {
+        input
+            .columns
+            .iter()
+            .filter(|column| !column.hidden && !input.groups.contains(&column.id))
+            .map(|column| column.schema.clone())
+            .collect()
+    }
+
+    // R3-AC1: Every expression in one across() reads the same input stage.
+    fn mutate_assignments(
+        &mut self,
+        mut input: Relation,
+        assignments: &[crate::parser::Assignment],
+    ) -> GenerationResult<Relation> {
+        if assignments.is_empty() {
+            return Ok(input);
         }
-        let mut columns = left.columns.clone();
-        let mut aligned = Vec::new();
-        for column in &mut columns {
-            let counterpart = visible_column(&right.columns, &column.schema.name)?;
-            aligned.push(Projection {
-                column: counterpart.clone(),
-                expression: BoundExpr::Column(counterpart.id),
-            });
-            if column.schema.data_type != counterpart.schema.data_type {
-                column.schema.data_type = None;
+        let mut prepared = Vec::new();
+        let mut hidden = Vec::new();
+        for original in assignments {
+            let bound = self.resolve_expression(&original.expr, &input)?;
+            let expanded = self.expand_predicates(&bound, &input)?;
+            let original_ids = input.columns.iter().map(|c| c.id).collect::<Vec<_>>();
+            if input.frame.is_some()
+                && statistics::needs_stage(&expanded, self.generator.dialect().dialect_name())
+            {
+                return Err(self.unsupported("portable statistics with a moving window frame"));
             }
-            column.schema.nullable = match operation {
-                SetOperation::SetDiff => column.schema.nullable,
-                SetOperation::Union => {
-                    match (column.schema.nullable, counterpart.schema.nullable) {
-                        (Some(false), Some(false)) => Some(false),
-                        (Some(true), _) | (_, Some(true)) => Some(true),
-                        _ => None,
-                    }
-                }
-                SetOperation::Intersect => {
-                    match (column.schema.nullable, counterpart.schema.nullable) {
-                        (Some(false), _) | (_, Some(false)) => Some(false),
-                        _ => None,
-                    }
-                }
-            };
+            let (next, expanded) = self.summary_statistics(input, &expanded)?;
+            input = next;
+            hidden.extend(
+                input
+                    .columns
+                    .iter()
+                    .filter(|c| !original_ids.contains(&c.id))
+                    .map(|c| c.id),
+            );
+            let (next, expr, ids) = self.distinct_windows(input, &expanded)?;
+            input = next;
+            hidden.extend(ids);
+            prepared.push(crate::parser::Assignment {
+                column: original.column.clone(),
+                expr,
+            });
         }
-        let right = self.project(right, aligned)?;
-        self.stage()?;
-        Ok(Relation {
-            columns,
-            groups: left.groups.clone(),
-            order: Vec::new(),
-            node: RelNode::Set {
-                left: Box::new(left),
-                right: Box::new(right),
-                operation: operation.clone(),
-            },
-        })
+        let mut items = Self::identities(&input.columns);
+        for assignment in prepared {
+            if matches!(assignment.expr, Expr::Literal(LiteralValue::Null)) {
+                if let Some(column) = input
+                    .columns
+                    .iter()
+                    .find(|c| c.schema.name == assignment.column)
+                {
+                    if input.groups.contains(&column.id) {
+                        return Err(invalid("cannot delete a grouping column"));
+                    }
+                }
+                items.retain(|item| item.column.schema.name != assignment.column);
+                continue;
+            }
+            self.validate_expression(&assignment.expr)?;
+            let expression = BoundExpr::bind(&assignment.expr, &input.columns)?;
+            let mut column = self.new_column(&assignment.column);
+            if let Expr::Identifier(name) = &assignment.expr {
+                let source = visible_column(&input.columns, name)?;
+                column.schema.data_type.clone_from(&source.schema.data_type);
+                column.schema.nullable = source.schema.nullable;
+            }
+            let projection = Projection { column, expression };
+            if let Some(index) = items.iter().position(|item| {
+                !item.column.hidden && item.column.schema.name == assignment.column
+            }) {
+                items[index] = projection;
+            } else {
+                items.push(projection);
+            }
+        }
+        for item in &mut items {
+            if hidden.contains(&item.column.id) {
+                item.column.hidden = true;
+            }
+        }
+        let group_names = names_for_ids(&input.columns, &input.groups)?;
+        let mut result = self.project(input, items)?;
+        result.groups = group_names
+            .iter()
+            .map(|name| visible_column(&result.columns, name).map(|column| column.id))
+            .collect::<GenerationResult<_>>()?;
+        Ok(result)
     }
 
     fn apply(
@@ -782,34 +711,38 @@ impl Planner<'_> {
         operation: &DplyrOperation,
     ) -> GenerationResult<Relation> {
         match operation {
+            DplyrOperation::Extended { name, args, .. } => self.extended(input, name, args),
             DplyrOperation::Select { columns, .. } => {
+                let columns = columns
+                    .iter()
+                    .map(|column| {
+                        Ok(crate::parser::ColumnExpr {
+                            expr: self.resolve_expression(&column.expr, &input)?,
+                            alias: column.alias.clone(),
+                        })
+                    })
+                    .collect::<GenerationResult<Vec<_>>>()?;
+                let columns = &columns;
+                let schema = input
+                    .columns
+                    .iter()
+                    .filter(|column| !column.hidden)
+                    .map(|column| column.schema.clone())
+                    .collect::<Vec<_>>();
+                let selected = selection::resolve(columns, &schema)?;
                 let mut items = Vec::new();
-                for selected in columns {
+                for selected in selected {
                     let Expr::Identifier(name) = &selected.expr else {
                         return Err(self.unsupported("computed select(); use mutate()"));
                     };
-                    if name == "*" {
-                        if selected.alias.is_some() {
-                            return Err(invalid("a wildcard cannot have an alias"));
-                        }
-                        items.extend(Self::identities(
-                            &input
-                                .columns
-                                .iter()
-                                .filter(|column| !column.hidden)
-                                .cloned()
-                                .collect::<Vec<_>>(),
-                        ));
-                    } else {
-                        let mut column = visible_column(&input.columns, name)?.clone();
-                        if let Some(alias) = &selected.alias {
-                            column.schema.name.clone_from(alias);
-                        }
-                        items.push(Projection {
-                            expression: BoundExpr::Column(column.id),
-                            column,
-                        });
+                    let mut column = visible_column(&input.columns, name)?.clone();
+                    if let Some(alias) = &selected.alias {
+                        column.schema.name.clone_from(alias);
                     }
+                    items.push(Projection {
+                        expression: BoundExpr::Column(column.id),
+                        column,
+                    });
                 }
                 let mut missing_groups = Vec::new();
                 for id in &input.groups {
@@ -825,31 +758,12 @@ impl Planner<'_> {
             }
             DplyrOperation::Mutate { assignments, .. } => {
                 for assignment in assignments {
-                    self.validate_expression(&assignment.expr)?;
-                    if input.columns.iter().any(|column| {
-                        !column.hidden
-                            && column.schema.name == assignment.column
-                            && input.groups.contains(&column.id)
-                    }) {
-                        return Err(self.unsupported("mutate() of a grouping column"));
-                    }
-                    let expression = BoundExpr::bind(&assignment.expr, &input.columns)?;
-                    let mut column = self.new_column(&assignment.column);
-                    if let Expr::Identifier(name) = &assignment.expr {
-                        let source = visible_column(&input.columns, name)?;
-                        column.schema.data_type.clone_from(&source.schema.data_type);
-                        column.schema.nullable = source.schema.nullable;
-                    }
-                    let mut items = Self::identities(&input.columns);
-                    let projection = Projection { column, expression };
-                    if let Some(index) = items.iter().position(|item| {
-                        !item.column.hidden && item.column.schema.name == assignment.column
-                    }) {
-                        items[index] = projection;
+                    let expanded = if assignment.column.is_empty() {
+                        across::expand(&assignment.expr, &self.across_schema(&input))?
                     } else {
-                        items.push(projection);
-                    }
-                    input = self.project(input, items)?;
+                        vec![assignment.clone()]
+                    };
+                    input = self.mutate_assignments(input, &expanded)?;
                 }
                 Ok(input)
             }
@@ -872,6 +786,18 @@ impl Planner<'_> {
                 self.project(input, items)
             }
             DplyrOperation::Filter { condition, .. } => {
+                let bound = self.resolve_expression(condition, &input)?;
+                let condition = self.expand_predicates(&bound, &input)?;
+                let original_visible = input
+                    .columns
+                    .iter()
+                    .filter(|c| !c.hidden)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let (next, condition, distinct_hidden) =
+                    self.distinct_windows(input, &condition)?;
+                input = next;
+                let condition = &condition;
                 self.validate_expression(condition)?;
                 let mut predicate = BoundExpr::bind(condition, &input.columns)?;
                 let visible = input
@@ -898,13 +824,19 @@ impl Planner<'_> {
                     columns: input.columns.clone(),
                     groups: input.groups.clone(),
                     order: input.order.clone(),
+                    frame: input.frame,
                     node: RelNode::Filter {
                         input: Box::new(input),
                         predicate,
                     },
                 };
                 if self.has_window(condition) {
-                    result = self.project(result, Self::identities(&visible))?;
+                    let columns = if distinct_hidden.is_empty() {
+                        &visible
+                    } else {
+                        &original_visible
+                    };
+                    result = self.project(result, Self::identities(columns))?;
                 }
                 Ok(result)
             }
@@ -916,6 +848,12 @@ impl Planner<'_> {
                         input.groups.push(id);
                     }
                 }
+                Ok(input)
+            }
+            DplyrOperation::Ungroup { .. } => {
+                // Clears the current grouping only. No SQL stage: an earlier
+                // summarise already baked its GROUP BY into its own subquery.
+                input.groups.clear();
                 Ok(input)
             }
             DplyrOperation::Arrange { columns, .. } => {
@@ -953,13 +891,27 @@ impl Planner<'_> {
                     .collect();
                 self.summarise(input, assignments)
             }
-            DplyrOperation::SummariseExpressions { assignments, .. } => self.summarise(
-                input,
-                assignments
-                    .iter()
-                    .map(|assignment| (assignment.column.clone(), assignment.expr.clone()))
-                    .collect(),
-            ),
+            DplyrOperation::SummariseExpressions { assignments, .. } => {
+                let mut expanded = Vec::new();
+                for assignment in assignments {
+                    if assignment.column.is_empty() {
+                        expanded.extend(across::expand(
+                            &assignment.expr,
+                            &self.across_schema(&input),
+                        )?);
+                    } else {
+                        expanded.push(assignment.clone());
+                    }
+                }
+                self.summarise(
+                    input,
+                    expanded
+                        .into_iter()
+                        .map(|assignment| (assignment.column, assignment.expr))
+                        .collect(),
+                )
+            }
+            DplyrOperation::Slice { spec, .. } => self.slice(input, spec),
             DplyrOperation::Count {
                 columns: count_columns,
                 ..
@@ -997,6 +949,7 @@ impl Planner<'_> {
                     columns,
                     groups: original_groups,
                     order: Vec::new(),
+                    frame: None,
                 })
             }
             DplyrOperation::Distinct { columns, .. } => {
@@ -1024,6 +977,7 @@ impl Planner<'_> {
                     columns: input.columns.clone(),
                     groups: input.groups.clone(),
                     order: input.order.clone(),
+                    frame: input.frame,
                     node: RelNode::Distinct(Box::new(input)),
                 })
             }
@@ -1036,6 +990,17 @@ impl Planner<'_> {
                 ..
             } => self.set(input, operation, right_table),
         }
+    }
+
+    fn resolve_expression(&self, expr: &Expr, input: &Relation) -> GenerationResult<Expr> {
+        let columns = input
+            .columns
+            .iter()
+            .filter(|c| !c.hidden)
+            .map(|c| c.schema.clone())
+            .collect::<Vec<_>>();
+        let expr = native::expand(expr)?;
+        bindings::resolve(&expr, &columns, self.bindings)
     }
 
     fn validate_output(&self, columns: &[Column]) -> GenerationResult<()> {
@@ -1071,6 +1036,7 @@ fn identity_select(columns: &[Column]) -> Vec<SelectItem> {
 
 fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery> {
     let (input, items, predicate, group_by, distinct) = match &relation.node {
+        RelNode::Query(query) => return Ok(query.as_ref().clone()),
         RelNode::Scan(source) => {
             return Ok(SqlQuery {
                 source: SqlSource::Table(source.clone()),
@@ -1079,6 +1045,7 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
                 group_by: Vec::new(),
                 order_by: Vec::new(),
                 distinct: false,
+                limit: None,
             })
         }
         RelNode::Join {
@@ -1086,7 +1053,10 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
             right,
             join_type,
             keys,
+            predicates,
+            closest,
             items,
+            na_matches,
         } => {
             let projection = items
                 .iter()
@@ -1137,13 +1107,47 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
                     right: Box::new(lower(right, sequence)?),
                     join_type: join_type.clone(),
                     keys,
+                    predicates: predicates
+                        .iter()
+                        .map(|(a, op, b)| {
+                            Ok((
+                                column_by_id(&left.columns, *a)?.schema.name.clone(),
+                                op.clone(),
+                                column_by_id(&right.columns, *b)?.schema.name.clone(),
+                            ))
+                        })
+                        .collect::<GenerationResult<_>>()?,
+                    closest: closest
+                        .as_ref()
+                        .map(|(a, op, b)| {
+                            Ok((
+                                column_by_id(&left.columns, *a)?.schema.name.clone(),
+                                op.clone(),
+                                column_by_id(&right.columns, *b)?.schema.name.clone(),
+                            ))
+                        })
+                        .transpose()?,
+                    na_matches: *na_matches,
                 },
                 projection,
                 filter: None,
                 group_by: Vec::new(),
                 order_by: Vec::new(),
                 distinct: false,
+                limit: None,
             });
+        }
+        RelNode::Slice { input, spec, by } => {
+            return slice::lower(
+                lower(input, sequence)?,
+                spec,
+                names_for_ids(&input.columns, by)?,
+                input
+                    .columns
+                    .iter()
+                    .map(|column| column.schema.name.clone())
+                    .collect(),
+            );
         }
         RelNode::Set {
             left,
@@ -1161,12 +1165,14 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
                 group_by: Vec::new(),
                 order_by: Vec::new(),
                 distinct: false,
+                limit: None,
             });
         }
         RelNode::Project {
             input,
             items,
             partition,
+            frame,
         } => {
             let partition_by = names_for_ids(&input.columns, partition)?;
             let items = items
@@ -1174,9 +1180,23 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
                 .map(|item| {
                     Ok(SelectItem {
                         alias: item.column.schema.name.clone(),
-                        expression: SelectExpression::Scalar {
+                        expression: SelectExpression::WindowScalar {
                             expr: item.expression.to_expr(&input.columns)?,
                             partition_by: partition_by.clone(),
+                            order_by: input
+                                .order
+                                .iter()
+                                .map(|(id, direction)| {
+                                    Ok(OrderExpr {
+                                        column: column_by_id(&input.columns, *id)?
+                                            .schema
+                                            .name
+                                            .clone(),
+                                        direction: direction.clone(),
+                                    })
+                                })
+                                .collect::<GenerationResult<_>>()?,
+                            frame: *frame,
                         },
                     })
                 })
@@ -1225,6 +1245,7 @@ fn lower(relation: &Relation, sequence: &mut usize) -> GenerationResult<SqlQuery
         group_by,
         order_by: Vec::new(),
         distinct,
+        limit: None,
     })
 }
 
@@ -1259,16 +1280,67 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<String>>
         DplyrNode::DataSource { name, .. } => (name.as_str(), &[][..]),
     };
     let mut sources = vec![source.to_string()];
-    for operation in operations {
-        let source = match operation {
-            DplyrOperation::Join { spec, .. } => &spec.table,
-            DplyrOperation::SetOp { right_table, .. } => right_table,
-            _ => continue,
-        };
-        if !sources.contains(source) {
-            sources.push(source.clone());
+    fn add(sources: &mut Vec<String>, name: &str) {
+        if !sources.iter().any(|s| s == name) {
+            sources.push(name.to_owned());
         }
     }
+    fn operand(expr: &Expr, sources: &mut Vec<String>) {
+        match expr {
+            Expr::Identifier(name) | Expr::Literal(LiteralValue::String(name)) => {
+                add(sources, name)
+            }
+            Expr::Function { name, args } if name == "__pipeline" => {
+                if let Some(source) = args.first() {
+                    operand(source, sources);
+                }
+                for step in args.iter().skip(1) {
+                    if let Expr::Function { name, args } = step {
+                        extended(name, args, sources);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    fn extended(name: &str, args: &[Expr], sources: &mut Vec<String>) {
+        if matches!(
+            name,
+            "union"
+                | "union_all"
+                | "intersect"
+                | "setdiff"
+                | "cross_join"
+                | "rows_insert"
+                | "rows_append"
+                | "rows_update"
+                | "rows_patch"
+                | "rows_upsert"
+                | "rows_delete"
+        ) {
+            if let Some(right) = args.first() {
+                operand(right, sources);
+            }
+        } else if name == "bind_queries" {
+            for arg in args {
+                operand(arg, sources);
+            }
+        }
+    }
+    fn visit(operations: &[DplyrOperation], sources: &mut Vec<String>) {
+        for operation in operations {
+            match operation {
+                DplyrOperation::Join { spec, .. } => {
+                    add(sources, &spec.table);
+                    visit(&spec.right_operations, sources);
+                }
+                DplyrOperation::SetOp { right_table, .. } => add(sources, right_table),
+                DplyrOperation::Extended { name, args, .. } => extended(name, args, sources),
+                _ => {}
+            }
+        }
+    }
+    visit(operations, &mut sources);
     Ok(sources)
 }
 
@@ -1277,6 +1349,46 @@ pub(crate) fn compile_with_schemas(
     schemas: &[SourceSchema],
     generator: &SqlGenerator,
 ) -> GenerationResult<CompiledQuery> {
+    Ok(compile_plan(
+        ast,
+        schemas,
+        generator,
+        false,
+        &std::collections::HashMap::new(),
+    )?
+    .query)
+}
+
+pub(crate) fn compile_for_execution(
+    ast: &DplyrNode,
+    schemas: &[SourceSchema],
+    generator: &SqlGenerator,
+) -> GenerationResult<crate::execution::ExecutionPlan> {
+    compile_plan(
+        ast,
+        schemas,
+        generator,
+        true,
+        &std::collections::HashMap::new(),
+    )
+}
+
+pub(crate) fn compile_with_bindings(
+    ast: &DplyrNode,
+    schemas: &[SourceSchema],
+    generator: &SqlGenerator,
+    bindings: &std::collections::HashMap<String, serde_json::Value>,
+) -> GenerationResult<CompiledQuery> {
+    Ok(compile_plan(ast, schemas, generator, false, bindings)?.query)
+}
+
+fn compile_plan(
+    ast: &DplyrNode,
+    schemas: &[SourceSchema],
+    generator: &SqlGenerator,
+    collect_checks: bool,
+    bindings: &std::collections::HashMap<String, serde_json::Value>,
+) -> GenerationResult<crate::execution::ExecutionPlan> {
     schema::validate_schemas(schemas)?;
     let (source, operations) = match ast {
         DplyrNode::Pipeline {
@@ -1302,6 +1414,8 @@ pub(crate) fn compile_with_schemas(
         schemas,
         next_id: 0,
         stages: 1,
+        checks: collect_checks.then(Vec::new),
+        bindings,
     };
     let mut relation = planner.scan(source)?;
     for operation in operations {
@@ -1323,6 +1437,7 @@ pub(crate) fn compile_with_schemas(
             group_by: Vec::new(),
             order_by: Vec::new(),
             distinct: false,
+            limit: None,
         };
         planner.stage()?;
     }
@@ -1343,9 +1458,14 @@ pub(crate) fn compile_with_schemas(
         .filter(|column| !column.hidden)
         .map(|column| column.schema)
         .collect();
-    Ok(CompiledQuery {
-        sql,
-        columns,
-        stages: planner.stages,
+    Ok(crate::execution::ExecutionPlan {
+        query: CompiledQuery {
+            sql,
+            columns,
+            stages: planner.stages,
+        },
+        checks: planner.checks.unwrap_or_default(),
     })
 }
+
+pub(crate) use discovery::{pivot_keys, supply_pivot_keys};

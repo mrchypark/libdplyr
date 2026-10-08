@@ -33,6 +33,7 @@ pub struct CliArgs {
     pub compact: bool,
     pub json_output: bool,
     pub schema_file: Option<String>,
+    pub execution_plan: bool,
 }
 
 /// Supported SQL dialect types
@@ -194,6 +195,7 @@ pub fn parse_args() -> CliArgs {
                             Cannot be used with --validate-only, which never generates SQL.")
                 .conflicts_with("validate-only"),
         )
+        .arg(Arg::new("execution-plan").long("execution-plan").help("Emit a JSON query plan with snapshot validation queries").requires("schema").conflicts_with("validate-only").action(clap::ArgAction::SetTrue))
         .get_matches();
 
     parse_matches(&matches)
@@ -216,6 +218,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         compact: matches.get_flag("compact"),
         json_output: matches.get_flag("json"),
         schema_file: matches.get_one::<String>("schema").cloned(),
+        execution_plan: matches.get_flag("execution-plan"),
     }
 }
 
@@ -288,6 +291,7 @@ pub struct CliConfig {
     pub verbose: bool,
     pub debug: bool,
     pub schema_file: Option<String>,
+    pub execution_plan: bool,
 }
 
 impl CliConfig {
@@ -305,6 +309,7 @@ impl CliConfig {
             verbose: args.verbose,
             debug: args.debug,
             schema_file: args.schema_file.clone(),
+            execution_plan: args.execution_plan,
         }
     }
 
@@ -618,6 +623,11 @@ impl ProcessingPipeline {
         }
 
         self.debug_logger.reset_step_timer();
+        if self.config.execution_plan {
+            let plan = self.transpiler.plan_with_schemas(input, &self.schemas)?;
+            return serde_json::to_string_pretty(&plan)
+                .map_err(|error| TranspileError::ConfigurationError(error.to_string()));
+        }
         let compiled = self
             .transpiler
             .transpile_with_schemas(input, &self.schemas)?;
@@ -794,6 +804,7 @@ mod tests {
             compact: false,
             json_output: false,
             schema_file: None,
+            execution_plan: false,
         }
     }
 

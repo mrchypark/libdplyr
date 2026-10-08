@@ -205,8 +205,12 @@ fn sort_survives_overwriting_the_sort_column() {
 }
 
 #[test]
-fn mutate_of_a_grouping_column_is_rejected() {
-    expect_generation_error("data %>% group_by(grp) %>% mutate(grp = paste(grp, 'x'))");
+fn mutate_of_a_grouping_column_regroups() {
+    let q =
+        compile("data %>% group_by(grp) %>% mutate(grp = paste(grp, 'x')) %>% summarise(n = n())")
+            .expect("regroup");
+    assert_eq!(columns(&q), vec!["grp", "n"]);
+    assert!(q.sql.contains("GROUP BY"));
 }
 
 #[test]
@@ -219,8 +223,10 @@ fn n_distinct_summarise_is_null_inclusive() {
 }
 
 #[test]
-fn n_distinct_as_a_window_expression_is_rejected() {
-    expect_generation_error("data %>% filter(n_distinct(x) > 1)");
+fn n_distinct_as_a_window_expression_has_two_stages() {
+    let q = compile("data %>% filter(n_distinct(x) > 1)").expect("window distinct");
+    assert!(q.sql.contains("DENSE_RANK()"));
+    assert!(!q.sql.contains("COUNT(DISTINCT"));
 }
 
 #[test]
@@ -430,4 +436,115 @@ fn schema_with_a_nul_byte_is_rejected() {
 fn empty_pipeline_selects_the_schema_columns() {
     let q = compile("data").expect("bare source");
     assert_eq!(columns(&q), vec!["id", "grp", "x", "y", "z", "label"]);
+}
+
+// --- unary operators, membership, power, ungroup ----------------------------
+
+#[test]
+fn unary_operators_bind_and_lower() {
+    let q = compile("data %>% mutate(a = -x, b = +x, c = !(x > 1))").expect("unary mutate");
+    assert_eq!(columns(&q).last(), Some(&"c"));
+    assert!(q.stages >= 2, "stages: {}", q.stages);
+}
+
+#[test]
+fn nested_window_under_unary_is_still_rejected() {
+    // A unary wrapper must not hide a nested window from validation.
+    expect_generation_error("data %>% mutate(a = -rank(row_number()))");
+    expect_generation_error("data %>% filter(!(rank(row_number()) > 1))");
+}
+
+#[test]
+fn a_bare_window_under_unary_stays_a_window() {
+    // Not an error: the unary wraps the window, it does not nest it.
+    let q = compile("data %>% mutate(a = -row_number())").expect("window under unary");
+    assert_eq!(columns(&q).last(), Some(&"a"));
+}
+
+#[test]
+fn nested_aggregate_under_unary_is_still_rejected() {
+    expect_generation_error("data %>% summarise(total = -sum(sum(x)))");
+}
+
+#[test]
+fn membership_binds_only_its_operand() {
+    let q = compile("data %>% filter(grp %in% c(\"a\", \"b\"))").expect("in filter");
+    assert!(lower(&q.sql).contains("where"), "sql: {}", flat(&q.sql));
+}
+
+#[test]
+fn membership_operand_still_resolves_window_and_aggregate_rules() {
+    // filter() admits a window operand, so this compiles rather than erroring.
+    let q = compile("data %>% filter(-row_number() %in% c(1, 2))").expect("window in filter");
+    assert!(lower(&q.sql).contains("where"), "sql: {}", flat(&q.sql));
+    // summarise() does not admit a window operand.
+    expect_generation_error("data %>% group_by(grp) %>% summarise(ok = -sum(sum(x)))");
+}
+
+#[test]
+fn membership_under_unary_is_not_an_aggregate_escape_hatch() {
+    expect_generation_error("data %>% summarise(n = -sum(sum(x)))");
+}
+
+#[test]
+fn power_is_bound_as_an_operator() {
+    let q = compile("data %>% mutate(a = x^2)").expect("power");
+    assert_eq!(columns(&q).last(), Some(&"a"));
+}
+
+#[test]
+fn ungroup_after_group_by_adds_no_stage() {
+    let grouped = compile("data %>% group_by(grp)").expect("group_by");
+    let ungrouped = compile("data %>% group_by(grp) %>% ungroup()").expect("ungroup");
+    assert_eq!(
+        grouped.stages, ungrouped.stages,
+        "ungroup() must not add an SQL stage"
+    );
+    assert_eq!(columns(&ungrouped), columns(&grouped));
+}
+
+#[test]
+fn mutate_after_ungroup_computes_a_global_aggregate() {
+    let q = compile("data %>% group_by(grp) %>% ungroup() %>% mutate(m = mean(x))")
+        .expect("global mean after ungroup");
+    assert_eq!(columns(&q).last(), Some(&"m"));
+    // No GROUP BY may survive into the stage that computes the global mean.
+    assert!(
+        !lower(&q.sql).contains("group by"),
+        "ungrouped mutate must not stay partitioned: {}",
+        flat(&q.sql)
+    );
+}
+
+#[test]
+fn ungroup_after_a_grouped_summary_yields_a_global_summary() {
+    let q = compile(
+        "data %>% group_by(grp) %>% summarise(total = sum(x)) %>% ungroup() %>% summarise(grand = sum(total))",
+    )
+    .expect("global summary after ungroup");
+    assert_eq!(columns(&q), vec!["grand"]);
+    // The first summary keeps its own GROUP BY inside its subquery.
+    assert!(lower(&q.sql).contains("group by"), "sql: {}", flat(&q.sql));
+}
+
+#[test]
+fn selection_after_ungroup_still_binds_group_keys() {
+    let q = compile("data %>% group_by(grp) %>% ungroup() %>% select(grp, x)")
+        .expect("select after ungroup");
+    assert_eq!(columns(&q), vec!["grp", "x"]);
+}
+
+#[test]
+fn a_group_key_may_be_mutated_after_ungroup() {
+    compile("data %>% group_by(grp) %>% mutate(grp = y)").expect("group overwrite regroups");
+    let q = compile("data %>% group_by(grp) %>% ungroup() %>% mutate(grp = y)")
+        .expect("mutate group key after ungroup");
+    assert_eq!(names(&q, "grp"), 1);
+    assert_eq!(columns(&q), vec!["id", "grp", "x", "y", "z", "label"]);
+}
+
+#[test]
+fn ungroup_without_a_preceding_group_by_is_accepted() {
+    let q = compile("data %>% ungroup() %>% summarise(total = sum(x))").expect("ungroup alone");
+    assert_eq!(columns(&q), vec!["total"]);
 }

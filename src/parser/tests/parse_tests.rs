@@ -87,7 +87,7 @@ fn test_join_rejects_unknown_join_parameter_name() {
     let error = parser.parse().unwrap_err();
 
     assert!(
-        error.to_string().contains("by"),
+        error.to_string().contains("bogus"),
         "Unexpected error: {error}"
     );
 }
@@ -885,11 +885,11 @@ mod distinct_parsing_tests {
     }
 
     #[test]
-    fn test_distinct_rejects_expressions_and_options() {
+    fn test_distinct_routes_expressions_and_options() {
         for input in ["distinct(upper(name))", "distinct(.keep_all = TRUE)"] {
             let lexer = Lexer::new(input.to_string());
             let mut parser = Parser::new(lexer).unwrap();
-            assert!(parser.parse().is_err(), "{input} should be rejected");
+            assert!(parser.parse().is_ok(), "{input} should parse");
         }
     }
 }
@@ -2059,10 +2059,10 @@ mod summarise_parsing_tests {
     }
 
     #[test]
-    fn test_summarise_rejects_trailing_comma_like_other_operations() {
+    fn test_summarise_accepts_trailing_comma() {
         let lexer = Lexer::new("summarise(total = sum(x),)".to_string());
         let mut parser = Parser::new(lexer).unwrap();
-        assert!(parser.parse().is_err(), "trailing comma must be rejected");
+        assert!(parser.parse().is_ok(), "trailing comma must parse");
     }
 
     /// Deep nesting inside a summarise() expression must be rejected the same
@@ -3534,7 +3534,7 @@ mod pipeline_parsing_tests {
                     Err(ParseError::UnexpectedToken {
                         expected, found, ..
                     }) => {
-                        assert!(expected.contains("="));
+                        assert!(expected.contains(")"));
                         assert_eq!(found, "age");
                     }
                     other => panic!("Expected UnexpectedToken error, got: {other:?}"),
@@ -3543,18 +3543,11 @@ mod pipeline_parsing_tests {
 
             #[test]
             fn test_empty_filter_condition() {
-                let lexer = Lexer::new("filter()".to_string());
-                let mut parser = Parser::new(lexer).unwrap();
-
-                match parser.parse() {
-                    Err(ParseError::UnexpectedToken {
-                        expected, found, ..
-                    }) => {
-                        assert!(expected.contains("expression") || expected.contains("identifier"));
-                        assert_eq!(found, ")");
-                    }
-                    other => panic!("Expected UnexpectedToken error, got: {other:?}"),
-                }
+                let mut parser = Parser::new(Lexer::new("filter()".into())).expect("parser");
+                let ast = parser.parse().expect("empty filter is identity");
+                assert!(
+                    matches!(ast, DplyrNode::Pipeline { operations, .. } if matches!(&operations[0], DplyrOperation::Filter { condition: Expr::Literal(LiteralValue::Boolean(true)), .. }))
+                );
             }
 
             #[test]
@@ -3596,7 +3589,7 @@ mod pipeline_parsing_tests {
                     Err(ParseError::UnexpectedToken {
                         expected, found, ..
                     }) => {
-                        assert!(expected.contains("column identifier"));
+                        assert!(expected.contains("expression"));
                         assert_eq!(found, ")");
                     }
                     other => panic!("Expected UnexpectedToken error, got: {other:?}"),
