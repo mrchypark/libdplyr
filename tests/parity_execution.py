@@ -38,6 +38,11 @@ CREATE TABLE big_pivot(id INTEGER, "key" BIGINT, value INTEGER);
 INSERT INTO big_pivot VALUES (1,1152921504606846976,3);
 """
 CASES = [
+    ("bind_queries repeated input", 'data %>% select(id) %>% bind_queries(data %>% select(id), all = TRUE)', [[i] for i in range(1,7)] * 2),
+    ("bind_queries distinct option", 'data %>% select(id) %>% bind_queries(data %>% select(id), all = FALSE)', [[i] for i in range(1,7)]),
+    ("standalone bind_queries explicit first source", 'bind_queries(keys %>% select(id), data %>% select(id))', [[1],[1],[2],[2]] + [[i] for i in range(1,7)]),
+    ("standalone bind_queries first pipeline", 'bind_queries(keys %>% filter(id == 1) %>% select(id), data %>% select(id))', [[1],[1]] + [[i] for i in range(1,7)]),
+    ("standalone bind_queries single source", 'bind_queries(keys %>% select(id))', [[1],[1],[2],[2]]),
     ("grouped distinct defaults to visible columns", 'data %>% group_by(grp) %>% distinct() %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),
     ("grouped distinct keep_all false uses visible columns", 'data %>% group_by(grp) %>% distinct(.keep_all = FALSE) %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),
     ("grouped distinct keep_all true uses visible columns", 'data %>% group_by(grp) %>% distinct(.keep_all = TRUE) %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),

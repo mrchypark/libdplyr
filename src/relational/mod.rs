@@ -1321,7 +1321,9 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<SourceRe
             }
         } else if name == "bind_queries" {
             for arg in args {
-                operand(arg, sources)?;
+                if !matches!(arg, Expr::NamedArg { .. }) {
+                    operand(arg, sources)?;
+                }
             }
         }
         Ok(())
@@ -1418,7 +1420,21 @@ fn compile_plan(
         checks: collect_checks.then(Vec::new),
         bindings,
     };
-    let mut relation = planner.scan(source)?;
+    let (mut relation, operations) = match operations.split_first() {
+        Some((DplyrOperation::Extended { name, args, .. }, remaining))
+            if name == "bind_queries"
+                && matches!(ast, DplyrNode::Pipeline { source: None, .. }) =>
+        {
+            let mut args = args.clone();
+            let first = args
+                .iter()
+                .position(|arg| !matches!(arg, Expr::NamedArg { .. }))
+                .ok_or_else(|| invalid("bind_queries needs at least one relation"))?;
+            let input = planner.relation_operand(&args.remove(first))?;
+            (planner.extended(input, name, &args)?, remaining)
+        }
+        _ => (planner.scan(source)?, operations),
+    };
     for operation in operations {
         relation = planner.apply(relation, operation)?;
     }

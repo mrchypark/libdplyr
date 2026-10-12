@@ -237,6 +237,10 @@ missing columns with NULL. Union removes duplicates; union_all and bind_queries
 preserve them. Right operands can contain pipelines. `intersect/setdiff(all =
 TRUE)`, `symdiff`, and `setequal` remain unsupported.
 
+`bind_queries(first, ...)` starts from its first explicit relation. In a pipeline,
+`input %>% bind_queries(other, ...)` retains the input and each explicit operand,
+including repeated sources. Set `all = FALSE` to remove duplicate rows.
+
 ### Tidyr and rows
 
 `pivot_longer()` supports selectors, `names_to`, and `values_to`.

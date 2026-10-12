@@ -1244,6 +1244,19 @@ TEST_F(DuckDBExtensionTest, AutomaticSchemaFindsJoinAndSetInputs) {
     auto combined = safe_query("SELECT * FROM dplyr('mtcars %>% union(mtcars) %>% select(mpg) %>% filter(mpg > 20)')");
     ASSERT_FALSE(combined->HasError()) << combined->GetError();
     EXPECT_GT(combined->RowCount(), 0);
+    ASSERT_FALSE(safe_query("CREATE TEMP TABLE bind_other AS SELECT * FROM mtcars")->HasError());
+    for (const char *option : {"TRUE", "FALSE"}) {
+        const auto bound = safe_query(
+            std::string("SELECT * FROM dplyr('mtcars %>% bind_queries(bind_other, all = ") +
+            option + ")')");
+        ASSERT_FALSE(bound->HasError()) << bound->GetError();
+        EXPECT_EQ(bound->RowCount(), std::string(option) == "TRUE" ? 6 : 3);
+        const auto repeated = safe_query(
+            std::string("SELECT * FROM dplyr('mtcars %>% bind_queries(mtcars, all = ") +
+            option + ")')");
+        ASSERT_FALSE(repeated->HasError()) << repeated->GetError();
+        EXPECT_EQ(repeated->RowCount(), std::string(option) == "TRUE" ? 6 : 3);
+    }
 }
 
 // R1-AC2: discovery and SQL rendering must identify the same qualified source.

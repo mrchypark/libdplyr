@@ -13,6 +13,52 @@ fn discovers_every_input_once_in_pipeline_order() {
 }
 
 #[test]
+fn bind_queries_discovery_ignores_named_options() {
+    for code in [
+        "left %>% bind_queries(left, right, all = FALSE)",
+        "left %>% bind_queries(all = FALSE, right)",
+        "left %>% bind_queries(right, all = TRUE)",
+    ] {
+        let sources = transpiler()
+            .required_sources(code)
+            .expect("source discovery");
+        assert_eq!(sources, ["left", "right"].map(SourceRef::from));
+        let schemas = sources
+            .into_iter()
+            .map(|source| SourceSchema::new(source, ["id"]))
+            .collect::<Vec<_>>();
+        let query = transpiler()
+            .transpile_with_schemas(code, &schemas)
+            .expect("bind_queries compilation");
+        assert_eq!(query.sql.contains("UNION ALL"), code.contains("TRUE"));
+    }
+}
+
+#[test]
+fn bind_queries_consumes_each_explicit_relation_once() {
+    let schemas = [
+        SourceSchema::new("left", ["id"]),
+        SourceSchema::new("right", ["id"]),
+    ];
+    for (code, unions) in [
+        ("left %>% bind_queries(left)", 1),
+        ("left %>% bind_queries(right) %>% bind_queries(left)", 2),
+        ("bind_queries(right, left)", 1),
+        ("bind_queries(right %>% filter(id > 0), left)", 1),
+    ] {
+        let query = transpiler()
+            .transpile_with_schemas(code, &schemas)
+            .expect("bind inputs");
+        assert_eq!(query.sql.matches("UNION ALL").count(), unions, "{code}");
+        assert_eq!(
+            query.sql.matches("FROM \"right\"").count(),
+            usize::from(code.contains("right")),
+            "{code}"
+        );
+    }
+}
+
+#[test]
 fn source_discovery_uses_structural_identity_and_validates_constructors() {
     let sources = transpiler().required_sources(
         r#"sales.orders %>% inner_join(in_schema("sales", "orders"), by = "id") %>% union_all(in_schema("sales", "orders") %>% filter(id > 0)) %>% filter(id == "sales.orders")"#,

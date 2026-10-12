@@ -796,17 +796,7 @@ impl Planner<'_> {
                         SetOperation::SetDiff
                     }
                 };
-                for (index, value) in values.into_iter().enumerate() {
-                    if name == "bind_queries"
-                        && index == 0
-                        && SourceRef::from_expr(value).is_ok_and(|source| {
-                            self.schemas
-                                .first()
-                                .is_some_and(|schema| schema.source == source)
-                        })
-                    {
-                        continue;
-                    }
+                for value in values {
                     let right = self.relation_operand(value)?;
                     input = self.set_relations(input, right, &operation)?;
                 }
