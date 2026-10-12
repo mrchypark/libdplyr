@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reject lossy integer pivot keys, preserve exact integer digits in generated SQL and pivot labels, and return the public C timeout status when schema compilation exceeds its deadline.
 
 ### Security
-- Pin `lru` exactly to the patched 0.18.5 release for RUSTSEC-2026-0253 and replace the yanked test-only `chacha20` dependency.
+- Pin direct external dependencies to the audited lockfile versions, including `lru` 0.18.5 for RUSTSEC-2026-0253 and `serde_json` 1.0.149. Replace the yanked test-only `chacha20` dependency.
 
 ### Limitations
 - This is not a complete R evaluator or full dbplyr API implementation. Database drivers, DML, in-place writes, and data movement are not bundled.
