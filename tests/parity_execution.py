@@ -13,17 +13,21 @@ SCHEMAS = [
     {"source": "data", "columns": [{"name": n} for n in ["id", "grp", "x", "y", "weight"]]},
     {"source": "other", "columns": [{"name": n} for n in ["other_id", "grp", "value"]]},
     {"source": "keys", "columns": [{"name": n} for n in ["id", "key", "value"]]},
+    {"source": "big_pivot", "columns": [{"name": n} for n in ["id", "key", "value"]]},
 ]
 FIXTURE = """
 DROP TABLE IF EXISTS data;
 DROP TABLE IF EXISTS other;
 DROP TABLE IF EXISTS "keys";
+DROP TABLE IF EXISTS big_pivot;
 CREATE TABLE data(id INTEGER, grp VARCHAR(20), x DOUBLE PRECISION, y DOUBLE PRECISION, weight DOUBLE PRECISION);
 INSERT INTO data VALUES (1,'a',10,1,1),(2,'a',10,NULL,0),(3,'a',NULL,4,2),(4,'b',5,2,1),(5,'b',0,NULL,1),(6,NULL,-3,7,1);
 CREATE TABLE other(other_id INTEGER, grp VARCHAR(20), value DOUBLE PRECISION);
 INSERT INTO other VALUES (1,'a',8),(1,'a',8),(4,'b',3),(7,'b',-1);
 CREATE TABLE "keys"(id INTEGER, "key" VARCHAR(20), value DOUBLE PRECISION);
 INSERT INTO "keys" VALUES (1,'x',2),(1,'y',3),(2,'x',4),(2,'y',NULL);
+CREATE TABLE big_pivot(id INTEGER, "key" BIGINT, value INTEGER);
+INSERT INTO big_pivot VALUES (1,1152921504606846976,3);
 """
 CASES = [
     ("temporary grouping", 'data %>% mutate(z = mean(x), .by = grp) %>% select(id, z) %>% arrange(id)', [[1,10],[2,10],[3,10],[4,2.5],[5,2.5],[6,-3]]),
@@ -48,6 +52,7 @@ CASES = [
     ("head", 'data %>% arrange(id) %>% head(2) %>% select(id)', [[1],[2]]),
     ("long pivot preserves rows", 'keys %>% pivot_longer(c(value), names_to = "metric", values_to = "amount")', [[1,'x','value',2],[1,'y','value',3],[2,'x','value',4],[2,'y','value',None]]),
     ("wide pivot", 'keys %>% pivot_wider(names_from = key, values_from = value, keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
+    ("wide exact large integer pivot", 'big_pivot %>% pivot_wider(names_from = key, values_from = value, keys = c(1152921504606846976))', [[1,3]]),
     ("replace_na", 'data %>% replace_na(list(y = 0)) %>% select(id, y)', [[1,1],[2,0],[3,4],[4,2],[5,0],[6,7]]),
     ("ordered fill", 'data %>% arrange(id) %>% fill(y) %>% select(id, y)', [[1,1],[2,1],[3,4],[4,2],[5,2],[6,7]]),
     ("negative fractional modulo", 'data %>% mutate(z = x %% 2.5) %>% select(id, z)', [[1,0],[2,0],[3,None],[4,0],[5,0],[6,2]]),

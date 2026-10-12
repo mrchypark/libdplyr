@@ -159,7 +159,7 @@ fn extract_literal_values(expr: &Expr) -> GenerationResult<Vec<LiteralValue>> {
 fn literal_name(value: &LiteralValue) -> String {
     match value {
         LiteralValue::String(s) => s.clone(),
-        LiteralValue::Number(n) => n.to_string(),
+        LiteralValue::Number(n) => crate::sql_generator::format_number(*n),
         LiteralValue::Boolean(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         LiteralValue::Null => "NA".into(),
     }

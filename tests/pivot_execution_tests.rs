@@ -123,6 +123,9 @@ fn discovery_keeps_exact_integer_keys() {
         discovered_values: vec![
             serde_json::json!(-9_007_199_254_740_992_i64),
             serde_json::json!(9_007_199_254_740_992_u64),
+            serde_json::json!(1_152_921_504_606_846_976_i64),
+            serde_json::json!(i64::MIN),
+            serde_json::json!(9_223_372_036_854_775_808_u64),
         ],
         ..Default::default()
     };
@@ -135,5 +138,9 @@ fn discovery_keeps_exact_integer_keys() {
     .expect("exact pivot integers");
     assert!(sql.contains("-9007199254740992"));
     assert!(sql.contains("9007199254740992"));
+    assert!(sql.contains("\"1152921504606846976\""));
+    assert!(sql.contains("= 1152921504606846976"));
+    assert!(sql.contains("\"-9223372036854775808\""));
+    assert!(sql.contains("\"9223372036854775808\""));
     assert_eq!(database.calls, ["begin", "discover", "fetch", "commit"]);
 }

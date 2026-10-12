@@ -100,7 +100,7 @@ SQLite에서 양쪽이 생성한 82개 중 79개를 실제 비교했다. 열 순
 
 - `cargo test --workspace --all-features --release --locked`: 1165개 통과, 1개 기존 ignored.
 - `cargo clippy --workspace --all-targets -- -D warnings`와 fmt 검사 통과.
-- SQLite·DuckDB·PostgreSQL·MySQL: 64개 결과 사례씩, **256/256** 통과.
+- SQLite·DuckDB·PostgreSQL·MySQL: 65개 결과 사례씩, **260/260** 통과.
 - 같은 네 엔진: 관계·가중치·uncount·행 변경 위반 검사 **32개** 통과.
 - DuckDB 확장: **90개** 통과. 스키마·카탈로그 소스와 테이블 함수·embedded pipeline 진입점 포함.
 - 기존 SQLite relational/followup 실행 회귀 통과.

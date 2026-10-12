@@ -20,6 +20,15 @@ pub use dialect::{
     DialectConfig, DuckDbDialect, MySqlDialect, PostgreSqlDialect, SqlDialect, SqliteDialect,
 };
 
+pub(crate) fn format_number(n: f64) -> String {
+    // SQL parses decimal digits exactly, so f64's shortest round-trip text can change an integer.
+    if n.fract() == 0.0 {
+        format!("{n:.0}")
+    } else {
+        n.to_string()
+    }
+}
+
 /// SQL generator struct
 pub struct SqlGenerator {
     dialect: Box<dyn SqlDialect>,
@@ -1425,7 +1434,7 @@ impl SqlGenerator {
     fn generate_literal(&self, literal: &LiteralValue) -> GenerationResult<String> {
         match literal {
             LiteralValue::String(s) => Ok(self.dialect.quote_string(s)),
-            LiteralValue::Number(n) => Ok(n.to_string()),
+            LiteralValue::Number(n) => Ok(format_number(*n)),
             LiteralValue::Boolean(b) => Ok(if *b {
                 "TRUE".to_string()
             } else {
