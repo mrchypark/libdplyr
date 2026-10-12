@@ -15,6 +15,8 @@ fn discovers_every_input_once_in_pipeline_order() {
 #[test]
 fn bind_queries_discovery_ignores_named_options() {
     for code in [
+        "bind_queries(left, right, all = FALSE)",
+        "bind_queries(all = FALSE, left %>% select(id), right)",
         "left %>% bind_queries(left, right, all = FALSE)",
         "left %>% bind_queries(all = FALSE, right)",
         "left %>% bind_queries(right, all = TRUE)",
@@ -98,6 +100,10 @@ fn source_discovery_uses_structural_identity_and_validates_constructors() {
 #[test]
 fn discovery_rejects_missing_source_and_table_assignment() {
     assert!(transpiler().required_sources("select(id)").is_err());
+    assert!(transpiler().required_sources("bind_queries()").is_err());
+    assert!(transpiler()
+        .required_sources("bind_queries(all = TRUE)")
+        .is_err());
     assert!(transpiler()
         .required_sources("output <- data %>% select(id)")
         .is_err());

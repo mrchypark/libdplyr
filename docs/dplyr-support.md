@@ -240,10 +240,12 @@ TRUE)`, `symdiff`, and `setequal` remain unsupported.
 `bind_queries(first, ...)` starts from its first explicit relation. In a pipeline,
 `input %>% bind_queries(other, ...)` retains the input and each explicit operand,
 including repeated sources. Set `all = FALSE` to remove duplicate rows.
+Standalone calls also support automatic source discovery in DuckDB and the C API.
 
 ### Tidyr and rows
 
 `pivot_longer()` supports selectors, `names_to`, and `values_to`.
+Unsupported named pivot options and surplus positional arguments are rejected.
 `pivot_wider()` supports one `names_from`, one `values_from`, `id_cols`,
 `names_prefix`, `values_fill`, `values_fn` (`max`, `min`, `sum`, `mean`, `n`),
 and explicit literal `keys`. The default aggregator is max. Dynamic keys use
@@ -255,7 +257,9 @@ Other pivot options, multiple name/value columns, and pivot specs are not implem
 `expand()` and `complete()` support column domains, `nesting()`, and explicit
 literal domains for existing columns. `complete()` supports `fill` and `explicit`.
 Completion matches NULL domain keys; this differs from dbplyr's default SQL join.
-`replace_na(list(column = value))` changes named columns. `dbplyr_uncount()`
+`replace_na(list(column = value))` changes named columns. Like tidyr,
+`replace_na()` and `complete(fill = ...)` ignore unknown replacement names and
+use the first replacement when a name occurs more than once. `dbplyr_uncount()`
 supports weights, `.remove`, and `.id`; dynamic weights require an execution plan.
 It uses recursive SQL; MySQL receives a statement-specific recursion-limit hint.
 
@@ -266,7 +270,7 @@ NULL; patch fills only left NULLs. Insert uses `conflict` and update/delete use
 `unmatched`, with `error`/`ignore` policies. Update/patch/upsert validate unique
 right keys through an execution plan. Append, insert-ignore, and delete-ignore
 can compile without checks. `in_place`, copying across databases, and DML are
-not implemented. Runtime row operations use SQL equality for key matching.
+not implemented. Runtime row operations use NULL-safe equality for key matching.
 
 ### Bindings, native expressions, and execution
 

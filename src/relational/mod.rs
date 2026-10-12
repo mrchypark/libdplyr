@@ -1270,16 +1270,18 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<SourceRe
                     "schema-aware compilation does not create target tables",
                 ));
             }
-            (
-                source.as_ref().ok_or_else(|| {
-                    invalid("automatic schema discovery requires an explicit source")
-                })?,
-                operations.as_slice(),
-            )
+            (source.as_ref(), operations.as_slice())
         }
-        DplyrNode::DataSource { name, .. } => (name, &[][..]),
+        DplyrNode::DataSource { name, .. } => (Some(name), &[][..]),
     };
-    let mut sources = vec![source.clone()];
+    if source.is_none()
+        && !matches!(operations.first(), Some(DplyrOperation::Extended { name, .. }) if name == "bind_queries")
+    {
+        return Err(invalid(
+            "automatic schema discovery requires an explicit source",
+        ));
+    }
+    let mut sources = source.into_iter().cloned().collect::<Vec<_>>();
     fn add(sources: &mut Vec<SourceRef>, name: &SourceRef) {
         if !sources.iter().any(|s| s == name) {
             sources.push(name.clone());
@@ -1342,8 +1344,13 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<SourceRe
         }
         Ok(())
     }
-    source.validate().map_err(invalid)?;
+    if let Some(source) = source {
+        source.validate().map_err(invalid)?;
+    }
     visit(operations, &mut sources)?;
+    if sources.is_empty() {
+        return Err(invalid("bind_queries needs at least one relation"));
+    }
     Ok(sources)
 }
 

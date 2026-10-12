@@ -1068,6 +1068,12 @@ mod tests {
         );
         assert_eq!(status, DPLYR_SUCCESS, "{error}");
         assert!(sql.contains(r#"FROM "sales"."orders""#), "{sql}");
+        let (status, sources, error) = required_sources(
+            r#"bind_queries(sales.orders, in_schema("sales", "orders") %>% select(id), all = FALSE)"#,
+            DplyrPipeSyntax::Magrittr as u32,
+        );
+        assert_eq!(status, DPLYR_SUCCESS, "{error}");
+        assert_eq!(sources, r#"["sales.orders",["sales","orders"]]"#);
     }
 
     #[test]

@@ -1330,6 +1330,24 @@ TEST_F(DuckDBExtensionTest, QualifiedSourcesBindAcrossEntryPoints) {
             EXPECT_EQ(rows->GetValue(0, 0).ToString(), "1");
             EXPECT_EQ(rows->GetValue(0, 1).ToString(), "99");
         }
+        const std::string standalone = "bind_queries(in_schema(\"sales\", \"orders\") %>% select(id), sales.orders %>% select(id), all = FALSE) %>% arrange(id)";
+        for (const auto &query : {standalone, "SELECT * FROM dplyr(" + sql_string(standalone) + ")",
+                                 "SELECT * FROM (| " + standalone + " |)",
+                                 std::string("bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)"),
+                                 std::string("SELECT * FROM dplyr('bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)')"),
+                                 std::string("SELECT * FROM (| bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE) |)")}) {
+            auto result = safe_query(query);
+            ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
+            ASSERT_EQ(result->RowCount(), 2);
+            std::vector<std::string> ids;
+            while (auto rows = result->Fetch()) {
+                for (duckdb::idx_t row = 0; row < rows->size(); ++row) {
+                    ids.push_back(rows->GetValue(0, row).ToString());
+                }
+            }
+            std::sort(ids.begin(), ids.end());
+            EXPECT_EQ(ids, (std::vector<std::string>{"1", "99"})) << query;
+        }
     }
 }
 

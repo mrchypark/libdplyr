@@ -64,6 +64,15 @@ fn split_args<'a>(
     Ok((positional, named_map))
 }
 
+fn reject_named_positionals(args: &[&Expr]) -> GenerationResult<()> {
+    if let Some(Expr::NamedArg { name, .. }) =
+        args.iter().find(|arg| matches!(arg, Expr::NamedArg { .. }))
+    {
+        return Err(invalid(format!("unsupported option {name}")));
+    }
+    Ok(())
+}
+
 /// Converts a selector expression to a ColumnExpr list.
 fn selector_list(expr: &Expr) -> Vec<ColumnExpr> {
     match expr {
@@ -207,14 +216,19 @@ fn pivot_longer(
     _order: &[OrderExpr],
 ) -> GenerationResult<(SqlQuery, Vec<SchemaColumn>)> {
     let (positional, named) = split_args(args, &["names_to", "values_to", "cols"])?;
+    reject_named_positionals(&positional)?;
+    let mut positional = positional.into_iter();
 
     let selector = if let Some(cols) = named.get("cols") {
         *cols
-    } else if let Some(first) = positional.first() {
-        *first
+    } else if let Some(first) = positional.next() {
+        first
     } else {
         return Err(invalid("pivot_longer() requires a column selector"));
     };
+    if positional.next().is_some() {
+        return Err(invalid("pivot_longer() accepts one positional argument"));
+    }
 
     let names_to = named
         .get("names_to")
@@ -306,9 +320,10 @@ fn pivot_longer(
         };
     }
 
-    let mut output_cols = id_cols
+    let mut output_cols = columns
         .iter()
-        .map(|n| SchemaColumn::new(n.clone()))
+        .filter(|column| id_cols.contains(&column.name))
+        .cloned()
         .collect::<Vec<_>>();
     output_cols.push(SchemaColumn::new(names_to));
     output_cols.push(SchemaColumn::new(values_to));
@@ -337,10 +352,12 @@ fn pivot_wider(
             "id_cols",
         ],
     )?;
+    reject_named_positionals(&positional)?;
+    let mut positional = positional.into_iter();
 
     let names_from = if let Some(nf) = named.get("names_from") {
         string_value(nf)?
-    } else if let Some(first) = positional.first() {
+    } else if let Some(first) = positional.next() {
         string_value(first)?
     } else {
         return Err(invalid("pivot_wider() requires names_from"));
@@ -348,11 +365,14 @@ fn pivot_wider(
 
     let values_from = if let Some(vf) = named.get("values_from") {
         string_value(vf)?
-    } else if let Some(second) = positional.get(1) {
-        string_value(second)?
+    } else if let Some(next) = positional.next() {
+        string_value(next)?
     } else {
         return Err(invalid("pivot_wider() requires values_from"));
     };
+    if positional.next().is_some() {
+        return Err(invalid("pivot_wider() accepts two positional arguments"));
+    }
 
     let names_prefix = named
         .get("names_prefix")
@@ -368,15 +388,17 @@ fn pivot_wider(
 
     let values_fill = named.get("values_fill").copied();
 
+    let id_schema = columns
+        .iter()
+        .filter(|column| column.name != names_from && column.name != values_from)
+        .cloned()
+        .collect::<Vec<_>>();
+
     // id_cols: selector for identity columns (excludes names_from and values_from)
     let id_cols: Vec<String> = if let Some(id_expr) = named.get("id_cols") {
-        resolve_columns(id_expr, columns)?
+        resolve_columns(id_expr, &id_schema)?
     } else {
-        columns
-            .iter()
-            .filter(|c| c.name != names_from && c.name != values_from)
-            .map(|c| c.name.clone())
-            .collect()
+        id_schema.iter().map(|c| c.name.clone()).collect()
     };
 
     // Keys: literal domain values, not schema column references
@@ -484,8 +506,8 @@ fn pivot_wider(
 
     let mut output_cols = id_cols
         .iter()
-        .map(|n| SchemaColumn::new(n.clone()))
-        .collect::<Vec<_>>();
+        .map(|name| metadata(columns, name))
+        .collect::<GenerationResult<Vec<_>>>()?;
     for key in &keys {
         output_cols.push(SchemaColumn::new(format!(
             "{names_prefix}{}",

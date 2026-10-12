@@ -38,6 +38,13 @@ CREATE TABLE big_pivot(id INTEGER, "key" BIGINT, value INTEGER);
 INSERT INTO big_pivot VALUES (1,1152921504606846976,3);
 """
 CASES = [
+    ("wide pivot id selection excludes pivot sources", 'keys %>% pivot_wider(names_from = key, values_from = value, id_cols = everything(), keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
+    ("across bare function label", 'data %>% mutate(across(x, abs, .names = "{.col}_{.fn}")) %>% select(id, x_1)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,3]]),
+    ("across lambda function label", 'data %>% mutate(across(x, ~ .x + 1, .names = "{.col}_{.fn}")) %>% select(id, x_1)', [[1,11],[2,11],[3,None],[4,6],[5,1],[6,-2]]),
+    ("replace_na ignores unknown names like tidyr", 'data %>% replace_na(list(unknown = 0)) %>% select(id, y)', [[1,1],[2,None],[3,4],[4,2],[5,None],[6,7]]),
+    ("replace_na uses first duplicate replacement like tidyr", 'data %>% replace_na(list(y = 0, y = 9)) %>% select(id, y)', [[1,1],[2,0],[3,4],[4,2],[5,0],[6,7]]),
+    ("complete ignores unknown fill names like tidyr", 'keys %>% filter(key == "x") %>% complete(id, key = c("x", "y"), fill = list(unknown = 0))', [[1,'x',2],[2,'x',4],[1,'y',None],[2,'y',None]]),
+    ("complete uses first duplicate fill like tidyr", 'keys %>% filter(key == "x") %>% complete(id, key = c("x", "y"), fill = list(value = 0, value = 9))', [[1,'x',2],[2,'x',4],[1,'y',0],[2,'y',0]]),
     ("bind_queries repeated input", 'data %>% select(id) %>% bind_queries(data %>% select(id), all = TRUE)', [[i] for i in range(1,7)] * 2),
     ("bind_queries distinct option", 'data %>% select(id) %>% bind_queries(data %>% select(id), all = FALSE)', [[i] for i in range(1,7)]),
     ("standalone bind_queries explicit first source", 'bind_queries(keys %>% select(id), data %>% select(id))', [[1],[1],[2],[2]] + [[i] for i in range(1,7)]),

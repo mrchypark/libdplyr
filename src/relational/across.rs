@@ -35,10 +35,10 @@ enum Kind {
 
 impl Applied {
     /// A single unnamed .fns entry, or the identity when .fns is absent.
-    /// Its label is unused because a bare function keeps the column name.
+    /// Default names ignore this label, but {.fn} uses dplyr's position.
     fn plain(kind: Kind) -> Self {
         Self {
-            label: String::new(),
+            label: "1".to_string(),
             kind,
         }
     }

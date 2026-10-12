@@ -804,7 +804,23 @@ fn is_probably_identifier_chain(prefix: &str) -> bool {
     part_count > 0
 }
 
+fn starts_with_bind_queries(code: &str) -> bool {
+    code.trim_start()
+        .strip_prefix("bind_queries")
+        .is_some_and(|rest| rest.trim_start().starts_with('('))
+}
+
 fn extract_leading_table_name_with_config(dplyr_code: &str, config: SqlScanConfig) -> Option<&str> {
+    if starts_with_bind_queries(dplyr_code)
+        && libdplyr::Parser::new(libdplyr::Lexer::with_pipe_syntax(
+            dplyr_code.to_owned(),
+            config.pipe_syntax,
+        ))
+        .and_then(|mut parser| parser.parse())
+        .is_ok_and(|node| matches!(node, libdplyr::DplyrNode::Pipeline { source: None, .. }))
+    {
+        return Some(dplyr_code.trim());
+    }
     let pipe_pos = find_pipe_operator_with_config(dplyr_code, 0, config);
     let prefix = match pipe_pos {
         Some(pos) => &dplyr_code[..pos],
@@ -862,6 +878,8 @@ fn explicit_source_paths_pass_the_pipeline_gateway() {
     for code in [
         r#"in_schema("sales", "orders") %>% select(id)"#,
         r#"in_catalog ("memory", "sales", "orders") %>% select(id)"#,
+        "bind_queries(first, second)",
+        "bind_queries(first %>% select(id), second) %>% arrange(id)",
     ] {
         assert!(require_pipeline_table_name_with_config(code, SqlScanConfig::default()).is_ok());
     }
@@ -960,7 +978,9 @@ fn replace_embedded_pipelines_with_deadline(
                 ),
             ));
         }
-        if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none() {
+        if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none()
+            && !starts_with_bind_queries(&embedded)
+        {
             if let Some(disabled_pos) =
                 find_disabled_pipe_operator_with_config(&embedded, 0, scan_config)
             {
@@ -1131,7 +1151,9 @@ fn compile_query_string_with_deadline(
     let has_embedded_pipeline =
         find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some();
 
-    if trimmed.is_empty() || (!has_pipeline && !has_embedded_pipeline) {
+    if trimmed.is_empty()
+        || (!has_pipeline && !has_embedded_pipeline && !starts_with_bind_queries(trimmed))
+    {
         if find_disabled_pipe_operator_with_config(trimmed, 0, scan_config).is_some() {
             return Err(disabled_pipe_syntax_error(
                 scan_config.pipe_syntax.opposite(),
@@ -1210,7 +1232,11 @@ fn finish_compile_query(
         find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some();
     let has_embedded_pipeline =
         find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some();
-    if !has_pipeline && !has_disabled_pipeline && !has_embedded_pipeline {
+    if !has_pipeline
+        && !has_disabled_pipeline
+        && !has_embedded_pipeline
+        && !starts_with_bind_queries(query_str)
+    {
         return DPLYR_QUERY_NOT_HANDLED;
     }
 
@@ -1255,6 +1281,9 @@ fn finish_compile_query(
 }
 
 fn query_requires_pipe_syntax_resolution(query_str: &str, opts: &DplyrOptions) -> bool {
+    if starts_with_bind_queries(query_str) {
+        return true;
+    }
     [PipeSyntax::Magrittr, PipeSyntax::Native]
         .into_iter()
         .map(|pipe_syntax| scan_config_for_options(opts, pipe_syntax))
