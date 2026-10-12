@@ -16,18 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A reproducible dbplyr comparison and execution cases across PostgreSQL, MySQL, SQLite, and DuckDB.
 
 ### Changed
-- Public parser AST variants and fields require downstream exhaustive matches and struct construction to be updated.
+- Public parser AST variants and fields require downstream exhaustive matches and struct construction to be updated. Source fields and `required_sources()` now use `SourceRef`; existing JSON string sources remain accepted.
 - Pipelines that cannot preserve meaning require schema-aware compilation or an execution plan. `mutate(x = NULL)` deletes a column; use `NA` to retain a missing-value column.
 
 ### Fixed
 - Preserve dependent expressions, grouping, ordering, and column identity through summaries, joins, and set operations.
 - Correct conditional, NULL, ranking, distinct, and ordered window semantics.
 - Execute default-mode DuckDB pipelines in the caller's native plan, preserving temporary tables and uncommitted rows, and rebind prepared pipelines after catalog changes.
-- Quote schema-qualified source paths consistently in SQL generation and DuckDB metadata discovery.
+- Preserve literal dotted table names; support explicit `in_schema()` / `in_catalog()` source paths consistently in SQL and DuckDB metadata discovery.
+- Preserve explicit NULL pivot values when applying `values_fill`, distinct full rows after grouping, and match NULL keys in row operations.
 - Reject lossy integer pivot keys, preserve exact integer digits in generated SQL and pivot labels, and return the public C timeout status when schema compilation exceeds its deadline.
 
 ### Security
-- Update `lru` to a patched release for RUSTSEC-2026-0253 and replace the yanked test-only `chacha20` dependency.
+- Pin `lru` exactly to the patched 0.18.5 release for RUSTSEC-2026-0253 and replace the yanked test-only `chacha20` dependency.
 
 ### Limitations
 - This is not a complete R evaluator or full dbplyr API implementation. Database drivers, DML, in-place writes, and data movement are not bundled.

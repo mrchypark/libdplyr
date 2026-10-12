@@ -15,7 +15,7 @@ const RIGHT_ALIAS: &str = "__libdplyr_right";
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SqlSource {
     /// A base table, quoted with the active dialect.
-    Table(String),
+    Table(crate::parser::SourceRef),
     /// A derived table rendered from a nested query plus its alias.
     Subquery(Box<SqlQuery>, String),
     /// Two derived branches combined by join type on equality keys.
@@ -219,13 +219,7 @@ impl SqlQuery {
         let mut join_predicate = None;
         match &self.source {
             SqlSource::Table(table) => {
-                let parts = table.split('.').collect::<Vec<_>>();
-                // Preserve leading-dot R names; nonempty components identify a path.
-                sql.push_str(&if parts.iter().any(|part| part.is_empty()) {
-                    dialect.quote_identifier(table)
-                } else {
-                    dialect.quote_identifier_path(&parts)
-                });
+                sql.push_str(&generator.quote_source_ref(table)?);
             }
             SqlSource::Subquery(inner, alias) => {
                 sql.push('(');
@@ -597,7 +591,7 @@ mod tests {
     #[test]
     fn renders_table_projection_and_filter() {
         let mut q = query(
-            SqlSource::Table("users".to_string()),
+            SqlSource::Table("users".into()),
             vec![scalar(Expr::Identifier("user id".to_string()), "user id")],
         );
         q.filter = Some(Expr::Binary {
@@ -615,7 +609,7 @@ mod tests {
     #[test]
     fn renders_nested_subquery_with_quoted_alias() {
         let mut inner = query(
-            SqlSource::Table("users".to_string()),
+            SqlSource::Table("users".into()),
             vec![scalar(Expr::Identifier("id".to_string()), "id")],
         );
         inner.distinct = true;
@@ -634,7 +628,7 @@ mod tests {
     #[test]
     fn renders_aggregate_group_and_sort() {
         let mut q = query(
-            SqlSource::Table("orders".to_string()),
+            SqlSource::Table("orders".into()),
             vec![
                 scalar(Expr::Identifier("region".to_string()), "region"),
                 SelectItem {
@@ -660,14 +654,14 @@ mod tests {
 
     #[test]
     fn rejects_empty_projection() {
-        let q = query(SqlSource::Table("users".to_string()), Vec::new());
+        let q = query(SqlSource::Table("users".into()), Vec::new());
 
         assert!(q.render(&generator()).is_err());
     }
 
     fn branch(table: &str, columns: &[&str]) -> SqlQuery {
         query(
-            SqlSource::Table(table.to_string()),
+            SqlSource::Table(table.into()),
             columns
                 .iter()
                 .map(|column| scalar(Expr::Identifier((*column).to_string()), column))
@@ -838,7 +832,7 @@ mod tests {
     #[test]
     fn renders_coalesced_join_key() {
         let q = query(
-            SqlSource::Table("joined".to_string()),
+            SqlSource::Table("joined".into()),
             vec![SelectItem {
                 alias: "id".to_string(),
                 expression: SelectExpression::Coalesce {
@@ -888,7 +882,7 @@ mod tests {
     #[test]
     fn window_rank_orders_nulls_last_explicitly() {
         let q = query(
-            SqlSource::Table("orders".to_string()),
+            SqlSource::Table("orders".into()),
             vec![SelectItem {
                 alias: "rn".to_string(),
                 expression: SelectExpression::WindowRank {
@@ -915,7 +909,7 @@ mod tests {
     #[test]
     fn window_rank_without_clauses_still_emits_over() {
         let q = query(
-            SqlSource::Table("orders".to_string()),
+            SqlSource::Table("orders".into()),
             vec![SelectItem {
                 alias: "n".to_string(),
                 expression: SelectExpression::WindowRank {
@@ -1144,7 +1138,7 @@ mod tests {
     #[test]
     fn renders_window_scalar_with_order_and_frame() {
         let q = query(
-            SqlSource::Table("t".to_string()),
+            SqlSource::Table("t".into()),
             vec![SelectItem {
                 alias: "rn".to_string(),
                 expression: SelectExpression::WindowScalar {
@@ -1171,7 +1165,7 @@ mod tests {
     #[test]
     fn renders_limit_clause() {
         let mut q = query(
-            SqlSource::Table("t".to_string()),
+            SqlSource::Table("t".into()),
             vec![scalar(Expr::Identifier("id".to_string()), "id")],
         );
         q.limit = Some(10);

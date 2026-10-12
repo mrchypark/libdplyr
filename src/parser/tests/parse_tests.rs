@@ -70,7 +70,7 @@ fn test_parse_single_table_inner_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Inner));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -127,7 +127,7 @@ fn test_parse_single_table_left_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Left));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -155,7 +155,7 @@ fn test_parse_single_table_right_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Right));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -183,7 +183,7 @@ fn test_parse_single_table_full_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Full));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -211,7 +211,7 @@ fn test_parse_single_table_semi_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Semi));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -239,7 +239,7 @@ fn test_parse_single_table_anti_join() {
         } = &operations[0]
         {
             assert!(matches!(join_type, JoinType::Anti));
-            assert_eq!(spec.table, "df2");
+            assert_eq!(spec.table, "df2".into());
         } else {
             panic!("Expected Join operation");
         }
@@ -2605,7 +2605,7 @@ mod pipeline_parsing_tests {
         let ast = parser.parse().unwrap();
 
         if let DplyrNode::DataSource { name, .. } = ast {
-            assert_eq!(name, "data");
+            assert_eq!(name, "data".into());
         } else {
             panic!("Expected DataSource node");
         }
@@ -3681,7 +3681,7 @@ mod pipeline_parsing_tests {
                 assert!(ast.is_data_source());
 
                 if let DplyrNode::DataSource { name, location } = ast {
-                    assert_eq!(name, "my_data");
+                    assert_eq!(name, "my_data".into());
                     assert_ne!(location.line, 0);
                 } else {
                     panic!("Expected DataSource node");

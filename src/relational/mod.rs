@@ -24,7 +24,7 @@ pub use schema::{SchemaColumn, SchemaInput, SourceSchema};
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
     BinaryOp, DplyrNode, DplyrOperation, Expr, JoinType, LiteralValue, OrderDirection, OrderExpr,
-    SetOperation, SliceSpec, UnaryOp,
+    SetOperation, SliceSpec, SourceRef, UnaryOp,
 };
 use crate::sql_generator::SqlGenerator;
 use sql::{SelectExpression, SelectItem, SqlQuery, SqlSource};
@@ -90,7 +90,7 @@ struct Relation {
 
 #[derive(Clone)]
 enum RelNode {
-    Scan(String),
+    Scan(SourceRef),
     Query(Box<SqlQuery>),
     Project {
         input: Box<Relation>,
@@ -272,11 +272,11 @@ impl BoundExpr {
 }
 
 impl Planner<'_> {
-    fn scan(&mut self, source: &str) -> GenerationResult<Relation> {
+    fn scan(&mut self, source: &SourceRef) -> GenerationResult<Relation> {
         let schema = self
             .schemas
             .iter()
-            .find(|schema| schema.source == source)
+            .find(|schema| &schema.source == source)
             .ok_or_else(|| invalid(format!("schema for source '{source}' is missing")))?;
         let metadata = schema.columns.clone();
         let columns = metadata
@@ -288,7 +288,7 @@ impl Planner<'_> {
             })
             .collect();
         Ok(Relation {
-            node: RelNode::Scan(source.to_string()),
+            node: RelNode::Scan(source.clone()),
             columns,
             groups: Vec::new(),
             order: Vec::new(),
@@ -607,7 +607,7 @@ impl Planner<'_> {
         &mut self,
         left: Relation,
         operation: &SetOperation,
-        right_table: &str,
+        right_table: &SourceRef,
     ) -> GenerationResult<Relation> {
         let right = self.scan(right_table)?;
         self.set_relations(left, right, operation)
@@ -1257,7 +1257,7 @@ pub(crate) fn compile(
     compile_with_schemas(ast, std::slice::from_ref(schema), generator)
 }
 
-pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<String>> {
+pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<SourceRef>> {
     let (source, operations) = match ast {
         DplyrNode::Pipeline {
             source,
@@ -1271,39 +1271,37 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<String>>
                 ));
             }
             (
-                source.as_deref().ok_or_else(|| {
+                source.as_ref().ok_or_else(|| {
                     invalid("automatic schema discovery requires an explicit source")
                 })?,
                 operations.as_slice(),
             )
         }
-        DplyrNode::DataSource { name, .. } => (name.as_str(), &[][..]),
+        DplyrNode::DataSource { name, .. } => (name, &[][..]),
     };
-    let mut sources = vec![source.to_string()];
-    fn add(sources: &mut Vec<String>, name: &str) {
+    let mut sources = vec![source.clone()];
+    fn add(sources: &mut Vec<SourceRef>, name: &SourceRef) {
         if !sources.iter().any(|s| s == name) {
-            sources.push(name.to_owned());
+            sources.push(name.clone());
         }
     }
-    fn operand(expr: &Expr, sources: &mut Vec<String>) {
+    fn operand(expr: &Expr, sources: &mut Vec<SourceRef>) -> GenerationResult<()> {
         match expr {
-            Expr::Identifier(name) | Expr::Literal(LiteralValue::String(name)) => {
-                add(sources, name)
-            }
             Expr::Function { name, args } if name == "__pipeline" => {
                 if let Some(source) = args.first() {
-                    operand(source, sources);
+                    operand(source, sources)?;
                 }
                 for step in args.iter().skip(1) {
                     if let Expr::Function { name, args } = step {
-                        extended(name, args, sources);
+                        extended(name, args, sources)?;
                     }
                 }
             }
-            _ => {}
+            _ => add(sources, &SourceRef::from_expr(expr).map_err(invalid)?),
         }
+        Ok(())
     }
-    fn extended(name: &str, args: &[Expr], sources: &mut Vec<String>) {
+    fn extended(name: &str, args: &[Expr], sources: &mut Vec<SourceRef>) -> GenerationResult<()> {
         if matches!(
             name,
             "union"
@@ -1319,28 +1317,31 @@ pub(crate) fn required_sources(ast: &DplyrNode) -> GenerationResult<Vec<String>>
                 | "rows_delete"
         ) {
             if let Some(right) = args.first() {
-                operand(right, sources);
+                operand(right, sources)?;
             }
         } else if name == "bind_queries" {
             for arg in args {
-                operand(arg, sources);
+                operand(arg, sources)?;
             }
         }
+        Ok(())
     }
-    fn visit(operations: &[DplyrOperation], sources: &mut Vec<String>) {
+    fn visit(operations: &[DplyrOperation], sources: &mut Vec<SourceRef>) -> GenerationResult<()> {
         for operation in operations {
             match operation {
                 DplyrOperation::Join { spec, .. } => {
                     add(sources, &spec.table);
-                    visit(&spec.right_operations, sources);
+                    visit(&spec.right_operations, sources)?;
                 }
                 DplyrOperation::SetOp { right_table, .. } => add(sources, right_table),
-                DplyrOperation::Extended { name, args, .. } => extended(name, args, sources),
+                DplyrOperation::Extended { name, args, .. } => extended(name, args, sources)?,
                 _ => {}
             }
         }
+        Ok(())
     }
-    visit(operations, &mut sources);
+    source.validate().map_err(invalid)?;
+    visit(operations, &mut sources)?;
     Ok(sources)
 }
 
@@ -1403,11 +1404,11 @@ fn compile_plan(
                 ));
             }
             (
-                source.as_deref().unwrap_or(&schemas[0].source),
+                source.as_ref().unwrap_or(&schemas[0].source),
                 operations.as_slice(),
             )
         }
-        DplyrNode::DataSource { name, .. } => (name.as_str(), &[][..]),
+        DplyrNode::DataSource { name, .. } => (name, &[][..]),
     };
     let mut planner = Planner {
         generator,

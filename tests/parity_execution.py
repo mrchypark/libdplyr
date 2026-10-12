@@ -13,6 +13,8 @@ SCHEMAS = [
     {"source": "data", "columns": [{"name": n} for n in ["id", "grp", "x", "y", "weight"]]},
     {"source": "other", "columns": [{"name": n} for n in ["other_id", "grp", "value"]]},
     {"source": "keys", "columns": [{"name": n} for n in ["id", "key", "value"]]},
+    {"source": "compat.orders", "columns": [{"name": n} for n in ["id", "x"]]},
+    {"source": ["compat", "orders"], "columns": [{"name": n} for n in ["id", "x"]]},
     {"source": "big_pivot", "columns": [{"name": n} for n in ["id", "key", "value"]]},
 ]
 FIXTURE = """
@@ -20,16 +22,30 @@ DROP TABLE IF EXISTS data;
 DROP TABLE IF EXISTS other;
 DROP TABLE IF EXISTS "keys";
 DROP TABLE IF EXISTS big_pivot;
+DROP TABLE IF EXISTS "compat.orders";
+DROP TABLE IF EXISTS compat.orders;
 CREATE TABLE data(id INTEGER, grp VARCHAR(20), x DOUBLE PRECISION, y DOUBLE PRECISION, weight DOUBLE PRECISION);
 INSERT INTO data VALUES (1,'a',10,1,1),(2,'a',10,NULL,0),(3,'a',NULL,4,2),(4,'b',5,2,1),(5,'b',0,NULL,1),(6,NULL,-3,7,1);
 CREATE TABLE other(other_id INTEGER, grp VARCHAR(20), value DOUBLE PRECISION);
 INSERT INTO other VALUES (1,'a',8),(1,'a',8),(4,'b',3),(7,'b',-1);
 CREATE TABLE "keys"(id INTEGER, "key" VARCHAR(20), value DOUBLE PRECISION);
 INSERT INTO "keys" VALUES (1,'x',2),(1,'y',3),(2,'x',4),(2,'y',NULL);
+CREATE TABLE "compat.orders"(id INTEGER, x INTEGER);
+INSERT INTO "compat.orders" VALUES (99,99);
+CREATE TABLE compat.orders(id INTEGER, x INTEGER);
+INSERT INTO compat.orders VALUES (1,10);
 CREATE TABLE big_pivot(id INTEGER, "key" BIGINT, value INTEGER);
 INSERT INTO big_pivot VALUES (1,1152921504606846976,3);
 """
 CASES = [
+    ("grouped distinct defaults to visible columns", 'data %>% group_by(grp) %>% distinct() %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),
+    ("grouped distinct keep_all false uses visible columns", 'data %>% group_by(grp) %>% distinct(.keep_all = FALSE) %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),
+    ("grouped distinct keep_all true uses visible columns", 'data %>% group_by(grp) %>% distinct(.keep_all = TRUE) %>% arrange(id)', [[1,'a',10,1,1],[2,'a',10,None,0],[3,'a',None,4,2],[4,'b',5,2,1],[5,'b',0,None,1],[6,None,-3,7,1]]),
+    ("literal dotted source", 'compat.orders %>% select(id, x)', [[99,99]]),
+    ("explicit schema source", 'in_schema("compat", "orders") %>% select(id, x)', [[1,10]]),
+    ("literal and qualified source union", 'compat.orders %>% union_all(in_schema("compat", "orders"))', [[99,99],[1,10]]),
+    ("qualified right join pipeline", 'data %>% left_join(in_schema("compat", "orders") %>% mutate(z = x + 2) %>% select(id, z), by = "id") %>% select(id, z)', [[1,12],[2,None],[3,None],[4,None],[5,None],[6,None]]),
+    ("qualified row operand", 'compat.orders %>% rows_append(in_schema("compat", "orders"))', [[99,99],[1,10]]),
     ("temporary grouping", 'data %>% mutate(z = mean(x), .by = grp) %>% select(id, z) %>% arrange(id)', [[1,10],[2,10],[3,10],[4,2.5],[5,2.5],[6,-3]]),
     ("used columns", 'data %>% mutate(z = x + 1, .keep = "used")', [[10,11],[10,11],[None,None],[5,6],[0,1],[-3,-2]]),
     ("NULL deletion", 'data %>% mutate(y = NULL) %>% select(id, x)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,-3]]),
@@ -53,6 +69,13 @@ CASES = [
     ("long pivot preserves rows", 'keys %>% pivot_longer(c(value), names_to = "metric", values_to = "amount")', [[1,'x','value',2],[1,'y','value',3],[2,'x','value',4],[2,'y','value',None]]),
     ("wide pivot", 'keys %>% pivot_wider(names_from = key, values_from = value, keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
     ("wide exact large integer pivot", 'big_pivot %>% pivot_wider(names_from = key, values_from = value, keys = c(1152921504606846976))', [[1,3]]),
+    ("wide pivot fill preserves explicit NULL", 'keys %>% pivot_wider(names_from = key, values_from = value, keys = c("x", "y", "z"), values_fill = 0)', [[1,2,3,0],[2,4,None,0]]),
+    ("wide pivot fill applies with values_fn n", 'keys %>% pivot_wider(names_from = key, values_from = value, keys = c("x", "y", "z"), values_fill = 9, values_fn = n)', [[1,1,1,9],[2,1,1,9]]),
+    ("rows insert ignores NULL key conflict", 'data %>% rows_insert(data %>% filter(id == 6) %>% transmute(grp = grp, x = 99), by = "grp", conflict = "ignore") %>% select(id, x)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,-3]]),
+    ("rows update NULL key", 'data %>% rows_update(data %>% filter(id == 6) %>% transmute(grp = grp, x = 99), by = "grp") %>% select(id, x)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,99]]),
+    ("rows patch NULL key", 'data %>% mutate(x = ifelse(id == 6, NA, x)) %>% rows_patch(data %>% filter(id == 6) %>% transmute(grp = grp, x = 99), by = "grp") %>% select(id, x)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,99]]),
+    ("rows delete NULL key", 'data %>% rows_delete(data %>% filter(id == 6) %>% select(grp), by = "grp") %>% select(id)', [[1],[2],[3],[4],[5]]),
+    ("rows upsert NULL key", 'data %>% rows_upsert(data %>% filter(id == 6) %>% transmute(grp = grp, x = 99), by = "grp") %>% select(id, x)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,99]]),
     ("replace_na", 'data %>% replace_na(list(y = 0)) %>% select(id, y)', [[1,1],[2,0],[3,4],[4,2],[5,0],[6,7]]),
     ("ordered fill", 'data %>% arrange(id) %>% fill(y) %>% select(id, y)', [[1,1],[2,1],[3,4],[4,2],[5,2],[6,7]]),
     ("negative fractional modulo", 'data %>% mutate(z = x %% 2.5) %>% select(id, z)', [[1,0],[2,0],[3,None],[4,0],[5,0],[6,2]]),
@@ -98,6 +121,7 @@ CASES = [
 ]
 
 VALIDATION_CASES = [
+    ("rows insert NULL key conflict", 'data %>% rows_insert(data %>% filter(id == 6) %>% transmute(grp = grp, x = 99), by = "grp")'),
     ("negative weights", 'data %>% slice_sample(n = 2, weight_by = -weight)'),
     ("missing weights", 'data %>% slice_sample(n = 2, weight_by = y)'),
     ("zero totals", 'data %>% slice_sample(n = 2, weight_by = weight * 0)'),
@@ -130,14 +154,14 @@ class Database:
         if self.path:
             pathlib.Path(self.path).unlink()
         if self.db:
-            self.db.executescript(FIXTURE)
+            self.db.executescript("ATTACH DATABASE ':memory:' AS compat;" + FIXTURE)
         elif dialect == "duckdb":
-            run(["duckdb", self.path, "-c", FIXTURE])
+            run(["duckdb", self.path, "-c", "CREATE SCHEMA IF NOT EXISTS compat;" + FIXTURE])
         elif dialect == "postgresql":
-            run(["docker", "exec", "-i", containers[0], "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1"], FIXTURE)
+            run(["docker", "exec", "-i", containers[0], "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1"], "CREATE SCHEMA IF NOT EXISTS compat;" + FIXTURE)
         else:
-            run(["docker", "exec", containers[1], "mysql", "-uroot", "-e", "CREATE DATABASE IF NOT EXISTS parity;"])
-            run(["docker", "exec", containers[1], "mysql", "-uroot", "parity", "-e", FIXTURE.replace('"keys"', "`keys`").replace('"key"', "`key`")])
+            run(["docker", "exec", containers[1], "mysql", "-uroot", "-e", "CREATE DATABASE IF NOT EXISTS parity; CREATE DATABASE IF NOT EXISTS compat;"])
+            run(["docker", "exec", containers[1], "mysql", "-uroot", "parity", "-e", FIXTURE.replace('"compat.orders"', "`compat.orders`").replace('"keys"', "`keys`").replace('"key"', "`key`")])
 
     def rows(self, sql):
         if self.db:

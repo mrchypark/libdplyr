@@ -4,6 +4,85 @@
 
 use std::borrow::Cow;
 
+/// A literal R table name or an explicitly qualified SQL identifier path.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum SourceRef {
+    Literal(String),
+    Qualified(Vec<String>),
+}
+
+impl From<String> for SourceRef {
+    fn from(name: String) -> Self {
+        Self::Literal(name)
+    }
+}
+
+impl From<&str> for SourceRef {
+    fn from(name: &str) -> Self {
+        Self::Literal(name.into())
+    }
+}
+
+impl SourceRef {
+    pub fn components(&self) -> Vec<&str> {
+        match self {
+            Self::Literal(name) => vec![name],
+            Self::Qualified(parts) => parts.iter().map(String::as_str).collect(),
+        }
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if matches!(self, Self::Qualified(parts) if !(2..=3).contains(&parts.len())) {
+            return Err("qualified sources require schema.table or catalog.schema.table".into());
+        }
+        if self
+            .components()
+            .iter()
+            .any(|part| part.is_empty() || part.contains('\0'))
+        {
+            return Err("source components must be nonempty and contain no NUL".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn from_expr(expr: &Expr) -> Result<Self, String> {
+        let source = match expr {
+            Expr::Identifier(name) | Expr::Literal(LiteralValue::String(name)) => {
+                Self::Literal(name.clone())
+            }
+            Expr::Function { name, args }
+                if matches!(name.as_str(), "in_schema" | "in_catalog") =>
+            {
+                let expected = if name == "in_schema" { 2 } else { 3 };
+                if args.len() != expected {
+                    return Err(format!("{name} requires {expected} string components"));
+                }
+                let parts = args
+                    .iter()
+                    .map(|arg| match arg {
+                        Expr::Literal(LiteralValue::String(part)) => Ok(part.clone()),
+                        _ => Err(format!("{name} requires string components")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Self::Qualified(parts)
+            }
+            _ => return Err("expected a table name, in_schema(), or in_catalog()".into()),
+        };
+        source.validate()?;
+        Ok(source)
+    }
+}
+
+impl std::fmt::Display for SourceRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(name) => write!(formatter, "{name}"),
+            Self::Qualified(parts) => write!(formatter, "{:?}", parts),
+        }
+    }
+}
+
 /// Source code location information
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
@@ -35,14 +114,14 @@ impl SourceLocation {
 pub enum DplyrNode {
     /// Chain of pipeline operations
     Pipeline {
-        source: Option<String>,
+        source: Option<SourceRef>,
         target: Option<String>,
         operations: Vec<DplyrOperation>,
         location: SourceLocation,
     },
     /// Data source reference
     DataSource {
-        name: String,
+        name: SourceRef,
         location: SourceLocation,
     },
 }
@@ -140,7 +219,7 @@ pub enum DplyrOperation {
     /// Set operation (INTERSECT, UNION, EXCEPT)
     SetOp {
         operation: SetOperation,
-        right_table: String,
+        right_table: SourceRef,
         location: SourceLocation,
     },
     /// Advanced query forms the relational planner compiles generically.
@@ -437,7 +516,7 @@ pub enum JoinType {
 /// Join specification containing table and join condition
 #[derive(Debug, Clone, PartialEq)]
 pub struct JoinSpec {
-    pub table: String,
+    pub table: SourceRef,
     /// Equality keys from `by = "id"` or `by = c("left" = "right", "same")`.
     pub by: Vec<JoinKey>,
     /// Fallback: general expression for complex joins

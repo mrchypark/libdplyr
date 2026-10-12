@@ -382,7 +382,7 @@ unsafe fn compile_with_schema_boundary(
     result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
-/// List the distinct source relations a pipeline reads, as a JSON array of names.
+/// List source relations as JSON strings (literal names) or component arrays (qualified paths).
 ///
 /// This is the discovery step an embedder runs before it can supply schema
 /// metadata: the JSON never comes from the caller, only the source names in the
@@ -1048,6 +1048,26 @@ mod tests {
         };
 
         (result, take(out_sources), take(out_error))
+    }
+
+    #[test]
+    fn required_sources_preserves_literal_and_qualified_identity() {
+        let (status, sources, error) = required_sources(
+            r#"sales.orders %>% inner_join(in_schema("sales", "orders"), by = "id") %>% union_all(in_catalog("memory", "sales", "orders"))"#,
+            DplyrPipeSyntax::Magrittr as u32,
+        );
+        assert_eq!(status, DPLYR_SUCCESS, "{error}");
+        assert_eq!(
+            sources,
+            r#"["sales.orders",["sales","orders"],["memory","sales","orders"]]"#
+        );
+        let (status, sql, error) = compile(
+            r#"in_schema("sales", "orders") %>% select(id)"#,
+            r#"{"source":["sales","orders"],"columns":[{"name":"id"}]}"#,
+            None,
+        );
+        assert_eq!(status, DPLYR_SUCCESS, "{error}");
+        assert!(sql.contains(r#"FROM "sales"."orders""#), "{sql}");
     }
 
     #[test]

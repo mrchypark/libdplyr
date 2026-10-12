@@ -1,4 +1,4 @@
-use libdplyr::{DuckDbDialect, SchemaInput, SourceSchema, Transpiler};
+use libdplyr::{DuckDbDialect, SchemaInput, SourceRef, SourceSchema, Transpiler};
 
 fn transpiler() -> Transpiler {
     Transpiler::new(Box::new(DuckDbDialect::new()))
@@ -9,7 +9,44 @@ fn discovers_every_input_once_in_pipeline_order() {
     let sources = transpiler().required_sources(
         "left %>% inner_join(right, by = \"id\") %>% union(extra) %>% semi_join(right, by = \"id\")",
     ).expect("source discovery");
-    assert_eq!(sources, ["left", "right", "extra"]);
+    assert_eq!(sources, ["left", "right", "extra"].map(SourceRef::from));
+}
+
+#[test]
+fn source_discovery_uses_structural_identity_and_validates_constructors() {
+    let sources = transpiler().required_sources(
+        r#"sales.orders %>% inner_join(in_schema("sales", "orders"), by = "id") %>% union_all(in_schema("sales", "orders") %>% filter(id > 0)) %>% filter(id == "sales.orders")"#,
+    ).expect("mixed sources");
+    assert_eq!(
+        sources,
+        [
+            SourceRef::from("sales.orders"),
+            SourceRef::Qualified(vec!["sales".into(), "orders".into()]),
+        ]
+    );
+    for source in ["a.b.c.d", "a..b", "in_schema"] {
+        assert_eq!(
+            transpiler()
+                .required_sources(source)
+                .expect("literal source"),
+            [SourceRef::from(source)]
+        );
+    }
+    for source in [
+        r#"in_schema("sales")"#,
+        r#"in_schema("", "orders")"#,
+        r#"in_catalog("sales", "orders")"#,
+        r#"in_schema(schema, "orders")"#,
+        r#"in_schema(sql("sales"), "orders")"#,
+    ] {
+        assert!(transpiler().required_sources(source).is_err(), "{source}");
+        assert!(
+            transpiler()
+                .required_sources(&format!("data %>% union_all({source})"))
+                .is_err(),
+            "{source}"
+        );
+    }
 }
 
 #[test]

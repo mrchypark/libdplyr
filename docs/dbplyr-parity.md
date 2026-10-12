@@ -47,10 +47,15 @@
 
 ## API 사용 경계
 
-소스의 `sales.orders`와 `catalog.sales.orders`는 식별자 경로이며 각 부분을 따로 인용한다.
-열 이름의 점은 문자 그대로 유지한다. Rust 스키마 메타데이터의 `.data`나 `data.`처럼
-빈 경로 부분이 있는 이름은 단일 식별자로 인용한다. DuckDB 파이프라인에는 기존 C API의
-소스 식별자 문법이 적용된다. 일반 점 포함 테이블 이름은 스키마 경로와 구별할 별도 표기법이 없다.
+소스의 `sales.orders`는 점을 포함한 단일 테이블 이름이다. 스키마 경로는
+`in_schema("sales", "orders")`, 카탈로그 경로는
+`in_catalog("memory", "sales", "orders")`로 명시한다. 이 표기는 조인과 집합·행 연산의
+오른쪽 소스에도 적용된다. 각 경로 부분은 따로 인용하며 부분 내부의 점·인용부호는
+문자 그대로 유지한다. 메타데이터 JSON의 `source`는 기존 문자열 또는
+`["sales", "orders"]` 같은 2·3개 문자열 배열을 받는다. Rust의 `SourceSchema.source`와
+`required_sources()` 반환값은 `SourceRef`를 사용한다. 기존 문자열 생성자는 그대로
+사용할 수 있고, 직접 AST/스키마 필드를 만들던 Rust 호출자는 `.into()`를 사용해야 한다.
+빈 문자열·NUL·잘못된 경로 길이는 거부한다.
 
 - `transpile_with_schemas()`는 검사 없는 단일 SELECT를 반환한다.
 - `transpile_with_bindings()`는 JSON 상수·목록을 AST 리터럴로 바인딩한다.
@@ -98,11 +103,11 @@ SQLite에서 양쪽이 생성한 82개 중 79개를 실제 비교했다. 열 순
 
 현재 후보의 추가 검증:
 
-- `cargo test --workspace --all-features --release --locked`: 1165개 통과, 1개 기존 ignored.
+- `cargo test --workspace --all-features --release --locked`: 1177개 통과, 1개 기존 ignored.
 - `cargo clippy --workspace --all-targets -- -D warnings`와 fmt 검사 통과.
-- SQLite·DuckDB·PostgreSQL·MySQL: 65개 결과 사례씩, **260/260** 통과.
-- 같은 네 엔진: 관계·가중치·uncount·행 변경 위반 검사 **32개** 통과.
-- DuckDB 확장: **90개** 통과. 스키마·카탈로그 소스와 테이블 함수·embedded pipeline 진입점 포함.
+- SQLite·DuckDB·PostgreSQL·MySQL: 80개 결과 사례씩, **320/320** 통과.
+- 같은 네 엔진: 관계·가중치·uncount·행 변경 위반 검사 **36개** 통과.
+- DuckDB 확장: **90개** 통과. 문자 그대로의 점 포함 이름과 명시적 스키마·연결된 카탈로그 경로, 테이블 함수·embedded pipeline 진입점 포함.
 - 기존 SQLite relational/followup 실행 회귀 통과.
 - SQLite 두 연결의 동시 변경: 관계 검사와 피벗 탐색 각각 같은 스냅샷을 유지하는 **2개** 통과.
 - Rust 실행·피벗 테스트: 실패 시 결과 미공개, commit/rollback 순서와 오류 보존 확인.

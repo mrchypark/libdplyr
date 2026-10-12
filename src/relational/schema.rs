@@ -1,5 +1,6 @@
 //! Schema metadata for schema-aware relational compilation.
 
+use crate::parser::SourceRef;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{GenerationError, GenerationResult};
@@ -27,7 +28,7 @@ impl SchemaColumn {
 /// An ordered list of columns for one source relation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSchema {
-    pub source: String,
+    pub source: SourceRef,
     pub columns: Vec<SchemaColumn>,
 }
 
@@ -73,13 +74,13 @@ pub(super) fn validate_schemas(schemas: &[SourceSchema]) -> GenerationResult<()>
 impl SourceSchema {
     /// Build a schema from plain column names, preserving their order.
     pub fn new(
-        source: impl Into<String>,
+        source: impl Into<SourceRef>,
         columns: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self::with_columns(source, columns.into_iter().map(SchemaColumn::new).collect())
     }
 
-    pub fn with_columns(source: impl Into<String>, columns: Vec<SchemaColumn>) -> Self {
+    pub fn with_columns(source: impl Into<SourceRef>, columns: Vec<SchemaColumn>) -> Self {
         Self {
             source: source.into(),
             columns,
@@ -88,9 +89,9 @@ impl SourceSchema {
 
     /// Rejects an empty source, no columns, empty column names, and duplicate names.
     pub fn validate(&self) -> GenerationResult<()> {
-        if self.source.is_empty() || self.source.contains('\0') {
+        if let Err(reason) = self.source.validate() {
             return Err(GenerationError::UnsupportedOperation {
-                operation: "schema source must be nonempty and contain no NUL".to_string(),
+                operation: reason,
                 dialect: "schema".to_string(),
             });
         }
@@ -107,13 +108,13 @@ impl SourceSchema {
             if column.name.is_empty() || column.name.contains('\0') {
                 return Err(GenerationError::InvalidColumnReference {
                     column: column.name.clone(),
-                    table: Some(self.source.clone()),
+                    table: Some(self.source.to_string()),
                 });
             }
             if !seen.insert(column.name.as_str()) {
                 return Err(GenerationError::InvalidColumnReference {
                     column: column.name.clone(),
-                    table: Some(self.source.clone()),
+                    table: Some(self.source.to_string()),
                 });
             }
         }
@@ -199,7 +200,7 @@ mod tests {
         }"#;
 
         let schema: SourceSchema = serde_json::from_str(json).expect("valid schema json");
-        assert_eq!(schema.source, "data");
+        assert_eq!(schema.source, SourceRef::from("data"));
         assert_eq!(schema.columns.len(), 2);
         assert_eq!(schema.columns[0].data_type.as_deref(), Some("integer"));
         assert_eq!(schema.columns[0].nullable, Some(false));

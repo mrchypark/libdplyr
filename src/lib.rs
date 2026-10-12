@@ -293,7 +293,7 @@ pub use crate::execution::{
     execute, ExecutionError, ExecutionPlan, SnapshotExecutor, ValidationQuery,
 };
 pub use crate::lexer::{Lexer, Token};
-pub use crate::parser::{DplyrNode, DplyrOperation, Parser};
+pub use crate::parser::{DplyrNode, DplyrOperation, Parser, SourceRef};
 pub use crate::performance::{
     BatchPerformanceStats, PerformanceMetrics, PerformanceProfiler, RegressionDetector,
 };
@@ -505,7 +505,7 @@ impl Transpiler {
     }
 
     /// Lists distinct source names in input order for database schema discovery.
-    pub fn required_sources(&self, dplyr_code: &str) -> Result<Vec<String>, TranspileError> {
+    pub fn required_sources(&self, dplyr_code: &str) -> Result<Vec<SourceRef>, TranspileError> {
         let ast = self.parse_dplyr(dplyr_code)?;
         Ok(relational::required_sources(&ast)?)
     }

@@ -1012,25 +1012,33 @@ static QueryCompileStatus DiscoverSourceSchemas(ClientContext &context, TableFun
     auto sources = StringUtil::ParseJSONMap("{\"sources\":" + sources_json + "}");
     auto &array = sources->GetObject("sources");
     schema_json = "[";
-    // GetValue returns an empty string past the array end; source names are
-    // nonempty because Rust has already parsed and validated the pipeline.
     for (idx_t index = 0;; ++index) {
-        auto source = array.GetValue(index);
-        if (source.empty()) {
-            break;
-        }
+        if (array.GetValue(index).empty()) break;
+        auto &source = array.GetArrayElement(index);
         auto node = make_uniq<SelectNode>();
         auto table = make_uniq<BaseTableRef>();
-        const auto parts = StringUtil::Split(source, '.');
-        if (source.front() == '.' || source.back() == '.' || source.find("..") != string::npos) {
-            table->table_name = source;
+        string schema;
+        // Rust validates nonempty components; GetValue(0) distinguishes arrays from literal values.
+        if (source.GetValue(0).empty()) {
+            table->table_name = ComplexJSON::GetValueRecursive(source);
+            schema = StringUtil::ToJSONMap({{"source", table->table_name}});
         } else {
-            if (parts.size() > 3) {
-                throw BinderException("dplyr sources accept at most catalog.schema.table: %s", source);
+            vector<string> components;
+            for (idx_t part = 0;; ++part) {
+                auto value = source.GetValue(part);
+                if (value.empty()) break;
+                if (value.find('\0') != string::npos || part >= 3) {
+                    throw BinderException("dplyr source components require a valid schema.table or catalog.schema.table path");
+                }
+                components.push_back(std::move(value));
             }
-            table->table_name = parts.back();
-            if (parts.size() >= 2) table->schema_name = parts[parts.size() - 2];
-            if (parts.size() == 3) table->catalog_name = parts[0];
+            if (components.size() < 2) {
+                throw BinderException("dplyr qualified sources require schema.table or catalog.schema.table");
+            }
+            table->table_name = components.back();
+            table->schema_name = components[components.size() - 2];
+            if (components.size() == 3) table->catalog_name = components[0];
+            schema = "{\"source\":" + StringUtil::ToComplexJSONMap(source) + "}";
         }
         node->from_table = std::move(table);
         node->select_list.push_back(make_uniq<StarExpression>());
@@ -1043,7 +1051,6 @@ static QueryCompileStatus DiscoverSourceSchemas(ClientContext &context, TableFun
                                               {"data_type", bound.types[column].ToString()}});
         }
         columns += "]";
-        auto schema = StringUtil::ToJSONMap({{"source", source}});
         schema.insert(schema.size() - 1, ",\"columns\":" + columns);
         if (index > 0) schema_json += ",";
         schema_json += schema;

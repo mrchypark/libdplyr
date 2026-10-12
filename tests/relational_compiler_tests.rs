@@ -61,7 +61,7 @@ fn expect_generation_error(code: &str) {
 }
 
 #[test]
-fn qualified_sources_quote_each_path_component_without_splitting_columns() {
+fn literal_sources_and_columns_preserve_dots() {
     for (dialect, quote) in [
         (
             Box::new(PostgreSqlDialect::new()) as Box<dyn libdplyr::SqlDialect>,
@@ -78,17 +78,8 @@ fn qualified_sources_quote_each_path_component_without_splitting_columns() {
                     "select(id, item.name)",
                     &SourceSchema::new(source, ["id", "item.name"]),
                 )
-                .expect("qualified source");
-            let parts = source.split('.').collect::<Vec<_>>();
-            let path = if parts.iter().any(|part| part.is_empty()) {
-                format!("{quote}{source}{quote}")
-            } else {
-                parts
-                    .iter()
-                    .map(|part| format!("{quote}{part}{quote}"))
-                    .collect::<Vec<_>>()
-                    .join(".")
-            };
+                .expect("literal source");
+            let path = format!("{quote}{source}{quote}");
             assert!(
                 result.sql.contains(&format!("FROM {path}")),
                 "{}",

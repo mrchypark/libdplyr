@@ -5,7 +5,7 @@
 use crate::error::{GenerationError, GenerationResult};
 use crate::parser::{
     Aggregation, BinaryOp, ColumnExpr, DplyrNode, DplyrOperation, Expr, JoinSpec, JoinType,
-    LiteralValue, OrderDirection, OrderExpr, RenameSpec, SetOperation, UnaryOp,
+    LiteralValue, OrderDirection, OrderExpr, RenameSpec, SetOperation, SourceRef, UnaryOp,
 };
 
 // Decomposition scaffolding (“Tidy First”): these modules are placeholders to
@@ -257,6 +257,13 @@ fn is_aggregate_function(dialect: &dyn SqlDialect, function: &str) -> bool {
 }
 
 impl SqlGenerator {
+    pub(crate) fn quote_source_ref(&self, source: &SourceRef) -> GenerationResult<String> {
+        source
+            .validate()
+            .map_err(|reason| GenerationError::InvalidAst { reason })?;
+        Ok(self.dialect.quote_identifier_path(&source.components()))
+    }
+
     pub(crate) fn dialect(&self) -> &dyn SqlDialect {
         self.dialect.as_ref()
     }
@@ -446,17 +453,16 @@ impl SqlGenerator {
                 operations,
                 ..
             } => self.generate_pipeline(source, target, operations),
-            DplyrNode::DataSource { name, .. } => Ok(format!(
-                "SELECT * FROM {}",
-                self.dialect.quote_identifier(name)
-            )),
+            DplyrNode::DataSource { name, .. } => {
+                Ok(format!("SELECT * FROM {}", self.quote_source_ref(name)?))
+            }
         }
     }
 
     /// Converts pipeline to SQL.
     fn generate_pipeline(
         &self,
-        source: &Option<String>,
+        source: &Option<SourceRef>,
         target: &Option<String>,
         operations: &[DplyrOperation],
     ) -> GenerationResult<String> {
@@ -471,7 +477,10 @@ impl SqlGenerator {
         let mut aggregation_group_by = None;
 
         // Get the source table name for join operations
-        let source_table = source.as_deref().unwrap_or("data");
+        let source_table = source
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| SourceRef::Literal("data".into()));
 
         // Process each operation in order
         for (index, operation) in operations.iter().enumerate() {
@@ -487,7 +496,7 @@ impl SqlGenerator {
                     reason: "operations after count()/tally() require a subquery".to_string(),
                 });
             }
-            self.process_operation(operation, &mut query_parts, source_table)?;
+            self.process_operation(operation, &mut query_parts, &source_table)?;
             if matches!(
                 operation,
                 DplyrOperation::Summarise { .. } | DplyrOperation::Count { .. }
@@ -511,7 +520,7 @@ impl SqlGenerator {
         &self,
         operation: &DplyrOperation,
         query_parts: &mut QueryParts,
-        source_table: &str,
+        source_table: &SourceRef,
     ) -> GenerationResult<()> {
         if matches!(operation,
             DplyrOperation::Mutate { assignments, .. } |
@@ -771,7 +780,7 @@ impl SqlGenerator {
         join_type: &JoinType,
         spec: &JoinSpec,
         query_parts: &mut QueryParts,
-        source_table: &str,
+        source_table: &SourceRef,
     ) -> GenerationResult<()> {
         if spec.options != crate::parser::JoinOptions::default()
             || !spec.right_operations.is_empty()
@@ -780,6 +789,12 @@ impl SqlGenerator {
                 reason: "join options require source schema metadata".to_string(),
             });
         }
+        source_table
+            .validate()
+            .map_err(|reason| GenerationError::InvalidAst { reason })?;
+        spec.table
+            .validate()
+            .map_err(|reason| GenerationError::InvalidAst { reason })?;
         use crate::parser::JoinType;
 
         // Check if dialect supports SEMI/ANTI JOIN natively (DuckDB only)
@@ -789,12 +804,14 @@ impl SqlGenerator {
             spec.by
                 .iter()
                 .map(|key| {
+                    let mut left = source_table.components();
+                    left.push(&key.left);
+                    let mut right = spec.table.components();
+                    right.push(&key.right);
                     format!(
                         "{} = {}",
-                        self.dialect
-                            .quote_identifier_path(&[source_table, &key.left]),
-                        self.dialect
-                            .quote_identifier_path(&[&spec.table, &key.right])
+                        self.dialect.quote_identifier_path(&left),
+                        self.dialect.quote_identifier_path(&right)
                     )
                 })
                 .collect::<Vec<_>>()
@@ -821,7 +838,7 @@ impl SqlGenerator {
                 // Create subquery: WHERE (NOT) EXISTS (SELECT 1 FROM right_table ON condition)
                 let subquery = format!(
                     "{exists_keyword} (SELECT 1 FROM {} WHERE {condition})",
-                    self.dialect.quote_identifier(&spec.table)
+                    self.quote_source_ref(&spec.table)?
                 );
 
                 // Add as WHERE clause (SEMI/ANTI don't need actual JOIN)
@@ -849,7 +866,7 @@ impl SqlGenerator {
         query_parts.joins.push(format!(
             "{} {} ON {}",
             join_sql,
-            self.dialect.quote_identifier(&spec.table),
+            self.quote_source_ref(&spec.table)?,
             condition
         ));
 

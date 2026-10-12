@@ -816,7 +816,22 @@ fn extract_leading_table_name_with_config(dplyr_code: &str, config: SqlScanConfi
         return None;
     }
 
-    if is_probably_identifier_chain(prefix) {
+    let explicit_path = (prefix.starts_with("in_schema") || prefix.starts_with("in_catalog"))
+        && libdplyr::Parser::new(libdplyr::Lexer::with_pipe_syntax(
+            prefix.to_owned(),
+            config.pipe_syntax,
+        ))
+        .and_then(|mut parser| parser.parse())
+        .is_ok_and(|node| {
+            matches!(
+                node,
+                libdplyr::DplyrNode::DataSource {
+                    name: libdplyr::SourceRef::Qualified(_),
+                    ..
+                }
+            )
+        });
+    if is_probably_identifier_chain(prefix) || explicit_path {
         Some(prefix)
     } else {
         None
@@ -839,6 +854,22 @@ fn require_pipeline_table_name_with_config(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn explicit_source_paths_pass_the_pipeline_gateway() {
+    for code in [
+        r#"in_schema("sales", "orders") %>% select(id)"#,
+        r#"in_catalog ("memory", "sales", "orders") %>% select(id)"#,
+    ] {
+        assert!(require_pipeline_table_name_with_config(code, SqlScanConfig::default()).is_ok());
+    }
+    assert!(require_pipeline_table_name_with_config(
+        r#"in_schema("", "orders") %>% select(id)"#,
+        SqlScanConfig::default(),
+    )
+    .is_err());
 }
 
 #[cfg(test)]

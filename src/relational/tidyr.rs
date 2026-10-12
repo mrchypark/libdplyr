@@ -430,32 +430,19 @@ fn pivot_wider(
             }
         };
         let case_expr = Expr::CaseWhen {
-            branches: vec![(condition, Expr::Identifier(values_from.clone()))],
+            branches: vec![(condition.clone(), Expr::Identifier(values_from.clone()))],
             default: None,
+        };
+        let present = Expr::Function {
+            name: "count".into(),
+            args: vec![Expr::CaseWhen {
+                branches: vec![(condition.clone(), Expr::Literal(LiteralValue::Number(1.0)))],
+                default: None,
+            }],
         };
 
         let aggregate = if values_fn == "n" {
-            Expr::Function {
-                name: "sum".into(),
-                args: vec![Expr::CaseWhen {
-                    branches: vec![(
-                        if matches!(key, LiteralValue::Null) {
-                            Expr::Function {
-                                name: "is.na".into(),
-                                args: vec![reference(&names_from)],
-                            }
-                        } else {
-                            Expr::Binary {
-                                left: Box::new(reference(&names_from)),
-                                operator: BinaryOp::Equal,
-                                right: Box::new(Expr::Literal(key.clone())),
-                            }
-                        },
-                        Expr::Literal(LiteralValue::Number(1.0)),
-                    )],
-                    default: Some(Box::new(Expr::Literal(LiteralValue::Number(0.0)))),
-                }],
-            }
+            present.clone()
         } else {
             Expr::Function {
                 name: values_fn.clone(),
@@ -463,9 +450,16 @@ fn pivot_wider(
             }
         };
         let final_expr = if let Some(fill) = values_fill {
-            Expr::Function {
-                name: "coalesce".into(),
-                args: vec![aggregate, fill.clone()],
+            Expr::CaseWhen {
+                branches: vec![(
+                    Expr::Binary {
+                        left: Box::new(present),
+                        operator: BinaryOp::GreaterThan,
+                        right: Box::new(Expr::Literal(LiteralValue::Number(0.0))),
+                    },
+                    aggregate,
+                )],
+                default: Some(Box::new(fill.clone())),
             }
         } else {
             aggregate

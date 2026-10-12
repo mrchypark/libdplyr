@@ -221,7 +221,8 @@ int dplyr_compile_with_schema_and_pipe_syntax(
  * @param dplyr_code Pipeline code to inspect
  * @param pipe_syntax DPLYR_PIPE_SYNTAX_MAGRITTR or DPLYR_PIPE_SYNTAX_NATIVE
  * @param sources_json Receives a JSON array of distinct source names in input
- *        order, for example ["users","orders"]
+ *        order. Literal names are strings; qualified paths are arrays of
+ *        two or three strings, for example ["users",["sales","orders"]].
  * @param error_output Receives an error message on failure
  *
  * This is the discovery step an embedder runs before it can supply schema

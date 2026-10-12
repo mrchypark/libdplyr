@@ -19,7 +19,7 @@ pub(crate) fn pivot_keys(
                 return Err(invalid("pivot discovery cannot create a target table"));
             }
             (
-                source.as_deref().unwrap_or(&schemas[0].source),
+                source.as_ref().unwrap_or(&schemas[0].source),
                 operations.as_slice(),
             )
         }

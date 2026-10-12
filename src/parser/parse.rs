@@ -447,7 +447,15 @@ impl Parser {
         }
         if let Token::Identifier(name) = &self.current_token {
             let name = name.clone();
-            self.advance()?;
+            let name = if matches!(name.as_str(), "in_schema" | "in_catalog")
+                && self.peek_token()? == Token::LeftParen
+            {
+                self.parse_source_ref()?
+            } else {
+                let source = SourceRef::from(name);
+                self.advance()?;
+                source
+            };
 
             // Skip newlines after identifier
             self.skip_newlines()?;
@@ -527,15 +535,19 @@ impl Parser {
                 } else {
                     // iris2 <- iris
                     // For <-, the right side is the source and may contain a pipeline
-                    let target = name;
+                    let SourceRef::Literal(target) = name else {
+                        return Err(argument_error(
+                            "assignment",
+                            "target must be a literal table name".into(),
+                        ));
+                    };
 
                     // Save current position after <-
                     self.advance()?;
                     self.skip_newlines()?;
 
-                    if let Token::Identifier(source_name) = &self.current_token {
-                        let source = source_name.clone();
-                        self.advance()?;
+                    if matches!(self.current_token, Token::Identifier(_)) {
+                        let source = self.parse_source_ref()?;
                         self.skip_newlines()?;
 
                         if self.current_token == Token::Pipe {
@@ -1698,6 +1710,14 @@ impl Parser {
         })
     }
 
+    fn parse_source_ref(&mut self) -> ParseResult<SourceRef> {
+        let expr = self.parse_primary_expression()?;
+        SourceRef::from_expr(&expr).map_err(|operation| ParseError::InvalidOperation {
+            operation,
+            position: self.position,
+        })
+    }
+
     /// Parses join operations (inner_join, left_join, right_join, full_join, semi_join, anti_join).
     fn parse_join(&mut self) -> ParseResult<DplyrOperation> {
         let join_type = match &self.current_token {
@@ -1722,17 +1742,7 @@ impl Parser {
         self.consume_optional_lazy_data_argument()?;
 
         // Parse first argument: table name
-        let table_name = match &self.current_token {
-            Token::Identifier(name) => name.clone(),
-            _ => {
-                return Err(ParseError::UnexpectedToken {
-                    expected: "table name".to_string(),
-                    found: format!("{}", self.current_token),
-                    position: self.position,
-                })
-            }
-        };
-        self.advance()?;
+        let table_name = self.parse_source_ref()?;
         let mut right_operations = Vec::new();
         while self.current_token == Token::Pipe {
             self.advance()?;
@@ -2002,7 +2012,7 @@ impl Parser {
         if let [Expr::Identifier(right_table)] = args.as_slice() {
             return Ok(DplyrOperation::SetOp {
                 operation,
-                right_table: right_table.clone(),
+                right_table: right_table.clone().into(),
                 location,
             });
         }

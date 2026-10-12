@@ -1,8 +1,22 @@
 //! Result regressions run in parity_execution.py against four real engines.
 use libdplyr::{SourceSchema, SqliteDialect, Transpiler};
+use serde_json::json;
+
+#[path = "../src/sql_generator/tests/parity_sqlite.rs"]
+mod sqlite;
+
 fn compile(code: &str) -> libdplyr::CompiledQuery {
     Transpiler::new(Box::new(SqliteDialect::new()))
         .transpile_with_schema(code, &SourceSchema::new("data", ["id", "grp", "x", "y"]))
+        .expect("tidyr query")
+}
+
+fn compile_execution(code: &str) -> libdplyr::CompiledQuery {
+    Transpiler::new(Box::new(SqliteDialect::new()))
+        .transpile_with_schema(
+            code,
+            &SourceSchema::new("data", ["id", "g", "x", "y", "flag", "label", "date_value"]),
+        )
         .expect("tidyr query")
 }
 #[test]
@@ -45,4 +59,23 @@ fn pivot_literal_keys_are_escaped_and_empty_discovery_is_valid() {
     let q = compile("data %>% pivot_wider(names_from = grp, values_from = x, keys = c())");
     assert_eq!(q.columns.len(), 2);
     assert!(q.sql.contains("DISTINCT"));
+}
+
+#[test]
+fn pivot_wider_values_fill_only_fills_absent_cells() {
+    let query = compile_execution(
+        "data %>% pivot_wider(names_from = label, values_from = x, keys = c('x', 'hi'), values_fill = 0, id_cols = g) %>% arrange(g)",
+    );
+    assert_eq!(
+        sqlite::execute(&query.sql, false),
+        json!([['a', null, 10], ['b', 0, 0]])
+    );
+
+    let query = compile_execution(
+        "data %>% pivot_wider(names_from = label, values_from = x, keys = c('x', 'hi'), values_fill = 9, values_fn = n, id_cols = g) %>% arrange(g)",
+    );
+    assert_eq!(
+        sqlite::execute(&query.sql, false),
+        json!([['a', 1, 1], ['b', 9, 9]])
+    );
 }

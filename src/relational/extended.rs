@@ -310,7 +310,6 @@ impl Planner<'_> {
     }
     pub(super) fn relation_operand(&mut self, expr: &Expr) -> GenerationResult<Relation> {
         match expr {
-            Expr::Identifier(name) | Expr::Literal(LiteralValue::String(name)) => self.scan(name),
             Expr::Function { name, args } if name == "__pipeline" => {
                 let (source, ops) = args
                     .split_first()
@@ -324,7 +323,7 @@ impl Planner<'_> {
                 }
                 Ok(input)
             }
-            _ => Err(invalid("expected a table or a table pipeline")),
+            _ => self.scan(&SourceRef::from_expr(expr).map_err(invalid)?),
         }
     }
     pub(super) fn extended(
@@ -758,7 +757,7 @@ impl Planner<'_> {
                     right,
                     &JoinType::Inner,
                     &crate::parser::JoinSpec {
-                        table: String::new(),
+                        table: String::new().into(),
                         by: Vec::new(),
                         on_expr: None,
                         options,
@@ -800,7 +799,11 @@ impl Planner<'_> {
                 for (index, value) in values.into_iter().enumerate() {
                     if name == "bind_queries"
                         && index == 0
-                        && matches!(value,Expr::Identifier(source) if self.schemas.first().is_some_and(|s|&s.source==source))
+                        && SourceRef::from_expr(value).is_ok_and(|source| {
+                            self.schemas
+                                .first()
+                                .is_some_and(|schema| schema.source == source)
+                        })
                     {
                         continue;
                     }
@@ -1386,7 +1389,17 @@ impl Planner<'_> {
             .map(|e| boolean(e))
             .transpose()?
             .unwrap_or(false);
-        let mut names = names_for_ids(&input.columns, &input.groups)?;
+        let no_columns = values.is_empty();
+        let mut names = if no_columns {
+            input
+                .columns
+                .iter()
+                .filter(|column| !column.hidden)
+                .map(|column| column.schema.name.clone())
+                .collect()
+        } else {
+            names_for_ids(&input.columns, &input.groups)?
+        };
         for value in values {
             let name = match value {
                 Expr::Identifier(name) => name.clone(),
@@ -1462,7 +1475,7 @@ impl Planner<'_> {
             self.apply(
                 input,
                 &DplyrOperation::Distinct {
-                    columns: names,
+                    columns: if no_columns { Vec::new() } else { names },
                     location: SourceLocation::unknown(),
                 },
             )
@@ -1510,7 +1523,7 @@ impl Planner<'_> {
                 }
             }
             let empty = Relation {
-                node: RelNode::Scan(String::new()),
+                node: RelNode::Scan(String::new().into()),
                 columns: Vec::new(),
                 groups: Vec::new(),
                 order: Vec::new(),

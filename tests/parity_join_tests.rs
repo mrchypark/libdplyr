@@ -1,4 +1,4 @@
-use libdplyr::{SourceSchema, SqliteDialect, Transpiler};
+use libdplyr::{SourceRef, SourceSchema, SqliteDialect, Transpiler};
 
 fn transpiler() -> Transpiler {
     Transpiler::new(Box::new(SqliteDialect::new()))
@@ -71,6 +71,6 @@ fn source_discovery_includes_nested_right_sources() {
         transpiler()
             .required_sources("data %>% union_all(other %>% filter(y > 0))")
             .expect("source discovery"),
-        ["data", "other"]
+        ["data", "other"].map(SourceRef::from)
     );
 }

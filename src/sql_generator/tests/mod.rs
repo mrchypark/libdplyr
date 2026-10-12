@@ -1321,7 +1321,7 @@ mod dialect_specific_tests {
     fn test_identifier_quote_characters_are_escaped_in_generated_sql() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let ast = DplyrNode::Pipeline {
-            source: Some("data\"set".to_string()),
+            source: Some("data\"set".into()),
             target: None,
             operations: vec![
                 DplyrOperation::Select {
@@ -1334,7 +1334,7 @@ mod dialect_specific_tests {
                 DplyrOperation::Join {
                     join_type: JoinType::Inner,
                     spec: JoinSpec {
-                        table: "users\"x".to_string(),
+                        table: "users\"x".into(),
                         by: vec![JoinKey {
                             left: "id\"x".to_string(),
                             right: "id\"x".to_string(),
@@ -1370,7 +1370,7 @@ mod dialect_specific_tests {
     fn test_group_by_and_rename_escape_identifier_quote_characters() {
         let grouped_generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let grouped_ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![
                 DplyrOperation::GroupBy {
@@ -1395,7 +1395,7 @@ mod dialect_specific_tests {
 
         let rename_generator = SqlGenerator::new(Box::new(DuckDbDialect::new()));
         let rename_ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![DplyrOperation::Rename {
                 renames: vec![RenameSpec {
@@ -1555,7 +1555,7 @@ mod complex_query_tests {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![
                 DplyrOperation::GroupBy {
@@ -1591,7 +1591,7 @@ mod complex_query_tests {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![
                 DplyrOperation::Summarise {
@@ -1623,7 +1623,7 @@ mod complex_query_tests {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![
                 DplyrOperation::GroupBy {
@@ -1789,12 +1789,85 @@ mod error_case_tests {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
 
         let ast = DplyrNode::DataSource {
-            name: "users".to_string(),
+            name: "users".into(),
             location: SourceLocation::unknown(),
         };
 
         let sql = generator.generate(&ast).unwrap();
         assert_eq!(normalize_sql(&sql), "SELECT * FROM \"USERS\"");
+    }
+
+    #[test]
+    fn source_refs_quote_qualified_paths_without_splitting_literals() {
+        let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
+        let literal = DplyrNode::DataSource {
+            name: "sales.orders".into(),
+            location: SourceLocation::unknown(),
+        };
+        assert_eq!(
+            normalize_sql(&generator.generate(&literal).expect("literal source")),
+            "SELECT * FROM \"SALES.ORDERS\""
+        );
+        let invalid = DplyrNode::DataSource {
+            name: SourceRef::Qualified(vec!["catalog".into()]),
+            location: SourceLocation::unknown(),
+        };
+        assert!(generator
+            .generate(&invalid)
+            .expect_err("invalid qualified source")
+            .to_string()
+            .contains("schema.table"));
+
+        let join = DplyrNode::Pipeline {
+            source: Some(SourceRef::Qualified(vec![
+                "catalog".into(),
+                "sales".into(),
+                "orders".into(),
+            ])),
+            target: None,
+            operations: vec![DplyrOperation::Join {
+                join_type: JoinType::Inner,
+                spec: JoinSpec {
+                    table: SourceRef::Qualified(vec![
+                        "catalog".into(),
+                        "crm".into(),
+                        "customers".into(),
+                    ]),
+                    by: vec![JoinKey {
+                        left: "customer_id".into(),
+                        right: "id".into(),
+                    }],
+                    on_expr: None,
+                    options: Default::default(),
+                    right_operations: Vec::new(),
+                },
+                location: SourceLocation::unknown(),
+            }],
+            location: SourceLocation::unknown(),
+        };
+        let sql = generator.generate(&join).expect("qualified join");
+        assert!(sql.contains("FROM \"catalog\".\"sales\".\"orders\""));
+        assert!(sql.contains("INNER JOIN \"catalog\".\"crm\".\"customers\""));
+        assert!(sql.contains("\"catalog\".\"sales\".\"orders\".\"customer_id\" = \"catalog\".\"crm\".\"customers\".\"id\""));
+
+        let set = DplyrNode::Pipeline {
+            source: Some("data".into()),
+            target: None,
+            operations: vec![DplyrOperation::SetOp {
+                operation: SetOperation::Union,
+                right_table: SourceRef::Qualified(vec![
+                    "catalog".into(),
+                    "sales".into(),
+                    "archive".into(),
+                ]),
+                location: SourceLocation::unknown(),
+            }],
+            location: SourceLocation::unknown(),
+        };
+        assert!(generator
+            .generate(&set)
+            .expect("qualified set")
+            .contains("UNION SELECT * FROM \"catalog\".\"sales\".\"archive\""));
     }
 
     #[test]
@@ -1926,7 +1999,7 @@ mod mutate_advanced_tests {
     fn test_grouped_mutate_window_functions_use_partition() {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let ast = DplyrNode::Pipeline {
-            source: Some("employees".to_string()),
+            source: Some("employees".into()),
             target: None,
             operations: vec![
                 DplyrOperation::GroupBy {
@@ -2089,7 +2162,7 @@ mod unary_in_ungroup_tests {
     fn select_expr_sql(expr: Expr) -> String {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![DplyrOperation::Select {
                 columns: vec![ColumnExpr {
@@ -2106,7 +2179,7 @@ mod unary_in_ungroup_tests {
     fn operation_sql(operations: Vec<DplyrOperation>) -> String {
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations,
             location: SourceLocation::unknown(),
@@ -2356,7 +2429,7 @@ mod unary_in_ungroup_tests {
             vec![
                 DplyrOperation::SetOp {
                     operation: crate::parser::SetOperation::Union,
-                    right_table: "other".to_string(),
+                    right_table: "other".into(),
                     location: SourceLocation::unknown(),
                 },
                 ungroup(),
@@ -2368,7 +2441,7 @@ mod unary_in_ungroup_tests {
         // The metadata-only exception must not admit a real later stage.
         let generator = SqlGenerator::new(Box::new(PostgreSqlDialect::new()));
         let ast = DplyrNode::Pipeline {
-            source: Some("data".to_string()),
+            source: Some("data".into()),
             target: None,
             operations: vec![
                 DplyrOperation::Distinct {
@@ -2407,7 +2480,7 @@ mod unary_in_ungroup_tests {
         for expr in exprs {
             // Hidden behind select(): that alias only exists in a later stage.
             let selected = DplyrNode::Pipeline {
-                source: Some("data".to_string()),
+                source: Some("data".into()),
                 target: None,
                 operations: vec![
                     DplyrOperation::Select {
@@ -2434,7 +2507,7 @@ mod unary_in_ungroup_tests {
 
             // Hidden behind an earlier assignment in the same mutate().
             let chained = DplyrNode::Pipeline {
-                source: Some("data".to_string()),
+                source: Some("data".into()),
                 target: None,
                 operations: vec![DplyrOperation::Mutate {
                     assignments: vec![

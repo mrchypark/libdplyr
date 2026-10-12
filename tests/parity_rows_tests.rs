@@ -193,6 +193,32 @@ fn rows_delete_with_plan_produces_checks() {
 }
 
 // ---------------------------------------------------------------------------
+// NULL keys match in rows_* operations, like dplyr's vec_in() key checks.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rows_match_null_keys_in_validation_and_result_joins() {
+    for code in [
+        r#"data %>% rows_insert(new_data, by = "grp")"#,
+        r#"data %>% rows_update(new_data, by = "grp")"#,
+        r#"data %>% rows_patch(new_data, by = "grp")"#,
+        r#"data %>% rows_delete(new_data, by = "grp")"#,
+        r#"data %>% rows_upsert(new_data, by = "grp")"#,
+    ] {
+        let p = plan(code);
+        let sql = std::iter::once(p.query.sql.as_str())
+            .chain(p.checks.iter().map(|check| check.sql.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_lowercase();
+        assert!(
+            sql.contains("is null and"),
+            "{code} must use NULL-safe key equality, got: {sql}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Schema preservation
 // ---------------------------------------------------------------------------
 

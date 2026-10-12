@@ -1253,27 +1253,70 @@ TEST_F(DuckDBExtensionTest, QualifiedSourcesBindAcrossEntryPoints) {
     ASSERT_FALSE(safe_query("INSERT INTO sales.orders VALUES (1, 10)")->HasError());
     ASSERT_FALSE(safe_query("CREATE TABLE sales.tags(id INTEGER, tag INTEGER)")->HasError());
     ASSERT_FALSE(safe_query("INSERT INTO sales.tags VALUES (1, 20)")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE sales.orders_archive(id INTEGER, x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO sales.orders_archive VALUES (3, 40)")->HasError());
     ASSERT_FALSE(safe_query("CREATE TABLE \"sales.orders\"(id INTEGER, x INTEGER)")->HasError());
     ASSERT_FALSE(safe_query("INSERT INTO \"sales.orders\" VALUES (99, 99)")->HasError());
+    ASSERT_FALSE(safe_query("CREATE SCHEMA \"sales.dot\"")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE \"sales.dot\".\"orders\"\"quote\"(id INTEGER, x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO \"sales.dot\".\"orders\"\"quote\" VALUES (2, 30)")->HasError());
+    ASSERT_FALSE(safe_query("ATTACH ':memory:' AS archive_db")->HasError());
+    ASSERT_FALSE(safe_query("CREATE SCHEMA archive_db.sales")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE archive_db.sales.orders(id INTEGER, x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO archive_db.sales.orders VALUES (7, 70)")->HasError());
+    const auto sql_string = [](std::string value) {
+        size_t quote = 0;
+        while ((quote = value.find('\'', quote)) != std::string::npos) {
+            value.insert(quote, "'");
+            quote += 2;
+        }
+        return "'" + value + "'";
+    };
+    struct SourceCase {
+        std::string expression;
+        std::string wire;
+        std::string expected;
+    };
+    const std::vector<SourceCase> sources = {
+        {"sales.orders", "\"sales.orders\"", "101"},
+        {"in_schema(\"sales\", \"orders\")", "[\"sales\",\"orders\"]", "12"},
+        {"in_catalog(\"memory\", \"sales\", \"orders\")", "[\"memory\",\"sales\",\"orders\"]", "12"},
+        {"in_catalog(\"archive_db\", \"sales\", \"orders\")", "[\"archive_db\",\"sales\",\"orders\"]", "72"},
+        {"in_schema(\"sales.dot\", \"orders\\\"quote\")", "[\"sales.dot\",\"orders\\\"quote\"]", "32"},
+    };
     for (const auto &mode : {"default", "fallback", "strict"}) {
         ASSERT_FALSE(safe_query(std::string("SET allow_parser_override_extension = '") + mode + "'")->HasError());
-        for (const std::string source : {"sales.orders", "memory.sales.orders"}) {
-            const auto pipeline = source + " %>% mutate(a = x + 1, b = a + 1) %>% select(b)";
-            const auto schema = "{\"source\":\"" + source + "\",\"columns\":[{\"name\":\"id\"},{\"name\":\"x\"}]}";
-            for (const auto &query : {pipeline, "SELECT * FROM dplyr('" + pipeline + "')",
+        for (const auto &source : sources) {
+            const auto pipeline = source.expression + " %>% mutate(a = x + 1, b = a + 1) %>% select(b)";
+            const auto schema = "[{\"source\":" + source.wire + ",\"columns\":[{\"name\":\"id\"},{\"name\":\"x\"}]}]";
+            for (const auto &query : {pipeline, "SELECT * FROM dplyr(" + sql_string(pipeline) + ")",
                                      "SELECT * FROM (| " + pipeline + " |)",
-                                     "SELECT * FROM dplyr_with_schema('" + pipeline + "', '" + schema + "')"}) {
+                                     "SELECT * FROM dplyr_with_schema(" + sql_string(pipeline) + ", " + sql_string(schema) + ")"}) {
                 auto result = safe_query(query);
                 ASSERT_NE(result, nullptr);
                 ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
                 ASSERT_EQ(result->RowCount(), 1);
-                EXPECT_EQ(result->Fetch()->GetValue(0, 0).ToString(), "12");
+                EXPECT_EQ(result->Fetch()->GetValue(0, 0).ToString(), source.expected);
             }
         }
-        auto joined = safe_query("SELECT * FROM dplyr('sales.orders %>% inner_join(sales.tags, by = \"id\") %>% select(tag)')");
+        auto joined = safe_query("SELECT * FROM dplyr('in_schema(\"sales\", \"orders\") %>% inner_join(in_schema(\"sales\", \"tags\"), by = \"id\") %>% select(tag)')");
         ASSERT_FALSE(joined->HasError()) << joined->GetError();
         ASSERT_EQ(joined->RowCount(), 1);
         EXPECT_EQ(joined->Fetch()->GetValue(0, 0).ToString(), "20");
+        auto combined = safe_query("SELECT * FROM dplyr('in_schema(\"sales\", \"orders\") %>% union(in_schema(\"sales\", \"orders_archive\")) %>% select(id)')");
+        ASSERT_FALSE(combined->HasError()) << combined->GetError();
+        EXPECT_EQ(combined->RowCount(), 2);
+        for (const char *verb : {"union_all", "rows_append"}) {
+            const auto mixed = safe_query(
+                std::string("SELECT * FROM dplyr('sales.orders %>% ") + verb +
+                "(in_schema(\"sales\", \"orders\")) %>% arrange(id) %>% select(id)')");
+            ASSERT_FALSE(mixed->HasError()) << verb << ": " << mixed->GetError();
+            ASSERT_EQ(mixed->RowCount(), 2);
+            auto rows = mixed->Fetch();
+            ASSERT_TRUE(rows);
+            EXPECT_EQ(rows->GetValue(0, 0).ToString(), "1");
+            EXPECT_EQ(rows->GetValue(0, 1).ToString(), "99");
+        }
     }
 }
 

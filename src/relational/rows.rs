@@ -117,7 +117,7 @@ impl Planner<'_> {
             }
         }
         let spec = JoinSpec {
-            table: String::new(),
+            table: String::new().into(),
             by: by
                 .iter()
                 .map(|n| JoinKey {
@@ -126,7 +126,10 @@ impl Planner<'_> {
                 })
                 .collect(),
             on_expr: None,
-            options: JoinOptions::default(),
+            options: JoinOptions {
+                na_matches: true,
+                ..JoinOptions::default()
+            },
             right_operations: Vec::new(),
         };
         let option = if name == "rows_insert" {
@@ -311,7 +314,7 @@ impl Planner<'_> {
                 keys,
                 predicates: Vec::new(),
                 closest: None,
-                na_matches: false,
+                na_matches: true,
             },
             projection,
         );

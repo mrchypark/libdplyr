@@ -1,4 +1,8 @@
 use libdplyr::{CompiledQuery, SourceSchema, SqliteDialect, Transpiler};
+use serde_json::json;
+
+#[path = "../src/sql_generator/tests/parity_sqlite.rs"]
+mod sqlite;
 
 fn compile(code: &str) -> CompiledQuery {
     Transpiler::new(Box::new(SqliteDialect::new()))
@@ -61,4 +65,48 @@ fn basic_query_extensions_preserve_shape() {
             .sql
             .contains("LIMIT 2")
     );
+}
+
+#[test]
+fn grouped_distinct_without_columns_keeps_all_visible_columns() {
+    let schema = SourceSchema::new("data", ["id", "g", "x", "y", "flag", "label", "date_value"]);
+    for args in ["", ".keep_all = FALSE", ".keep_all = TRUE"] {
+        let query = Transpiler::new(Box::new(SqliteDialect::new()))
+            .transpile_with_schema(
+                &format!("data %>% group_by(g) %>% distinct({args})"),
+                &schema,
+            )
+            .expect("grouped distinct query");
+        assert_eq!(
+            query
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "g", "x", "y", "flag", "label", "date_value"]
+        );
+        assert_eq!(
+            sqlite::execute(&query.sql, false),
+            json!([
+                [1, "a", 20, 20, 1, "", "2026-01-02 03:04:05"],
+                [2, "a", 10, 99, 0, "hi", "2026-01-02"],
+                [3, "a", 10, 10, null, null, null],
+                [4, "a", null, null, null, "x", null],
+                [5, "a", 30, 30, 1, null, "2026-02-03"],
+                [6, "b", null, null, null, null, null],
+                [7, "b", 5, 5, 1, "z", "2026-01-04"],
+                [8, "b", 5, 5, 0, "", "2026-01-04"]
+            ])
+        );
+        let summary = Transpiler::new(Box::new(SqliteDialect::new()))
+            .transpile_with_schema(
+                &format!("data %>% group_by(g) %>% distinct({args}) %>% summarise(n = n())"),
+                &schema,
+            )
+            .expect("grouped distinct summary");
+        assert_eq!(
+            sqlite::execute(&summary.sql, false),
+            json!([["a", 5], ["b", 3]])
+        );
+    }
 }
