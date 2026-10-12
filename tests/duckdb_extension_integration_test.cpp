@@ -1335,7 +1335,11 @@ TEST_F(DuckDBExtensionTest, QualifiedSourcesBindAcrossEntryPoints) {
                                  "SELECT * FROM (| " + standalone + " |)",
                                  std::string("bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)"),
                                  std::string("SELECT * FROM dplyr('bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)')"),
-                                 std::string("SELECT * FROM (| bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE) |)")}) {
+                                 std::string("SELECT * FROM (| bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE) |)"),
+                                 std::string("-- combine inputs\nbind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)"),
+                                 std::string("/* outer /* inner */ comment */ bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE)"),
+                                 std::string("SELECT * FROM (| -- combine inputs\nbind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE) |)"),
+                                 std::string("SELECT * FROM (| /* outer /* inner */ comment */ bind_queries(sales.orders, in_schema(\"sales\", \"orders\"), all = FALSE) |)")}) {
             auto result = safe_query(query);
             ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
             ASSERT_EQ(result->RowCount(), 2);

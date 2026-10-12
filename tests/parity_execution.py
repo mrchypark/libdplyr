@@ -38,6 +38,9 @@ CREATE TABLE big_pivot(id INTEGER, "key" BIGINT, value INTEGER);
 INSERT INTO big_pivot VALUES (1,1152921504606846976,3);
 """
 CASES = [
+    ("named replacement argument", 'data %>% replace_na(replace = list(y = 0)) %>% select(id, y)', [[1,1],[2,0],[3,4],[4,2],[5,0],[6,7]]),
+    ("wide positional name after named value", 'keys %>% pivot_wider(values_from = value, key, keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
+    ("wide positional name after named id", 'keys %>% pivot_wider(id_cols = id, key, values_from = value, keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
     ("wide pivot id selection excludes pivot sources", 'keys %>% pivot_wider(names_from = key, values_from = value, id_cols = everything(), keys = c("x", "y"))', [[1,2,3],[2,4,None]]),
     ("across bare function label", 'data %>% mutate(across(x, abs, .names = "{.col}_{.fn}")) %>% select(id, x_1)', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,3]]),
     ("across lambda function label", 'data %>% mutate(across(x, ~ .x + 1, .names = "{.col}_{.fn}")) %>% select(id, x_1)', [[1,11],[2,11],[3,None],[4,6],[5,1],[6,-2]]),

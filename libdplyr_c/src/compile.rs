@@ -804,14 +804,15 @@ fn is_probably_identifier_chain(prefix: &str) -> bool {
     part_count > 0
 }
 
-fn starts_with_bind_queries(code: &str) -> bool {
-    code.trim_start()
+fn starts_with_bind_queries(code: &str, config: SqlScanConfig) -> bool {
+    strip_leading_sql_comments_and_whitespace_with_config(code, config)
         .strip_prefix("bind_queries")
         .is_some_and(|rest| rest.trim_start().starts_with('('))
 }
 
 fn extract_leading_table_name_with_config(dplyr_code: &str, config: SqlScanConfig) -> Option<&str> {
-    if starts_with_bind_queries(dplyr_code)
+    let dplyr_code = strip_leading_sql_comments_and_whitespace_with_config(dplyr_code, config);
+    if starts_with_bind_queries(dplyr_code, config)
         && libdplyr::Parser::new(libdplyr::Lexer::with_pipe_syntax(
             dplyr_code.to_owned(),
             config.pipe_syntax,
@@ -880,6 +881,8 @@ fn explicit_source_paths_pass_the_pipeline_gateway() {
         r#"in_catalog ("memory", "sales", "orders") %>% select(id)"#,
         "bind_queries(first, second)",
         "bind_queries(first %>% select(id), second) %>% arrange(id)",
+        "-- combine inputs\nbind_queries(first, second)",
+        "/* outer /* inner */ comment */ bind_queries(first, second)",
     ] {
         assert!(require_pipeline_table_name_with_config(code, SqlScanConfig::default()).is_ok());
     }
@@ -979,7 +982,7 @@ fn replace_embedded_pipelines_with_deadline(
             ));
         }
         if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none()
-            && !starts_with_bind_queries(&embedded)
+            && !starts_with_bind_queries(&embedded, scan_config)
         {
             if let Some(disabled_pos) =
                 find_disabled_pipe_operator_with_config(&embedded, 0, scan_config)
@@ -1152,7 +1155,9 @@ fn compile_query_string_with_deadline(
         find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some();
 
     if trimmed.is_empty()
-        || (!has_pipeline && !has_embedded_pipeline && !starts_with_bind_queries(trimmed))
+        || (!has_pipeline
+            && !has_embedded_pipeline
+            && !starts_with_bind_queries(trimmed, scan_config))
     {
         if find_disabled_pipe_operator_with_config(trimmed, 0, scan_config).is_some() {
             return Err(disabled_pipe_syntax_error(
@@ -1235,7 +1240,7 @@ fn finish_compile_query(
     if !has_pipeline
         && !has_disabled_pipeline
         && !has_embedded_pipeline
-        && !starts_with_bind_queries(query_str)
+        && !starts_with_bind_queries(query_str, scan_config)
     {
         return DPLYR_QUERY_NOT_HANDLED;
     }
@@ -1281,9 +1286,6 @@ fn finish_compile_query(
 }
 
 fn query_requires_pipe_syntax_resolution(query_str: &str, opts: &DplyrOptions) -> bool {
-    if starts_with_bind_queries(query_str) {
-        return true;
-    }
     [PipeSyntax::Magrittr, PipeSyntax::Native]
         .into_iter()
         .map(|pipe_syntax| scan_config_for_options(opts, pipe_syntax))
@@ -1291,6 +1293,7 @@ fn query_requires_pipe_syntax_resolution(query_str: &str, opts: &DplyrOptions) -
             find_pipe_operator_with_config(query_str, 0, scan_config).is_some()
                 || find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some()
                 || find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some()
+                || starts_with_bind_queries(query_str, scan_config)
         })
 }
 

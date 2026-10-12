@@ -272,6 +272,29 @@ impl BoundExpr {
 }
 
 impl Planner<'_> {
+    fn pipeline_input<'a>(
+        &mut self,
+        source: Option<&SourceRef>,
+        operations: &'a [DplyrOperation],
+    ) -> GenerationResult<(Relation, &'a [DplyrOperation])> {
+        match operations.split_first() {
+            Some((DplyrOperation::Extended { name, args, .. }, remaining))
+                if name == "bind_queries" && source.is_none() =>
+            {
+                let mut args = args.clone();
+                let first = args
+                    .iter()
+                    .position(|arg| !matches!(arg, Expr::NamedArg { .. }))
+                    .ok_or_else(|| invalid("bind_queries needs at least one relation"))?;
+                let input = self.relation_operand(&args.remove(first))?;
+                Ok((self.extended(input, name, &args)?, remaining))
+            }
+            _ => Ok((
+                self.scan(source.unwrap_or(&self.schemas[0].source))?,
+                operations,
+            )),
+        }
+    }
     fn scan(&mut self, source: &SourceRef) -> GenerationResult<Relation> {
         let schema = self
             .schemas
@@ -1412,12 +1435,9 @@ fn compile_plan(
                     "schema-aware compilation does not execute or create target tables",
                 ));
             }
-            (
-                source.as_ref().unwrap_or(&schemas[0].source),
-                operations.as_slice(),
-            )
+            (source.as_ref(), operations.as_slice())
         }
-        DplyrNode::DataSource { name, .. } => (name, &[][..]),
+        DplyrNode::DataSource { name, .. } => (Some(name), &[][..]),
     };
     let mut planner = Planner {
         generator,
@@ -1427,21 +1447,7 @@ fn compile_plan(
         checks: collect_checks.then(Vec::new),
         bindings,
     };
-    let (mut relation, operations) = match operations.split_first() {
-        Some((DplyrOperation::Extended { name, args, .. }, remaining))
-            if name == "bind_queries"
-                && matches!(ast, DplyrNode::Pipeline { source: None, .. }) =>
-        {
-            let mut args = args.clone();
-            let first = args
-                .iter()
-                .position(|arg| !matches!(arg, Expr::NamedArg { .. }))
-                .ok_or_else(|| invalid("bind_queries needs at least one relation"))?;
-            let input = planner.relation_operand(&args.remove(first))?;
-            (planner.extended(input, name, &args)?, remaining)
-        }
-        _ => (planner.scan(source)?, operations),
-    };
+    let (mut relation, operations) = planner.pipeline_input(source, operations)?;
     for operation in operations {
         relation = planner.apply(relation, operation)?;
     }

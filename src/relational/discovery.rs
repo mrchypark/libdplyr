@@ -18,10 +18,7 @@ pub(crate) fn pivot_keys(
             if target.is_some() {
                 return Err(invalid("pivot discovery cannot create a target table"));
             }
-            (
-                source.as_ref().unwrap_or(&schemas[0].source),
-                operations.as_slice(),
-            )
+            (source.as_ref(), operations.as_slice())
         }
         DplyrNode::DataSource { .. } => return Ok(None),
     };
@@ -34,7 +31,7 @@ pub(crate) fn pivot_keys(
         checks: Some(Vec::new()),
         bindings: &constants,
     };
-    let mut input = planner.scan(source)?;
+    let (mut input, operations) = planner.pipeline_input(source, operations)?;
     for operation in operations {
         if let DplyrOperation::Extended { name, args, .. } = operation {
             if name == "pivot_wider"
@@ -50,7 +47,10 @@ pub(crate) fn pivot_keys(
                         }
                         _ => None,
                     })
-                    .or_else(|| args.first())
+                    .or_else(|| {
+                        args.iter()
+                            .find(|arg| !matches!(arg, Expr::NamedArg { .. }))
+                    })
                     .ok_or_else(|| invalid("pivot_wider requires names_from"))?;
                 let name = match names {
                     Expr::Identifier(name) | Expr::Literal(LiteralValue::String(name)) => name,

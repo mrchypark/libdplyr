@@ -527,14 +527,14 @@ fn replace_na(
     _groups: &[String],
     _order: &[OrderExpr],
 ) -> GenerationResult<(SqlQuery, Vec<SchemaColumn>)> {
-    let (positional, named) = split_args(args, &["data"])?;
+    let (positional, named) = split_args(args, &["replace"])?;
+    reject_named_positionals(&positional)?;
 
-    let data_expr = if let Some(d) = named.get("data") {
-        *d
-    } else if let Some(first) = positional.first() {
-        *first
-    } else {
-        return Err(invalid("replace_na() requires a replacement list"));
+    let data_expr = match (named.get("replace"), positional.as_slice()) {
+        (Some(replace), []) => *replace,
+        (None, [replace]) => *replace,
+        (None, []) => return Err(invalid("replace_na() requires a replacement list")),
+        _ => return Err(invalid("replace_na() accepts one replacement list")),
     };
 
     let replacements = parse_replacement_list(data_expr)?;
@@ -726,6 +726,7 @@ fn expand_complete(
     let (values, opts) = split_args(args, &["fill", "explicit"])?;
     let base = wrap_input(input.clone(), "__expand_input");
     let mut domains = Vec::new();
+    let mut domain_columns = Vec::new();
     if !groups.is_empty() {
         let schema = groups
             .iter()
@@ -737,6 +738,12 @@ fn expand_complete(
     }
     for value in values {
         if let Expr::NamedArg { name, value } = value {
+            if groups.contains(name) {
+                return Err(invalid("expand cannot select a grouping column"));
+            }
+            if domain_columns.contains(name) {
+                return Err(invalid("expand cannot select a column more than once"));
+            }
             let values = extract_literal_values(value)?;
             let schema = vec![metadata(columns, name)?];
             let domain = simple_query(
@@ -747,6 +754,7 @@ fn expand_complete(
                 identity_projection(&schema),
             );
             domains.push((domain, schema));
+            domain_columns.push(name.clone());
             continue;
         }
         let selections = match value {
@@ -765,6 +773,12 @@ fn expand_complete(
         for selection in selections {
             if selection.iter().any(|n| groups.contains(n)) {
                 return Err(invalid("expand cannot select a grouping column"));
+            }
+            for column in &selection {
+                if domain_columns.contains(column) {
+                    return Err(invalid("expand cannot select a column more than once"));
+                }
+                domain_columns.push(column.clone());
             }
             let mut names = groups.to_vec();
             names.extend(selection);

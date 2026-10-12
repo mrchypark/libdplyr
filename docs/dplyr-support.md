@@ -255,9 +255,12 @@ Other pivot options, multiple name/value columns, and pivot specs are not implem
 
 `fill()` requires explicit order and supports down/up/downup/updown and `.by`.
 `expand()` and `complete()` support column domains, `nesting()`, and explicit
-literal domains for existing columns. `complete()` supports `fill` and `explicit`.
+literal domains for existing columns. Domains cannot select grouping columns or
+repeat a column, including overlaps with `nesting()`. `complete()` supports `fill`
+and `explicit`.
 Completion matches NULL domain keys; this differs from dbplyr's default SQL join.
-`replace_na(list(column = value))` changes named columns. Like tidyr,
+`replace_na(list(column = value))` or `replace_na(replace = list(column = value))`
+changes named columns. It accepts one replacement list. Like tidyr,
 `replace_na()` and `complete(fill = ...)` ignore unknown replacement names and
 use the first replacement when a name occurs more than once. `dbplyr_uncount()`
 supports weights, `.remove`, and `.id`; dynamic weights require an execution plan.
