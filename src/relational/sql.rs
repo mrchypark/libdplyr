@@ -218,7 +218,15 @@ impl SqlQuery {
         sql.push_str("\nFROM ");
         let mut join_predicate = None;
         match &self.source {
-            SqlSource::Table(table) => sql.push_str(&dialect.quote_identifier(table)),
+            SqlSource::Table(table) => {
+                let parts = table.split('.').collect::<Vec<_>>();
+                // Preserve leading-dot R names; nonempty components identify a path.
+                sql.push_str(&if parts.iter().any(|part| part.is_empty()) {
+                    dialect.quote_identifier(table)
+                } else {
+                    dialect.quote_identifier_path(&parts)
+                });
+            }
             SqlSource::Subquery(inner, alias) => {
                 sql.push('(');
                 sql.push_str(&inner.render(generator)?);

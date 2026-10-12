@@ -1,6 +1,6 @@
 # dbplyr 호환 범위와 제약 해소 결과
 
-검토일: 2026-10-08. 비교 기준: dbplyr 2.6.0, dplyr 1.2.1.
+검토일: 2026-10-13. 비교 기준: dbplyr 2.6.0, dplyr 1.2.1.
 아래 결과는 v0.7.0 릴리즈 후보의 구현과 검증을 기준으로 한다.
 
 제안한 순서에 따라 의미 오류, 주요 동사·옵션·함수, 비등가 조인, tidyr와 실행 프로토콜을
@@ -47,12 +47,22 @@
 
 ## API 사용 경계
 
+소스의 `sales.orders`와 `catalog.sales.orders`는 식별자 경로이며 각 부분을 따로 인용한다.
+열 이름의 점은 문자 그대로 유지한다. Rust 스키마 메타데이터의 `.data`나 `data.`처럼
+빈 경로 부분이 있는 이름은 단일 식별자로 인용한다. DuckDB 파이프라인에는 기존 C API의
+소스 식별자 문법이 적용된다. 일반 점 포함 테이블 이름은 스키마 경로와 구별할 별도 표기법이 없다.
+
 - `transpile_with_schemas()`는 검사 없는 단일 SELECT를 반환한다.
 - `transpile_with_bindings()`는 JSON 상수·목록을 AST 리터럴로 바인딩한다.
 - `plan_with_schemas()` 또는 CLI `--schema ... --execution-plan`은 검사와 결과를 반환한다.
 - `execute(plan, adapter)`는 스냅샷 시작 → 검사 → 결과 버퍼링 → commit을 수행한다.
   검사·조회·commit 실패 시 rollback하며, rollback도 실패하면 두 오류를 보존한다.
 - `execute_with_pivot_discovery()`는 키 탐색부터 결과까지 같은 스냅샷에서 실행한다.
+
+피벗 키의 정수는 현재 숫자 AST의 `f64`로 정확하게 표현할 수 있어야 한다. 정밀도가
+손실되는 정수는 결과를 실행하기 전에 거부하고 rollback한다.
+`rows_insert()`는 기존 왼쪽 키와의 충돌만 검사하며, 새 오른쪽 키의 중복은 허용한다.
+이는 [dplyr의 행 삽입 계약](https://github.com/tidyverse/dplyr/blob/main/R/rows.R)을 따른다.
 
 `SnapshotExecutor`와 `PivotExecutor`의 실제 DB 구현은 호출자가 제공한다. 같은 연결과
 트랜잭션만으로 충분하지 않다. 문장마다 읽기 상태가 바뀌는 READ COMMITTED는 계약을
@@ -88,11 +98,11 @@ SQLite에서 양쪽이 생성한 82개 중 79개를 실제 비교했다. 열 순
 
 현재 후보의 추가 검증:
 
-- `cargo test --workspace --no-fail-fast`: 1161개 통과, 1개 기존 ignored.
+- `cargo test --workspace --all-features --release --locked`: 1165개 통과, 1개 기존 ignored.
 - `cargo clippy --workspace --all-targets -- -D warnings`와 fmt 검사 통과.
-- SQLite·DuckDB·PostgreSQL·MySQL: 62개 결과 사례씩, **248/248** 통과.
+- SQLite·DuckDB·PostgreSQL·MySQL: 64개 결과 사례씩, **256/256** 통과.
 - 같은 네 엔진: 관계·가중치·uncount·행 변경 위반 검사 **32개** 통과.
-- DuckDB 확장: **89개** 통과. 테이블 함수와 embedded pipeline 진입점 포함.
+- DuckDB 확장: **90개** 통과. 스키마·카탈로그 소스와 테이블 함수·embedded pipeline 진입점 포함.
 - 기존 SQLite relational/followup 실행 회귀 통과.
 - SQLite 두 연결의 동시 변경: 관계 검사와 피벗 탐색 각각 같은 스냅샷을 유지하는 **2개** 통과.
 - Rust 실행·피벗 테스트: 실패 시 결과 미공개, commit/rollback 순서와 오류 보존 확인.

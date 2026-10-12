@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-10-08
+## [0.7.0] - 2026-10-13
 
 ### Added
 - Schema-aware Rust, CLI, C, and DuckDB compilation with stable column bindings, staged queries, output metadata, and typed value bindings.
@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve dependent expressions, grouping, ordering, and column identity through summaries, joins, and set operations.
 - Correct conditional, NULL, ranking, distinct, and ordered window semantics.
 - Execute default-mode DuckDB pipelines in the caller's native plan, preserving temporary tables and uncommitted rows, and rebind prepared pipelines after catalog changes.
+- Quote schema-qualified source paths consistently in SQL generation and DuckDB metadata discovery.
+- Reject lossy integer pivot keys and return the public C timeout status when schema compilation exceeds its deadline.
 
 ### Security
 - Update `lru` to a patched release for RUSTSEC-2026-0253 and replace the yanked test-only `chacha20` dependency.

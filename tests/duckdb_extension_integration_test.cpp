@@ -1246,6 +1246,37 @@ TEST_F(DuckDBExtensionTest, AutomaticSchemaFindsJoinAndSetInputs) {
     EXPECT_GT(combined->RowCount(), 0);
 }
 
+// R1-AC2: discovery and SQL rendering must identify the same qualified source.
+TEST_F(DuckDBExtensionTest, QualifiedSourcesBindAcrossEntryPoints) {
+    ASSERT_FALSE(safe_query("CREATE SCHEMA sales")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE sales.orders(id INTEGER, x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO sales.orders VALUES (1, 10)")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE sales.tags(id INTEGER, tag INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO sales.tags VALUES (1, 20)")->HasError());
+    ASSERT_FALSE(safe_query("CREATE TABLE \"sales.orders\"(id INTEGER, x INTEGER)")->HasError());
+    ASSERT_FALSE(safe_query("INSERT INTO \"sales.orders\" VALUES (99, 99)")->HasError());
+    for (const auto &mode : {"default", "fallback", "strict"}) {
+        ASSERT_FALSE(safe_query(std::string("SET allow_parser_override_extension = '") + mode + "'")->HasError());
+        for (const std::string source : {"sales.orders", "memory.sales.orders"}) {
+            const auto pipeline = source + " %>% mutate(a = x + 1, b = a + 1) %>% select(b)";
+            const auto schema = "{\"source\":\"" + source + "\",\"columns\":[{\"name\":\"id\"},{\"name\":\"x\"}]}";
+            for (const auto &query : {pipeline, "SELECT * FROM dplyr('" + pipeline + "')",
+                                     "SELECT * FROM (| " + pipeline + " |)",
+                                     "SELECT * FROM dplyr_with_schema('" + pipeline + "', '" + schema + "')"}) {
+                auto result = safe_query(query);
+                ASSERT_NE(result, nullptr);
+                ASSERT_FALSE(result->HasError()) << query << ": " << result->GetError();
+                ASSERT_EQ(result->RowCount(), 1);
+                EXPECT_EQ(result->Fetch()->GetValue(0, 0).ToString(), "12");
+            }
+        }
+        auto joined = safe_query("SELECT * FROM dplyr('sales.orders %>% inner_join(sales.tags, by = \"id\") %>% select(tag)')");
+        ASSERT_FALSE(joined->HasError()) << joined->GetError();
+        ASSERT_EQ(joined->RowCount(), 1);
+        EXPECT_EQ(joined->Fetch()->GetValue(0, 0).ToString(), "20");
+    }
+}
+
 TEST_F(DuckDBExtensionTest, AutomaticSchemaRefreshesAfterCatalogChanges) {
     ASSERT_FALSE(safe_query("CREATE TABLE auto_refresh(x INTEGER)")->HasError());
     ASSERT_FALSE(safe_query("INSERT INTO auto_refresh VALUES (2)")->HasError());

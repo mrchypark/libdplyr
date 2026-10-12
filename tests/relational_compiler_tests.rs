@@ -61,6 +61,49 @@ fn expect_generation_error(code: &str) {
 }
 
 #[test]
+fn qualified_sources_quote_each_path_component_without_splitting_columns() {
+    for (dialect, quote) in [
+        (
+            Box::new(PostgreSqlDialect::new()) as Box<dyn libdplyr::SqlDialect>,
+            '"',
+        ),
+        (Box::new(MySqlDialect::new()), '`'),
+        (Box::new(SqliteDialect::new()), '"'),
+        (Box::new(DuckDbDialect::new()), '"'),
+    ] {
+        let transpiler = Transpiler::new(dialect);
+        for source in ["sales.orders", "warehouse.sales.orders", ".data", "data."] {
+            let result = transpiler
+                .transpile_with_schema(
+                    "select(id, item.name)",
+                    &SourceSchema::new(source, ["id", "item.name"]),
+                )
+                .expect("qualified source");
+            let parts = source.split('.').collect::<Vec<_>>();
+            let path = if parts.iter().any(|part| part.is_empty()) {
+                format!("{quote}{source}{quote}")
+            } else {
+                parts
+                    .iter()
+                    .map(|part| format!("{quote}{part}{quote}"))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            };
+            assert!(
+                result.sql.contains(&format!("FROM {path}")),
+                "{}",
+                result.sql
+            );
+            assert!(
+                result.sql.contains(&format!("{quote}item.name{quote}")),
+                "{}",
+                result.sql
+            );
+        }
+    }
+}
+
+#[test]
 fn dependent_mutate_within_one_operation() {
     let q = compile("data %>% mutate(a = x * 2, b = a + 1)").expect("mutate");
     assert_eq!(

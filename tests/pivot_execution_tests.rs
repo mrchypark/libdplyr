@@ -9,6 +9,7 @@ struct Database {
     calls: Vec<&'static str>,
     sql: String,
     fail_discovery: bool,
+    discovered_values: Vec<serde_json::Value>,
 }
 impl SnapshotExecutor for Database {
     type Rows = String;
@@ -42,7 +43,11 @@ impl PivotExecutor for Database {
         if self.fail_discovery {
             return Err(io::Error::other("discovery failed"));
         }
-        Ok(vec![serde_json::json!("x"), serde_json::json!("y'quoted")])
+        if self.discovered_values.is_empty() {
+            Ok(vec![serde_json::json!("x"), serde_json::json!("y'quoted")])
+        } else {
+            Ok(self.discovered_values.clone())
+        }
     }
 }
 fn transpiler() -> Transpiler {
@@ -91,4 +96,44 @@ fn fixed_keys_do_not_trigger_discovery() {
     )
     .expect("fixed pivot");
     assert_eq!(database.calls, ["begin", "fetch", "commit"]);
+}
+
+#[test]
+fn discovery_rejects_lossy_integer_keys() {
+    for value in [serde_json::json!(i64::MAX), serde_json::json!(u64::MAX)] {
+        let mut database = Database {
+            discovered_values: vec![value],
+            ..Default::default()
+        };
+        let error = execute_with_pivot_discovery(
+            &transpiler(),
+            "data %>% pivot_wider(names_from = key, values_from = value)",
+            &schemas(),
+            &mut database,
+        )
+        .expect_err("lossy pivot integer");
+        assert!(matches!(error, PivotExecutionError::Compile(_)));
+        assert_eq!(database.calls, ["begin", "discover", "rollback"]);
+    }
+}
+
+#[test]
+fn discovery_keeps_exact_integer_keys() {
+    let mut database = Database {
+        discovered_values: vec![
+            serde_json::json!(-9_007_199_254_740_992_i64),
+            serde_json::json!(9_007_199_254_740_992_u64),
+        ],
+        ..Default::default()
+    };
+    let sql = execute_with_pivot_discovery(
+        &transpiler(),
+        "data %>% pivot_wider(names_from = key, values_from = value)",
+        &schemas(),
+        &mut database,
+    )
+    .expect("exact pivot integers");
+    assert!(sql.contains("-9007199254740992"));
+    assert!(sql.contains("9007199254740992"));
+    assert_eq!(database.calls, ["begin", "discover", "fetch", "commit"]);
 }

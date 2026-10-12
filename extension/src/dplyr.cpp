@@ -1021,7 +1021,17 @@ static QueryCompileStatus DiscoverSourceSchemas(ClientContext &context, TableFun
         }
         auto node = make_uniq<SelectNode>();
         auto table = make_uniq<BaseTableRef>();
-        table->table_name = source;
+        const auto parts = StringUtil::Split(source, '.');
+        if (source.front() == '.' || source.back() == '.' || source.find("..") != string::npos) {
+            table->table_name = source;
+        } else {
+            if (parts.size() > 3) {
+                throw BinderException("dplyr sources accept at most catalog.schema.table: %s", source);
+            }
+            table->table_name = parts.back();
+            if (parts.size() >= 2) table->schema_name = parts[parts.size() - 2];
+            if (parts.size() == 3) table->catalog_name = parts[0];
+        }
         node->from_table = std::move(table);
         node->select_list.push_back(make_uniq<StarExpression>());
         auto binder = Binder::CreateBinder(context, input.binder);

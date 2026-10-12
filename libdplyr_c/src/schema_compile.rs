@@ -25,7 +25,7 @@ use libdplyr::{
 use crate::compile::convert_libdplyr_error;
 use crate::error::{
     TranspileError, DPLYR_ERROR_INPUT_TOO_LARGE, DPLYR_ERROR_INTERNAL, DPLYR_ERROR_INVALID_UTF8,
-    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_SUCCESS,
+    DPLYR_ERROR_NULL_POINTER, DPLYR_ERROR_PANIC, DPLYR_ERROR_TIMEOUT, DPLYR_SUCCESS,
 };
 use crate::ffi::{clear_output_string, set_error_output, set_sql_output};
 use crate::options::{
@@ -55,7 +55,12 @@ fn publish_error(out_error: *mut *mut c_char, code: i32, message: &str) -> i32 {
 
 fn publish_transpile_error(out_error: *mut *mut c_char, error: &TranspileError) -> i32 {
     let message = error.to_c_string().to_string_lossy().into_owned();
-    publish_error(out_error, error.to_c_error_code(), &message)
+    let code = if error.get_error_code() == "E-TIMEOUT" {
+        DPLYR_ERROR_TIMEOUT
+    } else {
+        error.to_c_error_code()
+    };
+    publish_error(out_error, code, &message)
 }
 
 fn processing_timeout(opts: &DplyrOptions) -> Duration {
@@ -73,7 +78,7 @@ fn processing_deadline(opts: &DplyrOptions) -> Instant {
 
 fn ensure_before_deadline(opts: &DplyrOptions, deadline: Instant) -> Result<(), TranspileError> {
     if Instant::now() > deadline {
-        return Err(TranspileError::internal_error_with_hint(
+        return Err(TranspileError::timeout_error(
             &format!(
                 "Processing timeout: exceeded {}ms limit",
                 processing_timeout(opts).as_millis()
@@ -501,7 +506,7 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    use crate::error::{DPLYR_ERROR_SYNTAX, DPLYR_ERROR_UNSUPPORTED};
+    use crate::error::{DPLYR_ERROR_SYNTAX, DPLYR_ERROR_TIMEOUT, DPLYR_ERROR_UNSUPPORTED};
     use crate::memory::dplyr_free_string;
 
     fn restore_env(previous: Option<std::ffi::OsString>) {
@@ -564,6 +569,22 @@ mod tests {
     }
 
     const VALID_SCHEMA: &str = r#"{"source":"mtcars","columns":[{"name":"mpg"},{"name":"cyl"}]}"#;
+
+    #[test]
+    fn expired_deadline_maps_to_timeout_error() {
+        let options = DplyrOptions::default();
+        let error = ensure_before_deadline(&options, Instant::now() - Duration::from_millis(1))
+            .expect_err("expired deadline must fail");
+
+        let mut out_error = std::ptr::null_mut();
+        let result = publish_transpile_error(&mut out_error, &error);
+        assert!(!out_error.is_null());
+        let message = unsafe { CStr::from_ptr(out_error).to_string_lossy().into_owned() };
+        unsafe { dplyr_free_string(out_error) };
+
+        assert_eq!(result, DPLYR_ERROR_TIMEOUT);
+        assert!(message.starts_with("E-TIMEOUT:"), "{message}");
+    }
 
     #[test]
     fn valid_schema_produces_sql() {

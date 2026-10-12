@@ -204,6 +204,14 @@ impl TranspileError {
         }
     }
 
+    pub fn timeout_error(details: &str, recovery_hint: Option<String>) -> Self {
+        Self::Internal {
+            code: "E-TIMEOUT".to_string(),
+            details: details.to_string(),
+            recovery_hint,
+        }
+    }
+
     pub fn ffi_error(boundary: &str, safety_info: &str) -> Self {
         Self::Ffi {
             code: "E-FFI".to_string(),

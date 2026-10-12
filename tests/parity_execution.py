@@ -73,6 +73,8 @@ CASES = [
     ("rows delete", 'data %>% rows_delete(keys %>% filter(key == "x") %>% select(id), by = "id", unmatched = "ignore") %>% select(id)', [[3],[4],[5],[6]]),
     ("rows append subset", 'data %>% select(id, x) %>% rows_append(keys %>% filter(key == "x") %>% select(id))', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,-3],[1,None],[2,None]]),
     ("rows insert", 'data %>% select(id, x) %>% rows_insert(other %>% filter(other_id == 7) %>% select(id = other_id, x = value), by = "id", conflict = "ignore")', [[1,10],[2,10],[3,None],[4,5],[5,0],[6,-3],[7,-1]]),
+    ("rows insert retains duplicate new keys", 'data %>% rows_insert(keys %>% filter(key == "x") %>% transmute(id = 10, grp = "new", x = value, y = value, weight = 1), by = "id") %>% select(id)', [[1],[2],[3],[4],[5],[6],[10],[10]]),
+    ("rows insert ignore retains duplicate new keys", 'data %>% rows_insert(keys %>% filter(key == "x") %>% transmute(id = 10, grp = "new", x = value, y = value, weight = 1), by = "id", conflict = "ignore") %>% select(id)', [[1],[2],[3],[4],[5],[6],[10],[10]]),
     ("rows upsert", 'data %>% select(id, x) %>% rows_upsert(other %>% filter(other_id >= 4) %>% select(id = other_id, x = value), by = "id")', [[1,10],[2,10],[3,None],[4,3],[5,0],[6,-3],[7,-1]]),
     ("weighted replacement count", 'data %>% slice_sample(n = 128, replace = TRUE, weight_by = weight) %>% summarise(draws = n(), zeros = as.numeric(sum(ifelse(id == 2, 1, 0))))', [[128,0]]),
     ("grouped replacement count", 'data %>% slice_sample(n = 3, replace = TRUE, weight_by = weight, by = grp) %>% count(grp)', [['a',3],['b',3],[None,3]]),

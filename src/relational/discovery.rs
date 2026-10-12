@@ -114,12 +114,20 @@ pub(crate) fn supply_pivot_keys(
                             serde_json::Value::Null => LiteralValue::Null,
                             serde_json::Value::String(value) => LiteralValue::String(value.clone()),
                             serde_json::Value::Bool(value) => LiteralValue::Boolean(*value),
-                            serde_json::Value::Number(value) => LiteralValue::Number(
-                                value
+                            serde_json::Value::Number(value) => {
+                                let number = value
                                     .as_f64()
                                     .filter(|n| n.is_finite())
-                                    .ok_or_else(|| invalid("pivot key is not finite"))?,
-                            ),
+                                    .ok_or_else(|| invalid("pivot key is not finite"))?;
+                                if value.as_i64().is_some_and(|v| number as i128 != v as i128)
+                                    || value.as_u64().is_some_and(|v| number as u128 != v as u128)
+                                {
+                                    return Err(invalid(
+                                        "pivot key integer is not exactly representable",
+                                    ));
+                                }
+                                LiteralValue::Number(number)
+                            }
                             _ => return Err(invalid("pivot keys must be scalar values")),
                         }))
                     })
