@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{DplyrOperation, GenerationResult, SqlGenerator};
+use super::{DplyrOperation, GenerationResult, SourceRef, SqlGenerator};
 
 /// Struct to store SQL query components
 #[derive(Debug, Default)]
@@ -17,7 +17,7 @@ pub(super) struct QueryParts {
     pub(super) joins: Vec<String>,
     pub(super) mutated_columns: HashMap<String, String>,
     pub(super) derived_columns: HashSet<String>,
-    pub(super) set_operation: Option<(String, String)>, // (operation, right_table)
+    pub(super) set_operation: Option<(String, SourceRef)>, // (operation, right_table)
 }
 
 impl QueryParts {
@@ -40,20 +40,17 @@ impl SqlGenerator {
         &self,
         operations: &[DplyrOperation],
     ) -> GenerationResult<String> {
-        // Process nested operations recursively
-        let mut nested_parts = QueryParts::new();
-
-        for operation in operations {
-            self.process_operation(operation, &mut nested_parts, "data")?;
+        if operations.is_empty() {
+            return self.assemble_query(&None, &QueryParts::new());
         }
-
-        self.assemble_query(&None, &nested_parts)
+        // R1-AC1: Share stage validation and grouping normalization with the main API.
+        self.generate_pipeline(&None, &None, operations)
     }
 
     /// Assembles the final SQL query.
     pub(super) fn assemble_query(
         &self,
-        source: &Option<String>,
+        source: &Option<SourceRef>,
         parts: &QueryParts,
     ) -> GenerationResult<String> {
         let mut query = String::new();
@@ -71,8 +68,8 @@ impl SqlGenerator {
 
         // FROM clause (using default table name)
         query.push_str("\nFROM ");
-        let table_name = source.as_deref().unwrap_or("data");
-        query.push_str(&self.dialect.quote_identifier(table_name));
+        let default_source = SourceRef::Literal("data".into());
+        query.push_str(&self.quote_source_ref(source.as_ref().unwrap_or(&default_source))?);
 
         // JOIN clauses
         for join in &parts.joins {
@@ -102,7 +99,7 @@ impl SqlGenerator {
         if let Some((op, right_table)) = &parts.set_operation {
             query.push_str(&format!(
                 "\n{op} SELECT * FROM {}",
-                self.dialect.quote_identifier(right_table)
+                self.quote_source_ref(right_table)?
             ));
         }
 

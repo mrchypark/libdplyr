@@ -19,12 +19,13 @@ mod ffi_safety;
 mod memory;
 mod metadata;
 pub mod options;
+mod schema_compile;
 mod system;
 mod validation;
 
 pub use compile::{
     dplyr_compile, dplyr_compile_query, dplyr_compile_query_with_pipe_syntax,
-    dplyr_compile_with_pipe_syntax,
+    dplyr_compile_with_pipe_syntax, dplyr_prepare_query_with_pipe_syntax,
 };
 pub use ffi::dplyr_init_output_string;
 pub use ffi_safety::dplyr_is_valid_string_pointer;
@@ -35,6 +36,9 @@ pub use metadata::{
     dplyr_build_timestamp, dplyr_has_debug_support, dplyr_max_input_length,
     dplyr_max_processing_time_ms, dplyr_supported_dialects, dplyr_version, dplyr_version_detailed,
     libdplyr_c_version_simple,
+};
+pub use schema_compile::{
+    dplyr_compile_with_schema, dplyr_compile_with_schema_and_pipe_syntax, dplyr_required_sources,
 };
 
 // Re-export error handling functions for C header generation

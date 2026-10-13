@@ -1564,40 +1564,92 @@ mod ffi_tests {
     }
 
     #[test]
-    fn test_dplyr_compile_with_security_validation() {
+    fn test_dplyr_compile_accepts_quoted_security_patterns() {
+        for (input, expected_sql) in [
+            ("filter(x == 'a')", "WHERE (\"x\" = 'a')"),
+            ("filter(path == '../')", "WHERE (\"path\" = '../')"),
+            (
+                "filter(x == '; DROP TABLE users; --')",
+                "WHERE (\"x\" = '; DROP TABLE users; --')",
+            ),
+            ("filter(x == 'a\\' OR 1=1')", "WHERE (\"x\" = 'a'' OR 1=1')"),
+            ("filter(x == \"O'Brien\")", "WHERE (\"x\" = 'O''Brien')"),
+            (
+                "filter(x == \"javascript:\\\"eval()\")",
+                "WHERE (\"x\" = 'javascript:\"eval()')",
+            ),
+        ] {
+            let input = CString::new(input).expect("test input has no NUL");
+            let mut out_sql: *mut c_char = std::ptr::null_mut();
+            let mut out_error: *mut c_char = std::ptr::null_mut();
+
+            let result = unsafe {
+                dplyr_compile(
+                    input.as_ptr(),
+                    std::ptr::null(),
+                    &mut out_sql,
+                    &mut out_error,
+                )
+            };
+
+            assert_eq!(result, DPLYR_SUCCESS);
+            assert!(!out_sql.is_null());
+            assert!(out_error.is_null());
+            let sql = unsafe {
+                let sql = CStr::from_ptr(out_sql)
+                    .to_str()
+                    .expect("SQL is UTF-8")
+                    .to_string();
+                dplyr_free_string(out_sql);
+                sql
+            };
+            assert!(sql.contains(expected_sql), "{sql}");
+        }
+    }
+
+    #[test]
+    fn test_dplyr_compile_rejects_unquoted_security_pattern() {
+        let input = CString::new("filter(x == a) UNION SELECT").expect("test input has no NUL");
         let mut out_sql: *mut c_char = std::ptr::null_mut();
         let mut out_error: *mut c_char = std::ptr::null_mut();
 
-        // Test with suspicious input (properly quoted to pass structure validation)
-        let malicious_input =
-            CString::new("select(col1) %>% filter(col2 = '; DROP TABLE users; --')").unwrap();
-
         let result = unsafe {
             dplyr_compile(
-                malicious_input.as_ptr(),
+                input.as_ptr(),
                 std::ptr::null(),
                 &mut out_sql,
                 &mut out_error,
             )
         };
 
-        // Should fail with security error
         assert_ne!(result, DPLYR_SUCCESS);
+        assert!(out_sql.is_null());
         assert!(!out_error.is_null());
+        unsafe { dplyr_free_string(out_error) };
+    }
 
-        // Check error message contains security-related information
-        let error_msg = unsafe { std::ffi::CStr::from_ptr(out_error).to_string_lossy() };
+    #[test]
+    fn test_dplyr_compile_rejects_unterminated_quote_and_trailing_statement() {
+        for input in [
+            "filter(x == 'unterminated)",
+            "filter(x == a); DROP TABLE users",
+        ] {
+            let input = CString::new(input).expect("test input has no NUL");
+            let mut out_sql: *mut c_char = std::ptr::null_mut();
+            let mut out_error: *mut c_char = std::ptr::null_mut();
 
-        // The error should be related to security validation
-        assert!(
-            error_msg.contains("malicious")
-                || error_msg.contains("suspicious")
-                || error_msg.contains("DROP")
-                || error_msg.contains("potentially")
-        );
+            let result = unsafe {
+                dplyr_compile(
+                    input.as_ptr(),
+                    std::ptr::null(),
+                    &mut out_sql,
+                    &mut out_error,
+                )
+            };
 
-        // Clean up
-        if !out_error.is_null() {
+            assert_ne!(result, DPLYR_SUCCESS);
+            assert!(out_sql.is_null());
+            assert!(!out_error.is_null());
             unsafe { dplyr_free_string(out_error) };
         }
     }

@@ -261,6 +261,30 @@ impl JsonOutputFormatter {
             "metadata": metadata
         });
 
+        self.serialize(&output)
+    }
+
+    /// Formats a schema-aware transpilation result as JSON, including the
+    /// compiled relation columns and the number of pipeline stages applied.
+    pub fn format_schema_transpile_result(
+        &self,
+        sql: &str,
+        metadata: &TranspileMetadata,
+        columns: &[crate::relational::SchemaColumn],
+        stages: usize,
+    ) -> String {
+        let output = serde_json::json!({
+            "success": true,
+            "sql": sql,
+            "stages": stages,
+            "columns": columns,
+            "metadata": metadata
+        });
+
+        self.serialize(&output)
+    }
+
+    fn serialize(&self, output: &serde_json::Value) -> String {
         if self.pretty_print {
             serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string())
         } else {

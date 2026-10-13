@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.7.0] - 2026-10-13
+
+### Added
+- Schema-aware Rust, CLI, C, and DuckDB compilation with stable column bindings, staged queries, output metadata, and typed value bindings.
+- Extended dplyr verbs, tidy selection and lambdas, grouping and window options, portable aggregates, non-equality and rolling joins, set operations, ordered slices, and weighted or replacement sampling.
+- tidyr transformations and SELECT results for `rows_*`, plus snapshot execution protocols for join validation, input checks, and dynamic pivot discovery.
+- A reproducible dbplyr comparison and execution cases across PostgreSQL, MySQL, SQLite, and DuckDB.
+
+### Changed
+- Public parser AST variants and fields require downstream exhaustive matches and struct construction to be updated. Source fields and `required_sources()` now use `SourceRef`; existing JSON string sources remain accepted.
+- Pipelines that cannot preserve meaning require schema-aware compilation or an execution plan. `mutate(x = NULL)` deletes a column; use `NA` to retain a missing-value column.
+
+### Fixed
+- Preserve dependent expressions, grouping, ordering, and column identity through summaries, joins, and set operations.
+- Correct conditional, NULL, ranking, distinct, and ordered window semantics.
+- Execute default-mode DuckDB pipelines in the caller's native plan, preserving temporary tables and uncommitted rows, and rebind prepared pipelines after catalog changes.
+- Preserve literal dotted table names; support explicit `in_schema()` / `in_catalog()` source paths consistently in SQL and DuckDB metadata discovery.
+- Preserve named options and repeated relation inputs in `bind_queries`; start standalone calls from their first explicit relation.
+- Discover standalone `bind_queries` inputs across DuckDB and C entry points. Preserve pivot identity metadata, exclude pivot source columns from `id_cols`, reject unsupported pivot arguments, and label bare `across` functions correctly in name templates.
+- Run prerequisite validation before dynamic pivot discovery, preserving validation errors and rollback failures without evaluating invalid expansion inputs.
+- Share standalone query initialization between compilation and dynamic pivot discovery; match positional pivot names after named options and recognize leading SQL comments in C query gates. Reject grouping or repeated expansion domains and surplus replacement lists.
+- Preserve explicit NULL pivot values when applying `values_fill`, distinct full rows after grouping, and match NULL keys in row operations.
+- Reject lossy integer pivot keys, preserve exact integer digits in generated SQL and pivot labels, and return the public C timeout status when schema compilation exceeds its deadline.
+
+### Security
+- Pin direct external dependencies to the audited lockfile versions, including `lru` 0.18.5 for RUSTSEC-2026-0253 and `serde_json` 1.0.149. Replace the yanked test-only `chacha20` dependency.
+
+### Limitations
+- This is not a complete R evaluator or full dbplyr API implementation. Database drivers, DML, in-place writes, and data movement are not bundled.
+- Validation and dynamic pivot execution require a caller adapter that guarantees one stable snapshot. C and DuckDB SELECT entry points do not run validation plans.
+- Sampling has no seed guarantee. Some tidyr combinations, moving-frame aggregates, MySQL full joins, and ordered first/last join selection remain unsupported. See `docs/dbplyr-parity.md`.
+
+## [0.6.0] - 2026-08-30
+
+### Added
+- Automated GitHub Releases deployment (R4-AC3)
+- Comprehensive release notes with compatibility information (R8-AC3)
+- Community repository submission preparation
+
+### Changed
+- Advance the crate and extension version to 0.6.0 because the public AST adds
+  `Distinct` and `Count` operation variants.
+- Upgrade the primary DuckDB build and release target from 1.5.4 to 1.5.5 while retaining the 1.5.0 compatibility lane.
+- Support `select(*)`, `distinct()`, and identifier-only `distinct(...)` pipelines.
+- Add limited identifier-only `count()` and unweighted `tally()` lowering through existing grouped aggregation support.
+- Add same-name and named equality key vectors for `*_join(..., by = c(...))`.
+- Add portable `case_when(condition ~ value, .default = value)` lowering.
+- Reduce FFI cache-hit work by updating LRU metadata in place and cloning only the cached SQL string.
+- Multi-platform binary packaging and distribution
+- Universal installation script with platform detection
+- Release verification and quality assurance automation
+
+### Changed
+- Enhanced release workflow with comprehensive metadata
+- Improved release notes generation with changelog integration
+- Standardized release asset naming and organization
+
+### Fixed
+- Release deployment reliability and error handling
+- Platform-specific binary verification and testing
+
 ## [0.5.1] - 2026-07-14
 
 ### Fixed
@@ -61,35 +124,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Improved GitHub security workflow configuration
-
-## [Unreleased]
-
-### Added
-- Automated GitHub Releases deployment (R4-AC3)
-- Comprehensive release notes with compatibility information (R8-AC3)
-- Community repository submission preparation
-
-### Changed
-- Advance the crate and extension version to 0.6.0 because the public AST adds
-  `Distinct` and `Count` operation variants.
-- Upgrade the primary DuckDB build and release target from 1.5.4 to 1.5.5 while retaining the 1.5.0 compatibility lane.
-- Support `select(*)`, `distinct()`, and identifier-only `distinct(...)` pipelines.
-- Add limited identifier-only `count()` and unweighted `tally()` lowering through existing grouped aggregation support.
-- Add same-name and named equality key vectors for `*_join(..., by = c(...))`.
-- Add portable `case_when(condition ~ value, .default = value)` lowering.
-- Reduce FFI cache-hit work by updating LRU metadata in place and cloning only the cached SQL string.
-- Multi-platform binary packaging and distribution
-- Universal installation script with platform detection
-- Release verification and quality assurance automation
-
-### Changed
-- Enhanced release workflow with comprehensive metadata
-- Improved release notes generation with changelog integration
-- Standardized release asset naming and organization
-
-### Fixed
-- Release deployment reliability and error handling
-- Platform-specific binary verification and testing
 
 ## [0.2.0] - DuckDB Extension Release
 

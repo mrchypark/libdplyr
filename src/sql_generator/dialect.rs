@@ -20,8 +20,20 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
     args: &[String],
     window_clause: &str,
 ) -> Option<String> {
+    translate_common_function_with_window(dialect, function, args, window_clause, "", None)
+}
+
+fn translate_common_function_with_window<D: SqlDialect + ?Sized>(
+    dialect: &D,
+    function: &str,
+    args: &[String],
+    window_clause: &str,
+    order_by: &str,
+    frame: Option<(i64, i64)>,
+) -> Option<String> {
     let fn_lower = function.to_lowercase();
     match fn_lower.as_str() {
+        "__missing_value" if args.is_empty() => Some("NULL".into()),
         // Math functions
         "abs" => unary_sql_function("ABS", args),
         "round" => one_or_two_arg_sql_function("ROUND", args),
@@ -49,7 +61,11 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
         // Modulo
         "mod" | "%%" => {
             if args.len() == 2 {
-                Some(format!("{} % {}", args[0], args[1]))
+                Some(format!(
+                    "({x} - FLOOR(({x} * 1.0) / NULLIF({y}, 0)) * {y})",
+                    x = args[0],
+                    y = args[1]
+                ))
             } else {
                 None
             }
@@ -113,14 +129,26 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
             }
         }
         "nzchar" => {
-            if args.len() == 1 {
-                Some(format!("({} > 0)", dialect.char_length(&args[0])))
+            if (1..=2).contains(&args.len()) {
+                let predicate = format!("({} > 0)", dialect.char_length(&args[0]));
+                match args.get(1).map(String::as_str) {
+                    Some("TRUE") => Some(predicate),
+                    None | Some("FALSE") => Some(format!("COALESCE({predicate}, TRUE)")),
+                    _ => None,
+                }
             } else {
                 None
             }
         }
         "trimws" => unary_sql_function("TRIM", args),
         // Conditional
+        "as.date" => {
+            if args.len() == 1 {
+                Some(dialect.date_cast(&args[0]))
+            } else {
+                None
+            }
+        }
         "as.numeric" | "as.double" | "as.integer" | "as.character" | "as.logical" => {
             if args.len() == 1 {
                 dialect
@@ -131,11 +159,19 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
             }
         }
         "ifelse" | "if_else" => {
-            if args.len() == 3 {
+            if args.len() == 3 || (fn_lower == "if_else" && args.len() == 4) {
+                let missing = args.get(3).map(String::as_str).unwrap_or("NULL");
                 Some(format!(
-                    "CASE WHEN {} THEN {} ELSE {} END",
-                    args[0], args[1], args[2]
+                    "CASE WHEN {} IS NULL THEN {missing} WHEN {} THEN {} ELSE {} END",
+                    args[0], args[0], args[1], args[2]
                 ))
+            } else {
+                None
+            }
+        }
+        "na_if" => {
+            if args.len() == 2 {
+                Some(format!("NULLIF({}, {})", args[0], args[1]))
             } else {
                 None
             }
@@ -148,7 +184,7 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
             }
         }
         // NULL checks
-        "is.na" => {
+        "is.na" | "is.null" => {
             if args.len() == 1 {
                 Some(format!("({} IS NULL)", args[0]))
             } else {
@@ -175,8 +211,12 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                let over =
-                    window_over_clause_with_order(window_clause, args.get(3).map(String::as_str));
+                let over = window_over_clause_with_order(
+                    window_clause,
+                    args.get(3)
+                        .map(String::as_str)
+                        .or_else(|| nonempty(order_by)),
+                );
                 match args.get(2) {
                     Some(default) => Some(format!("LEAD({}, {}, {}) {over}", args[0], n, default)),
                     None => Some(format!("LEAD({}, {}) {over}", args[0], n)),
@@ -188,37 +228,87 @@ fn translate_common_function_with_window_clause<D: SqlDialect + ?Sized>(
                 None
             } else {
                 let n = args.get(1).map(String::as_str).unwrap_or("1");
-                let over =
-                    window_over_clause_with_order(window_clause, args.get(3).map(String::as_str));
+                let over = window_over_clause_with_order(
+                    window_clause,
+                    args.get(3)
+                        .map(String::as_str)
+                        .or_else(|| nonempty(order_by)),
+                );
                 match args.get(2) {
                     Some(default) => Some(format!("LAG({}, {}, {}) {over}", args[0], n, default)),
                     None => Some(format!("LAG({}, {}) {over}", args[0], n)),
                 }
             }
         }
-        "rank" => ranking_window_function("RANK", args, window_clause),
-        "dense_rank" => ranking_window_function("DENSE_RANK", args, window_clause),
-        "row_number" => ranking_window_function("ROW_NUMBER", args, window_clause),
-        "ntile" => {
-            if !args.is_empty() {
+        "rank" | "min_rank" => ranking_window_function("RANK", args, window_clause, order_by),
+        "dense_rank" => ranking_window_function("DENSE_RANK", args, window_clause, order_by),
+        "percent_rank" => ranking_window_function("PERCENT_RANK", args, window_clause, order_by),
+        "cume_dist" => ranking_window_function("CUME_DIST", args, window_clause, order_by),
+        "row_number" => ranking_window_function("ROW_NUMBER", args, window_clause, order_by),
+        "ntile" => match args {
+            [n] => Some(format!(
+                "NTILE({n}) {}",
+                window_over_clause_with_order(window_clause, nonempty(order_by))
+            )),
+            [x, n] => {
+                let (value, order) = ranking_order(x);
+                let partition = null_rank_partition(window_clause, value);
                 Some(format!(
-                    "NTILE({}) {}",
+                    "CASE WHEN {value} IS NULL THEN NULL ELSE NTILE({n}) {} END",
+                    window_over_clause_with_order(&partition, Some(&order))
+                ))
+            }
+            _ => None,
+        },
+        "cumsum" | "cummean" | "cummin" | "cummax" => {
+            if args.len() != 1 || order_by.trim().is_empty() {
+                return None;
+            }
+            let sql_function = match fn_lower.as_str() {
+                "cumsum" => "SUM",
+                "cummean" => "AVG",
+                "cummin" => "MIN",
+                _ => "MAX",
+            };
+            let over = window_over_clause_with_frame(
+                window_clause,
+                nonempty(order_by),
+                Some((i64::MIN, 0)),
+            );
+            Some(format!("{sql_function}({}) {over}", args[0]))
+        }
+        "first" | "first_value" | "last" | "last_value" => {
+            if (1..=2).contains(&args.len()) {
+                let sql_function = if matches!(fn_lower.as_str(), "first" | "first_value") {
+                    "FIRST_VALUE"
+                } else {
+                    "LAST_VALUE"
+                };
+                let order = args
+                    .get(1)
+                    .map(String::as_str)
+                    .or_else(|| nonempty(order_by));
+                let frame = frame.or_else(|| order.map(|_| (i64::MIN, i64::MAX)));
+                Some(format!(
+                    "{sql_function}({}) {}",
                     args[0],
-                    window_over_clause(window_clause)
+                    window_over_clause_with_frame(window_clause, order, frame)
                 ))
             } else {
                 None
             }
         }
-        "first" | "first_value" => value_window_function("FIRST_VALUE", args, window_clause),
-        "last" | "last_value" => last_value_window_function(args, window_clause),
         "nth_value" => {
-            if args.len() >= 2 {
+            if args.len() == 2 {
                 Some(format!(
                     "NTH_VALUE({}, {}) {}",
                     args[0],
                     args[1],
-                    window_over_clause(window_clause)
+                    window_over_clause_with_frame(
+                        window_clause,
+                        nonempty(order_by),
+                        frame.or_else(|| nonempty(order_by).map(|_| (i64::MIN, i64::MAX)))
+                    )
                 ))
             } else {
                 None
@@ -244,83 +334,113 @@ fn one_or_two_arg_sql_function(sql_function: &str, args: &[String]) -> Option<St
     }
 }
 
+fn nonempty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+// The generator adds DESC only for an AST desc() ordering expression.
+fn ranking_order(value: &str) -> (&str, String) {
+    let (value, direction) = match value.strip_suffix(" DESC") {
+        Some(value) => (value, "DESC"),
+        None => (value, "ASC"),
+    };
+    (
+        value,
+        format!("CASE WHEN {value} IS NULL THEN 1 ELSE 0 END, {value} {direction}"),
+    )
+}
+
+fn null_rank_partition(partition: &str, value: &str) -> String {
+    let null_key = format!("CASE WHEN {value} IS NULL THEN 1 ELSE 0 END");
+    if partition.trim().is_empty() {
+        format!("PARTITION BY {null_key}")
+    } else {
+        format!("{partition}, {null_key}")
+    }
+}
+
 fn ranking_window_function(
     sql_function: &str,
     args: &[String],
-    window_clause: &str,
+    partition: &str,
+    inherited_order: &str,
 ) -> Option<String> {
-    if args.len() <= 1 {
-        Some(format!(
+    match args {
+        [] => Some(format!(
             "{sql_function}() {}",
-            window_over_clause_with_order(window_clause, args.first().map(String::as_str))
-        ))
-    } else {
-        None
+            window_over_clause_with_order(partition, nonempty(inherited_order))
+        )),
+        [arg] => {
+            let (value, order) = ranking_order(arg);
+            // NULL rows form a separate partition, so they cannot affect the
+            // denominator of percentage ranks or the size of NTILE buckets.
+            let partition = null_rank_partition(partition, value);
+            Some(format!(
+                "CASE WHEN {value} IS NULL THEN NULL ELSE {sql_function}() {} END",
+                window_over_clause_with_order(&partition, Some(&order))
+            ))
+        }
+        _ => None,
     }
 }
 
-fn value_window_function(
-    sql_function: &str,
-    args: &[String],
-    window_clause: &str,
-) -> Option<String> {
-    if (1..=2).contains(&args.len()) {
-        Some(format!(
-            "{sql_function}({}) {}",
-            args[0],
-            window_over_clause_with_order(window_clause, args.get(1).map(String::as_str))
-        ))
-    } else {
-        None
+fn window_over_clause_with_order(partition: &str, order: Option<&str>) -> String {
+    window_over_clause_with_frame(partition, order, None)
+}
+
+pub(crate) fn window_over_clause_with_frame(
+    partition: &str,
+    order: Option<&str>,
+    frame: Option<(i64, i64)>,
+) -> String {
+    let mut clauses = Vec::new();
+    if let Some(partition) = nonempty(partition) {
+        clauses.push(partition.to_string());
+    }
+    if let Some(order) = order.and_then(nonempty) {
+        clauses.push(format!("ORDER BY {order}"));
+    }
+    if let Some((start, end)) = frame {
+        clauses.push(format!(
+            "ROWS BETWEEN {} AND {}",
+            frame_bound(start),
+            frame_bound(end)
+        ));
+    }
+    format!("OVER ({})", clauses.join(" "))
+}
+
+fn frame_bound(offset: i64) -> String {
+    match offset {
+        i64::MIN => "UNBOUNDED PRECEDING".into(),
+        i64::MAX => "UNBOUNDED FOLLOWING".into(),
+        0 => "CURRENT ROW".into(),
+        n if n < 0 => format!("{} PRECEDING", n.unsigned_abs()),
+        n => format!("{n} FOLLOWING"),
     }
 }
 
-fn last_value_window_function(args: &[String], window_clause: &str) -> Option<String> {
-    if (1..=2).contains(&args.len()) {
-        Some(format!(
-            "LAST_VALUE({}) {}",
-            args[0],
-            window_over_clause_with_full_frame(window_clause, args.get(1).map(String::as_str))
-        ))
-    } else {
-        None
+/// Accepts a native SQL function name or a dot-separated schema path.
+/// SQL punctuation, whitespace, comments, and empty components are rejected.
+pub(crate) fn is_safe_function_identifier(function: &str) -> bool {
+    function.split('.').all(|part| {
+        let mut chars = part.chars();
+        matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
+/// Returns whether a function has a known translation, independent of backend support.
+/// Safe native names remain outside this list because their volatility is unknown.
+pub(crate) fn is_supported_common_function(function: &str) -> bool {
+    if function == "__missing_value" {
+        return true;
     }
-}
-
-fn window_over_clause(window_clause: &str) -> String {
-    window_over_clause_with_order(window_clause, None)
-}
-
-fn window_over_clause_with_order(window_clause: &str, order_by: Option<&str>) -> String {
-    let trimmed = window_clause.trim();
-    let order_by = order_by.map(str::trim).filter(|value| !value.is_empty());
-
-    match (trimmed.is_empty(), order_by) {
-        (true, None) => "OVER ()".to_string(),
-        (false, None) => format!("OVER ({trimmed})"),
-        (true, Some(order_by)) => format!("OVER (ORDER BY {order_by})"),
-        (false, Some(order_by)) => format!("OVER ({trimmed} ORDER BY {order_by})"),
-    }
-}
-
-fn window_over_clause_with_full_frame(window_clause: &str, order_by: Option<&str>) -> String {
-    let trimmed = window_clause.trim();
-    let order_by = order_by.map(str::trim).filter(|value| !value.is_empty());
-
-    match (trimmed.is_empty(), order_by) {
-        (true, None) => "OVER ()".to_string(),
-        (false, None) => format!("OVER ({trimmed})"),
-        (true, Some(order_by)) => format!(
-            "OVER (ORDER BY {order_by} ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
-        ),
-        (false, Some(order_by)) => format!(
-            "OVER ({trimmed} ORDER BY {order_by} ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
-        ),
-    }
-}
-
-/// Returns whether a common R function has an explicit SQL translation.
-fn is_supported_common_function(function: &str) -> bool {
     matches!(
         function.to_lowercase().as_str(),
         "abs"
@@ -367,13 +487,23 @@ fn is_supported_common_function(function: &str) -> bool {
             | "as.integer"
             | "as.character"
             | "as.logical"
+            | "as.date"
             | "ifelse"
             | "if_else"
             | "between"
             | "is.na"
+            | "is.null"
+            | "na_if"
             | "lead"
             | "lag"
             | "rank"
+            | "min_rank"
+            | "percent_rank"
+            | "cume_dist"
+            | "cumsum"
+            | "cummean"
+            | "cummin"
+            | "cummax"
             | "dense_rank"
             | "ntile"
             | "first"
@@ -385,30 +515,24 @@ fn is_supported_common_function(function: &str) -> bool {
             | "coalesce"
             | "na.replace"
             | "replace_na"
-    )
-}
-
-fn sqlite_requires_math_extension(function: &str) -> bool {
-    matches!(
-        function.to_ascii_lowercase().as_str(),
-        "floor"
-            | "ceiling"
-            | "ceil"
-            | "sqrt"
-            | "sign"
-            | "exp"
-            | "log"
-            | "log10"
-            | "sin"
-            | "cos"
-            | "tan"
-            | "asin"
-            | "acos"
-            | "atan"
-            | "atan2"
-            | "sinh"
-            | "cosh"
-            | "tanh"
+            | "mean"
+            | "avg"
+            | "sum"
+            | "min"
+            | "max"
+            | "count"
+            | "n"
+            | "n_distinct"
+            | "sd"
+            | "var"
+            | "stddev"
+            | "stddev_samp"
+            | "stddev_pop"
+            | "variance"
+            | "var_samp"
+            | "var_pop"
+            | "median"
+            | "mode"
     )
 }
 
@@ -421,6 +545,10 @@ fn translate_common_aggregate_function(function: &str) -> Option<String> {
         "min" => Some("MIN".to_string()),
         "max" => Some("MAX".to_string()),
         "n" => Some("COUNT".to_string()),
+        "sd" | "stddev" | "stddev_samp" => Some("STDDEV_SAMP".into()),
+        "var" | "variance" | "var_samp" => Some("VAR_SAMP".into()),
+        "stddev_pop" => Some("STDDEV_POP".into()),
+        "var_pop" => Some("VAR_POP".into()),
         _ => None,
     }
 }
@@ -602,8 +730,16 @@ pub trait SqlDialect {
     /// Maps common R functions to their SQL counterparts. Override this
     /// method in dialect implementations for database-specific translations.
     fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
-        translate_common_function(self, function, args)
-            .or_else(|| self.translate_unknown_function(function, args))
+        if !self.is_supported_function(function) {
+            return None;
+        }
+        translate_common_function(self, function, args).or_else(|| {
+            if !is_supported_common_function(function) && is_safe_function_identifier(function) {
+                self.translate_unknown_function(function, args)
+            } else {
+                None
+            }
+        })
     }
 
     /// Translates a function while applying grouped pipeline columns to window functions.
@@ -618,14 +754,41 @@ pub trait SqlDialect {
             return self.translate_function(function, args);
         }
 
-        let window_clause = format!("PARTITION BY {partition_by}");
-        translate_common_function_with_window_clause(self, function, args, &window_clause)
-            .or_else(|| self.translate_unknown_function(function, args))
+        self.translate_function_with_window(function, args, partition_by, "", None)
     }
 
-    /// Returns whether this dialect allows the function to be called.
+    /// Translates a function with rendered partition, order, and ROWS offsets.
+    fn translate_function_with_window(
+        &self,
+        function: &str,
+        args: &[String],
+        partition_by: &str,
+        order_by: &str,
+        frame: Option<(i64, i64)>,
+    ) -> Option<String> {
+        if !self.is_supported_function(function) {
+            return None;
+        }
+        let partition = if partition_by.trim().is_empty() {
+            String::new()
+        } else {
+            format!("PARTITION BY {partition_by}")
+        };
+        translate_common_function_with_window(self, function, args, &partition, order_by, frame)
+            .or_else(|| {
+                if !is_supported_common_function(function) && is_safe_function_identifier(function)
+                {
+                    self.translate_unknown_function(function, args)
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Returns whether this dialect allows translation or a safe native call.
+    /// The database resolves the existence of native functions.
     fn is_supported_function(&self, function: &str) -> bool {
-        is_supported_common_function(function)
+        is_supported_common_function(function) || is_safe_function_identifier(function)
     }
 
     /// Translates aggregate function names to SQL equivalents.
@@ -634,8 +797,13 @@ pub trait SqlDialect {
     }
 
     /// Late-bound translation hook for dialects that can resolve functions later.
-    fn translate_unknown_function(&self, _function: &str, _args: &[String]) -> Option<String> {
-        None
+    fn translate_unknown_function(&self, function: &str, args: &[String]) -> Option<String> {
+        is_safe_function_identifier(function).then(|| format!("{function}({})", args.join(", ")))
+    }
+
+    /// Converts an SQL expression to a date value.
+    fn date_cast(&self, value: &str) -> String {
+        format!("CAST({value} AS DATE)")
     }
 
     /// Dialect-specific regular expression predicate for stringr::str_detect().
@@ -662,6 +830,11 @@ pub trait SqlDialect {
     /// Dialect-specific base-10 logarithm function.
     fn log10(&self, value: &str) -> String {
         format!("LOG10({value})")
+    }
+
+    /// Dialect-specific exponentiation for the `^` operator.
+    fn power(&self, base: &str, exponent: &str) -> String {
+        format!("POWER({base}, {exponent})")
     }
 
     /// Concatenates string expressions without a separator.
@@ -769,15 +942,8 @@ impl SqlDialect for PostgreSqlDialect {
     }
 
     fn aggregate_function(&self, function: &str) -> String {
-        match function.to_lowercase().as_str() {
-            "mean" | "avg" => "AVG".to_string(),
-            "sum" => "SUM".to_string(),
-            "count" => "COUNT".to_string(),
-            "min" => "MIN".to_string(),
-            "max" => "MAX".to_string(),
-            "n" => "COUNT".to_string(),
-            _ => function.to_uppercase(),
-        }
+        self.translate_aggregate_function(function)
+            .unwrap_or_else(|| function.to_uppercase())
     }
 
     fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
@@ -883,15 +1049,8 @@ impl SqlDialect for MySqlDialect {
     }
 
     fn aggregate_function(&self, function: &str) -> String {
-        match function.to_lowercase().as_str() {
-            "mean" | "avg" => "AVG".to_string(),
-            "sum" => "SUM".to_string(),
-            "count" => "COUNT".to_string(),
-            "min" => "MIN".to_string(),
-            "max" => "MAX".to_string(),
-            "n" => "COUNT".to_string(),
-            _ => function.to_uppercase(),
-        }
+        self.translate_aggregate_function(function)
+            .unwrap_or_else(|| function.to_uppercase())
     }
 
     fn regex_detect(&self, value: &str, pattern: &str) -> Option<String> {
@@ -1056,17 +1215,8 @@ impl SqlDialect for DuckDbDialect {
     }
 
     fn aggregate_function(&self, function: &str) -> String {
-        match function.to_lowercase().as_str() {
-            "mean" | "avg" => "AVG".to_string(),
-            "sum" => "SUM".to_string(),
-            "count" => "COUNT".to_string(),
-            "min" => "MIN".to_string(),
-            "max" => "MAX".to_string(),
-            "n" => "COUNT".to_string(),
-            "median" => "MEDIAN".to_string(), // DuckDB specific
-            "mode" => "MODE".to_string(),     // DuckDB specific
-            _ => function.to_uppercase(),
-        }
+        self.translate_aggregate_function(function)
+            .unwrap_or_else(|| function.to_uppercase())
     }
 
     fn translate_aggregate_function(&self, function: &str) -> Option<String> {
@@ -1137,46 +1287,33 @@ impl SqlDialect for SqliteDialect {
     }
 
     fn aggregate_function(&self, function: &str) -> String {
-        match function.to_lowercase().as_str() {
-            "mean" | "avg" => "AVG".to_string(),
-            "sum" => "SUM".to_string(),
-            "count" => "COUNT".to_string(),
-            "min" => "MIN".to_string(),
-            "max" => "MAX".to_string(),
-            "n" => "COUNT".to_string(),
-            _ => function.to_uppercase(),
-        }
+        self.translate_aggregate_function(function)
+            .unwrap_or_else(|| function.to_uppercase())
     }
 
-    fn translate_function(&self, function: &str, args: &[String]) -> Option<String> {
-        if sqlite_requires_math_extension(function) {
-            return None;
+    fn translate_aggregate_function(&self, function: &str) -> Option<String> {
+        match function.to_ascii_lowercase().as_str() {
+            "sd" | "var" | "stddev" | "stddev_samp" | "stddev_pop" | "variance" | "var_samp"
+            | "var_pop" => None,
+            _ => translate_common_aggregate_function(function),
         }
-
-        translate_common_function(self, function, args)
-    }
-
-    fn translate_function_with_window_partition(
-        &self,
-        function: &str,
-        args: &[String],
-        partition_by: &str,
-    ) -> Option<String> {
-        if sqlite_requires_math_extension(function) {
-            return None;
-        }
-
-        let partition_by = partition_by.trim();
-        if partition_by.is_empty() {
-            return self.translate_function(function, args);
-        }
-
-        let window_clause = format!("PARTITION BY {partition_by}");
-        translate_common_function_with_window_clause(self, function, args, &window_clause)
     }
 
     fn is_supported_function(&self, function: &str) -> bool {
-        !sqlite_requires_math_extension(function) && is_supported_common_function(function)
+        !matches!(
+            function.to_ascii_lowercase().as_str(),
+            "sd" | "var"
+                | "stddev"
+                | "stddev_samp"
+                | "stddev_pop"
+                | "variance"
+                | "var_samp"
+                | "var_pop"
+        ) && (is_supported_common_function(function) || is_safe_function_identifier(function))
+    }
+
+    fn date_cast(&self, value: &str) -> String {
+        format!("DATE({value})")
     }
 
     fn r_cast_type(&self, function: &str) -> Option<&'static str> {

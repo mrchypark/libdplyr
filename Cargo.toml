@@ -1,6 +1,6 @@
 [package]
 name = "libdplyr"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["libdplyr contributors"]
 description = "A Rust-based transpiler that converts R dplyr syntax to SQL queries"
@@ -11,30 +11,31 @@ categories = ["command-line-utilities", "parser-implementations"]
 
 [dependencies]
 # Core dependencies (wasm-compatible)
-thiserror = "2.0"
-lazy_static = "1.5"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+thiserror = "=2.0.18"
+lazy_static = "=1.5.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+regex = "=1.12.3"
 
 # CLI-only dependencies (not available on wasm)
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-clap = { version = "4.6", features = ["derive"] }
-is-terminal = "0.4.17"
-signal-hook = { version = "0.4", features = ["iterator"], default-features = false }
-libc = "0.2.185"
-colored = "3.0"
+clap = { version = "=4.6.1", features = ["derive"] }
+is-terminal = "=0.4.17"
+signal-hook = { version = "=0.4.4", features = ["iterator"], default-features = false }
+libc = "=0.2.185"
+colored = "=3.1.1"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi", "wincon", "minwindef"] }
+winapi = { version = "=0.3.9", features = ["consoleapi", "wincon", "minwindef"] }
 
 [dev-dependencies]
 # Dependencies for benchmarking
-criterion = { version = "0.8", features = ["html_reports"] }
+criterion = { version = "=0.8.2", features = ["html_reports"] }
 
 # Additional dependencies for testing
-pretty_assertions = "1.4.1"
-tempfile = "3.27.0"
+pretty_assertions = "=1.4.1"
+tempfile = "=3.27.0"
 
 # C binding generation
 

@@ -804,7 +804,24 @@ fn is_probably_identifier_chain(prefix: &str) -> bool {
     part_count > 0
 }
 
+fn starts_with_bind_queries(code: &str, config: SqlScanConfig) -> bool {
+    strip_leading_sql_comments_and_whitespace_with_config(code, config)
+        .strip_prefix("bind_queries")
+        .is_some_and(|rest| rest.trim_start().starts_with('('))
+}
+
 fn extract_leading_table_name_with_config(dplyr_code: &str, config: SqlScanConfig) -> Option<&str> {
+    let dplyr_code = strip_leading_sql_comments_and_whitespace_with_config(dplyr_code, config);
+    if starts_with_bind_queries(dplyr_code, config)
+        && libdplyr::Parser::new(libdplyr::Lexer::with_pipe_syntax(
+            dplyr_code.to_owned(),
+            config.pipe_syntax,
+        ))
+        .and_then(|mut parser| parser.parse())
+        .is_ok_and(|node| matches!(node, libdplyr::DplyrNode::Pipeline { source: None, .. }))
+    {
+        return Some(dplyr_code.trim());
+    }
     let pipe_pos = find_pipe_operator_with_config(dplyr_code, 0, config);
     let prefix = match pipe_pos {
         Some(pos) => &dplyr_code[..pos],
@@ -816,7 +833,22 @@ fn extract_leading_table_name_with_config(dplyr_code: &str, config: SqlScanConfi
         return None;
     }
 
-    if is_probably_identifier_chain(prefix) {
+    let explicit_path = (prefix.starts_with("in_schema") || prefix.starts_with("in_catalog"))
+        && libdplyr::Parser::new(libdplyr::Lexer::with_pipe_syntax(
+            prefix.to_owned(),
+            config.pipe_syntax,
+        ))
+        .and_then(|mut parser| parser.parse())
+        .is_ok_and(|node| {
+            matches!(
+                node,
+                libdplyr::DplyrNode::DataSource {
+                    name: libdplyr::SourceRef::Qualified(_),
+                    ..
+                }
+            )
+        });
+    if is_probably_identifier_chain(prefix) || explicit_path {
         Some(prefix)
     } else {
         None
@@ -839,6 +871,26 @@ fn require_pipeline_table_name_with_config(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn explicit_source_paths_pass_the_pipeline_gateway() {
+    for code in [
+        r#"in_schema("sales", "orders") %>% select(id)"#,
+        r#"in_catalog ("memory", "sales", "orders") %>% select(id)"#,
+        "bind_queries(first, second)",
+        "bind_queries(first %>% select(id), second) %>% arrange(id)",
+        "-- combine inputs\nbind_queries(first, second)",
+        "/* outer /* inner */ comment */ bind_queries(first, second)",
+    ] {
+        assert!(require_pipeline_table_name_with_config(code, SqlScanConfig::default()).is_ok());
+    }
+    assert!(require_pipeline_table_name_with_config(
+        r#"in_schema("", "orders") %>% select(id)"#,
+        SqlScanConfig::default(),
+    )
+    .is_err());
 }
 
 #[cfg(test)]
@@ -887,6 +939,7 @@ fn replace_embedded_pipelines_with_deadline(
     opts: &DplyrOptions,
     deadline: Instant,
     scan_config: SqlScanConfig,
+    defer_binding: bool,
 ) -> Result<String, CompileInputError> {
     let mut output = String::with_capacity(query.len());
     let mut cursor = 0;
@@ -928,7 +981,9 @@ fn replace_embedded_pipelines_with_deadline(
                 ),
             ));
         }
-        if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none() {
+        if find_pipe_operator_with_config(&embedded, 0, scan_config).is_none()
+            && !starts_with_bind_queries(&embedded, scan_config)
+        {
             if let Some(disabled_pos) =
                 find_disabled_pipe_operator_with_config(&embedded, 0, scan_config)
             {
@@ -953,8 +1008,14 @@ fn replace_embedded_pipelines_with_deadline(
         validate_compile_input(&embedded, opts)?;
         require_pipeline_table_name_with_config(&embedded, scan_config)
             .map_err(CompileInputError::Transpile)?;
-        let sql = compile_to_sql_with_deadline(&embedded, opts, scan_config.pipe_syntax, deadline)
-            .map_err(CompileInputError::Transpile)?;
+        let sql = translate_pipeline(
+            &embedded,
+            opts,
+            scan_config.pipe_syntax,
+            deadline,
+            defer_binding,
+        )
+        .map_err(CompileInputError::Transpile)?;
         output.push('(');
         output.push_str(&sql);
         output.push(')');
@@ -1042,11 +1103,49 @@ fn starts_with_supported_query_prefix_with_config(sql: &str, config: SqlScanConf
             .any(|prefix| has_sql_keyword_prefix(sql, prefix))
 }
 
+// Defer database-bound compilation until DuckDB has the caller's binder.
+// The shared query scanner still validates syntax and ignores SQL literals/comments.
+fn translate_pipeline(
+    code: &str,
+    opts: &DplyrOptions,
+    pipe_syntax: PipeSyntax,
+    deadline: Instant,
+    defer_binding: bool,
+) -> Result<String, TranspileError> {
+    if !defer_binding {
+        return compile_to_sql_with_deadline(code, opts, pipe_syntax, deadline);
+    }
+    ensure_before_deadline(
+        deadline,
+        processing_timeout(opts),
+        "query preparation",
+        "Reduce input complexity or increase timeout limit",
+    )?;
+    let transpiler =
+        Transpiler::with_pipe_syntax(create_dialect(DplyrDialect::DuckDb), pipe_syntax);
+    transpiler
+        .required_sources(code)
+        .map_err(convert_libdplyr_error)?;
+    ensure_before_deadline(
+        deadline,
+        processing_timeout(opts),
+        "query preparation",
+        "Reduce input complexity or increase timeout limit",
+    )?;
+    let code = code.replace('\'', "''");
+    let mode = match pipe_syntax {
+        PipeSyntax::Magrittr => "magrittr",
+        PipeSyntax::Native => "native",
+    };
+    Ok(format!("SELECT * FROM dplyr('{code}', '{mode}')"))
+}
+
 fn compile_query_string_with_deadline(
     query: &str,
     opts: &DplyrOptions,
     pipe_syntax: PipeSyntax,
     deadline: Instant,
+    defer_binding: bool,
 ) -> Result<Option<String>, CompileInputError> {
     let trimmed = query.trim();
     let scan_config = scan_config_for_options(opts, pipe_syntax);
@@ -1055,7 +1154,11 @@ fn compile_query_string_with_deadline(
     let has_embedded_pipeline =
         find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some();
 
-    if trimmed.is_empty() || (!has_pipeline && !has_embedded_pipeline) {
+    if trimmed.is_empty()
+        || (!has_pipeline
+            && !has_embedded_pipeline
+            && !starts_with_bind_queries(trimmed, scan_config))
+    {
         if find_disabled_pipe_operator_with_config(trimmed, 0, scan_config).is_some() {
             return Err(disabled_pipe_syntax_error(
                 scan_config.pipe_syntax.opposite(),
@@ -1066,8 +1169,13 @@ fn compile_query_string_with_deadline(
     }
 
     let sql = if find_embedded_start_marker_with_config(trimmed, 0, scan_config).is_some() {
-        let rewritten =
-            replace_embedded_pipelines_with_deadline(trimmed, opts, deadline, scan_config)?;
+        let rewritten = replace_embedded_pipelines_with_deadline(
+            trimmed,
+            opts,
+            deadline,
+            scan_config,
+            defer_binding,
+        )?;
         if find_pipe_operator_with_config(&rewritten, 0, scan_config).is_some() {
             return Err(CompileInputError::Transpile(
                 TranspileError::syntax_error_with_suggestion(
@@ -1092,7 +1200,7 @@ fn compile_query_string_with_deadline(
         validate_compile_input(&dplyr_code, opts)?;
         require_pipeline_table_name_with_config(&dplyr_code, scan_config)
             .map_err(CompileInputError::Transpile)?;
-        compile_to_sql_with_deadline(&dplyr_code, opts, pipe_syntax, deadline)
+        translate_pipeline(&dplyr_code, opts, pipe_syntax, deadline, defer_binding)
             .map_err(CompileInputError::Transpile)?
     };
 
@@ -1117,6 +1225,7 @@ fn finish_compile_query(
     pipe_syntax: PipeSyntax,
     out_sql: *mut *mut c_char,
     out_error: *mut *mut c_char,
+    defer_binding: bool,
 ) -> i32 {
     if let Err(error) = validate_compile_options(opts) {
         return set_compile_error_output(out_error, error);
@@ -1128,7 +1237,11 @@ fn finish_compile_query(
         find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some();
     let has_embedded_pipeline =
         find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some();
-    if !has_pipeline && !has_disabled_pipeline && !has_embedded_pipeline {
+    if !has_pipeline
+        && !has_disabled_pipeline
+        && !has_embedded_pipeline
+        && !starts_with_bind_queries(query_str, scan_config)
+    {
         return DPLYR_QUERY_NOT_HANDLED;
     }
 
@@ -1150,6 +1263,7 @@ fn finish_compile_query(
         opts,
         pipe_syntax,
         processing_deadline(opts),
+        defer_binding,
     ) {
         Ok(Some(sql)) => publish_sql_or_internal_error(out_sql, out_error, &sql),
         Ok(None) => DPLYR_QUERY_NOT_HANDLED,
@@ -1179,6 +1293,7 @@ fn query_requires_pipe_syntax_resolution(query_str: &str, opts: &DplyrOptions) -
             find_pipe_operator_with_config(query_str, 0, scan_config).is_some()
                 || find_disabled_pipe_operator_with_config(query_str, 0, scan_config).is_some()
                 || find_embedded_start_marker_with_config(query_str, 0, scan_config).is_some()
+                || starts_with_bind_queries(query_str, scan_config)
         })
 }
 
@@ -1397,7 +1512,7 @@ pub unsafe extern "C" fn dplyr_compile_query(
             }
         };
 
-        finish_compile_query(query_str, &opts, pipe_syntax, out_sql, out_error)
+        finish_compile_query(query_str, &opts, pipe_syntax, out_sql, out_error, false)
     });
 
     result.unwrap_or(DPLYR_ERROR_PANIC)
@@ -1421,6 +1536,36 @@ pub unsafe extern "C" fn dplyr_compile_query_with_pipe_syntax(
     pipe_syntax: u32,
     out_sql: *mut *mut c_char,
     out_error: *mut *mut c_char,
+) -> i32 {
+    unsafe {
+        query_with_pipe_syntax_boundary(query, options, pipe_syntax, out_sql, out_error, false)
+    }
+}
+
+/// Prepares a DuckDB query by routing each pipeline through dplyr() at bind time.
+///
+/// # Safety
+/// Pointer validity and output ownership follow dplyr_compile_query_with_pipe_syntax.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_prepare_query_with_pipe_syntax(
+    query: *const c_char,
+    options: *const DplyrOptions,
+    pipe_syntax: u32,
+    out_sql: *mut *mut c_char,
+    out_error: *mut *mut c_char,
+) -> i32 {
+    unsafe {
+        query_with_pipe_syntax_boundary(query, options, pipe_syntax, out_sql, out_error, true)
+    }
+}
+
+unsafe fn query_with_pipe_syntax_boundary(
+    query: *const c_char,
+    options: *const DplyrOptions,
+    pipe_syntax: u32,
+    out_sql: *mut *mut c_char,
+    out_error: *mut *mut c_char,
+    defer_binding: bool,
 ) -> i32 {
     #[cfg(test)]
     let _test_gate = FfiTestGateGuard::acquire();
@@ -1466,7 +1611,14 @@ pub unsafe extern "C" fn dplyr_compile_query_with_pipe_syntax(
             }
         };
 
-        finish_compile_query(query_str, &opts, pipe_syntax, out_sql, out_error)
+        finish_compile_query(
+            query_str,
+            &opts,
+            pipe_syntax,
+            out_sql,
+            out_error,
+            defer_binding,
+        )
     });
 
     result.unwrap_or(DPLYR_ERROR_PANIC)
@@ -1528,6 +1680,87 @@ pub fn convert_libdplyr_error(libdplyr_error: libdplyr::TranspileError) -> Trans
 #[cfg(test)]
 mod query_rewrite_tests {
     use super::*;
+
+    #[test]
+    fn preparation_defers_compilation_without_losing_pipeline_text() {
+        let opts = DplyrOptions::default();
+        let code = "data %>% mutate(a = x + 1, b = a + 1)";
+        let prepared = compile_query_string_with_deadline(
+            code,
+            &opts,
+            PipeSyntax::Magrittr,
+            processing_deadline(&opts),
+            true,
+        )
+        .expect("prepare")
+        .expect("pipeline");
+        assert_eq!(
+            prepared,
+            format!("SELECT * FROM dplyr('{code}', 'magrittr')")
+        );
+        assert!(compile_query_string_with_deadline(
+            code,
+            &opts,
+            PipeSyntax::Magrittr,
+            processing_deadline(&opts),
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn preparation_keeps_sql_literals_and_escapes_pipeline_parameters() {
+        let opts = DplyrOptions::default();
+        let query = "WITH data AS (SELECT '(| literal %>% |)' AS x) SELECT * FROM (| data %>% filter(x == \"O'Brien\") |)";
+        let prepared = compile_query_string_with_deadline(
+            query,
+            &opts,
+            PipeSyntax::Magrittr,
+            processing_deadline(&opts),
+            true,
+        )
+        .expect("prepare")
+        .expect("embedded pipeline");
+        assert!(prepared.contains("SELECT '(| literal %>% |)' AS x"));
+        assert!(prepared.contains(
+            "FROM (SELECT * FROM dplyr('data %>% filter(x == \"O''Brien\")', 'magrittr'))"
+        ));
+    }
+
+    #[test]
+    fn prepared_query_ffi_preserves_validation_and_output_ownership() {
+        let _gate = FfiTestGateGuard::acquire();
+        let query = std::ffi::CString::new("data |> summarise(total = sum(x * 2))").expect("query");
+        let mut output = std::ptr::null_mut();
+        let mut error = std::ptr::null_mut();
+        let result = unsafe {
+            dplyr_prepare_query_with_pipe_syntax(
+                query.as_ptr(),
+                std::ptr::null(),
+                DplyrPipeSyntax::Native as u32,
+                &mut output,
+                &mut error,
+            )
+        };
+        assert_eq!(result, DPLYR_SUCCESS);
+        assert!(error.is_null());
+        assert!(unsafe { CStr::from_ptr(output) }
+            .to_string_lossy()
+            .contains("'native'"));
+        let result = unsafe {
+            dplyr_prepare_query_with_pipe_syntax(
+                query.as_ptr(),
+                std::ptr::null(),
+                42,
+                &mut output,
+                &mut error,
+            )
+        };
+        assert_ne!(result, DPLYR_SUCCESS);
+        assert!(output.is_null());
+        assert!(!error.is_null());
+        unsafe { crate::memory::dplyr_free_string(error) };
+    }
 
     #[test]
     fn identifier_chain_accepts_quoted_segments_with_embedded_dots() {
@@ -1687,6 +1920,7 @@ mod query_rewrite_tests {
             &opts,
             deadline,
             scan_config_for_options(&opts, PipeSyntax::Magrittr),
+            false,
         );
 
         match result {
@@ -1705,6 +1939,7 @@ mod query_rewrite_tests {
             &opts,
             PipeSyntax::Magrittr,
             processing_deadline(&opts),
+            false,
         );
 
         match result {
@@ -1726,6 +1961,7 @@ mod query_rewrite_tests {
             &opts,
             PipeSyntax::Magrittr,
             processing_deadline(&opts),
+            false,
         );
 
         match result {
