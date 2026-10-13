@@ -6,7 +6,7 @@ pub(crate) fn pivot_keys(
     ast: &DplyrNode,
     schemas: &[SourceSchema],
     generator: &SqlGenerator,
-) -> GenerationResult<Option<String>> {
+) -> GenerationResult<Option<(String, Vec<crate::execution::ValidationQuery>)>> {
     schema::validate_schemas(schemas)?;
     let (source, operations) = match ast {
         DplyrNode::Pipeline {
@@ -85,7 +85,10 @@ pub(crate) fn pivot_keys(
                     distinct: true,
                     limit: None,
                 };
-                return Ok(Some(query.render(generator)?));
+                return Ok(Some((
+                    query.render(generator)?,
+                    planner.checks.unwrap_or_default(),
+                )));
             }
         }
         input = planner.apply(input, operation)?;

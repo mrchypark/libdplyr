@@ -173,7 +173,17 @@ fn run_plan<E: SnapshotExecutor>(
     plan: &ExecutionPlan,
     executor: &mut E,
 ) -> Result<E::Rows, ExecutionError<E::Error>> {
-    for check in &plan.checks {
+    run_checks(&plan.checks, executor)?;
+    executor
+        .fetch_all(&plan.query.sql)
+        .map_err(ExecutionError::Fetch)
+}
+
+pub(crate) fn run_checks<E: SnapshotExecutor>(
+    checks: &[ValidationQuery],
+    executor: &mut E,
+) -> Result<(), ExecutionError<E::Error>> {
+    for check in checks {
         let violated = executor
             .has_rows(&check.sql)
             .map_err(ExecutionError::Check)?;
@@ -183,7 +193,5 @@ fn run_plan<E: SnapshotExecutor>(
             });
         }
     }
-    executor
-        .fetch_all(&plan.query.sql)
-        .map_err(ExecutionError::Fetch)
+    Ok(())
 }

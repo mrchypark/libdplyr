@@ -42,10 +42,12 @@ pub fn execute_with_pivot_discovery<E: PivotExecutor>(
         .begin_snapshot()
         .map_err(PivotExecutionError::Begin)?;
     let result = (|| {
-        while let Some(sql) = relational::pivot_keys(&ast, schemas, &transpiler.generator)
+        while let Some((sql, checks)) = relational::pivot_keys(&ast, schemas, &transpiler.generator)
             .map_err(TranspileError::from)
             .map_err(PivotExecutionError::Compile)?
         {
+            crate::execution::run_checks(&checks, executor)
+                .map_err(PivotExecutionError::Execute)?;
             let keys = executor
                 .discover_values(&sql)
                 .map_err(PivotExecutionError::Discovery)?;

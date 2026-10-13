@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve literal dotted table names; support explicit `in_schema()` / `in_catalog()` source paths consistently in SQL and DuckDB metadata discovery.
 - Preserve named options and repeated relation inputs in `bind_queries`; start standalone calls from their first explicit relation.
 - Discover standalone `bind_queries` inputs across DuckDB and C entry points. Preserve pivot identity metadata, exclude pivot source columns from `id_cols`, reject unsupported pivot arguments, and label bare `across` functions correctly in name templates.
+- Run prerequisite validation before dynamic pivot discovery, preserving validation errors and rollback failures without evaluating invalid expansion inputs.
 - Share standalone query initialization between compilation and dynamic pivot discovery; match positional pivot names after named options and recognize leading SQL comments in C query gates. Reject grouping or repeated expansion domains and surplus replacement lists.
 - Preserve explicit NULL pivot values when applying `values_fill`, distinct full rows after grouping, and match NULL keys in row operations.
 - Reject lossy integer pivot keys, preserve exact integer digits in generated SQL and pivot labels, and return the public C timeout status when schema compilation exceeds its deadline.

@@ -250,6 +250,8 @@ Unsupported named pivot options and surplus positional arguments are rejected.
 `names_prefix`, `values_fill`, `values_fn` (`max`, `min`, `sum`, `mean`, `n`),
 and explicit literal `keys`. The default aggregator is max. Dynamic keys use
 `execute_with_pivot_discovery()`; discovery and result must share one snapshot.
+Prerequisite input checks run before each discovery query; final plan checks run
+before fetching the result.
 An empty key domain returns distinct ID columns. Zero-column results are rejected.
 Other pivot options, multiple name/value columns, and pivot specs are not implemented.
 
