@@ -127,7 +127,7 @@ jobs:
           mkdir -p dist package
           cp "${{ matrix.binary }}" "package/libdplyr${{ runner.os == 'Windows' && '.exe' || '' }}"
           if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
-            file package/libdplyr | grep -q 'statically linked'
+            file package/libdplyr | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
           fi
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             (cd package && 7z a -tzip "../dist/${{ matrix.archive }}" libdplyr.exe)
