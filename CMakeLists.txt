@@ -436,6 +436,10 @@ if(NOT TARGET libdplyr_c)
     message(FATAL_ERROR "Failed to import Rust crate libdplyr_c")
 endif()
 
+# R4-AC1: Avoid mixing Corrosion's hard-coded CLT SDK with Xcode's SDK.
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/MacOSRustLinkDirectories.cmake")
+libdplyr_fix_macos_rust_link_directories(libdplyr_c-static)
+
 message(STATUS "Successfully imported Rust crate: libdplyr_c")
 # R4-AC1: Set Rust compilation flags based on build type
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

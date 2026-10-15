@@ -64,6 +64,23 @@ jobs:
           git -C duckdb fetch --tags --force
           git -C duckdb checkout "${{ matrix.duckdb_version }}"
 
+      - name: Select and verify macOS SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          export SDKROOT
+          echo "SDKROOT=${SDKROOT}" >> "$GITHUB_ENV"
+          echo "Developer directory: $(xcode-select -p)"
+          echo "SDKROOT=${SDKROOT}"
+          echo "Linker: $(xcrun --sdk macosx --find ld)"
+          xcrun --sdk macosx clang++ --version
+          # Log the actual linker version and fail early on an incompatible SDK.
+          printf 'int main() { return 0; }\n' | \
+            xcrun --sdk macosx clang++ -Wl,-v -x c++ - \
+              -o "$RUNNER_TEMP/macos-sdk-link-check"
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -222,7 +239,8 @@ jobs:
             ${LINUX_STATIC_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
-            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}} \
+            ${SDKROOT:+"-DCMAKE_OSX_SYSROOT=${SDKROOT}"}
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -241,6 +259,19 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER="" `
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'
@@ -442,6 +473,23 @@ jobs:
           git -C duckdb fetch --tags --force
           git -C duckdb checkout "${{ env.DUCKDB_COMPAT_VERSION }}"
 
+      - name: Select and verify macOS SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          export SDKROOT
+          echo "SDKROOT=${SDKROOT}" >> "$GITHUB_ENV"
+          echo "Developer directory: $(xcode-select -p)"
+          echo "SDKROOT=${SDKROOT}"
+          echo "Linker: $(xcrun --sdk macosx --find ld)"
+          xcrun --sdk macosx clang++ --version
+          # Log the actual linker version and fail early on an incompatible SDK.
+          printf 'int main() { return 0; }\n' | \
+            xcrun --sdk macosx clang++ -Wl,-v -x c++ - \
+              -o "$RUNNER_TEMP/macos-sdk-link-check"
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -596,7 +644,8 @@ jobs:
             ${LINUX_STATIC_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
-            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}} \
+            ${SDKROOT:+"-DCMAKE_OSX_SYSROOT=${SDKROOT}"}
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -615,6 +664,19 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER="" `
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'
@@ -816,6 +878,23 @@ jobs:
           git -C duckdb fetch --tags --force
           git -C duckdb checkout "${{ env.DUCKDB_COMPAT_VERSION }}"
 
+      - name: Select and verify macOS SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          export SDKROOT
+          echo "SDKROOT=${SDKROOT}" >> "$GITHUB_ENV"
+          echo "Developer directory: $(xcode-select -p)"
+          echo "SDKROOT=${SDKROOT}"
+          echo "Linker: $(xcrun --sdk macosx --find ld)"
+          xcrun --sdk macosx clang++ --version
+          # Log the actual linker version and fail early on an incompatible SDK.
+          printf 'int main() { return 0; }\n' | \
+            xcrun --sdk macosx clang++ -Wl,-v -x c++ - \
+              -o "$RUNNER_TEMP/macos-sdk-link-check"
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -970,7 +1049,8 @@ jobs:
             ${LINUX_STATIC_FLAG} \
             -G "${{ matrix.cmake-generator }}" \
             -DRust_CARGO_TARGET="${{ matrix.target }}" \
-            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}}
+            ${OSX_ARCH:+-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCH}} \
+            ${SDKROOT:+"-DCMAKE_OSX_SYSROOT=${SDKROOT}"}
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -989,6 +1069,19 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER="" `
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'
@@ -1177,6 +1270,9 @@ jobs:
       - name: Install additional tools
         run: |
           cargo install cargo-audit cargo-deny
+
+      - name: Test macOS SDK link-directory regression
+        run: cmake -S tests/cmake/macos_sdk -B build/sdk-regression
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
