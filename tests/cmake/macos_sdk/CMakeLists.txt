@@ -1,0 +1,43 @@
+cmake_minimum_required(VERSION 3.15)
+project(macos_sdk_regression NONE)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/MacOSRustLinkDirectories.cmake")
+
+set(clt_sdk "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib")
+set(selected_sdk "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib")
+set(config_dirs "$<$<CONFIG:Debug>:/debug/lib;/debug/extra>")
+add_library(rust-static STATIC IMPORTED)
+set_property(TARGET rust-static PROPERTY INTERFACE_LINK_DIRECTORIES
+    "${clt_sdk};${selected_sdk};/custom/lib;${config_dirs}")
+
+# Reproduce Corrosion v0.5.1's imported target on any host, without Rust or DuckDB.
+set(APPLE TRUE)
+libdplyr_fix_macos_rust_link_directories(rust-static)
+get_target_property(actual rust-static INTERFACE_LINK_DIRECTORIES)
+if(NOT actual STREQUAL "${selected_sdk};/custom/lib;${config_dirs}")
+    message(FATAL_ERROR "Unexpected macOS library paths: ${actual}")
+endif()
+# Repeated application must be harmless, as must a target with no search paths.
+libdplyr_fix_macos_rust_link_directories(rust-static)
+get_target_property(actual rust-static INTERFACE_LINK_DIRECTORIES)
+if(NOT actual STREQUAL "${selected_sdk};/custom/lib;${config_dirs}")
+    message(FATAL_ERROR "Repeated cleanup changed library paths: ${actual}")
+endif()
+add_library(empty-static STATIC IMPORTED)
+libdplyr_fix_macos_rust_link_directories(empty-static)
+add_library(only-clt-static STATIC IMPORTED)
+set_property(TARGET only-clt-static PROPERTY INTERFACE_LINK_DIRECTORIES "${clt_sdk}")
+libdplyr_fix_macos_rust_link_directories(only-clt-static)
+get_target_property(actual only-clt-static INTERFACE_LINK_DIRECTORIES)
+if(actual)
+    message(FATAL_ERROR "CLT-only library path survived: ${actual}")
+endif()
+
+# Never change Linux/Windows library search paths.
+set(APPLE FALSE)
+set_property(TARGET rust-static PROPERTY INTERFACE_LINK_DIRECTORIES "${clt_sdk};/custom/lib")
+libdplyr_fix_macos_rust_link_directories(rust-static)
+get_target_property(actual rust-static INTERFACE_LINK_DIRECTORIES)
+if(NOT actual STREQUAL "${clt_sdk};/custom/lib")
+    message(FATAL_ERROR "Non-Apple library paths changed: ${actual}")
+endif()
+message(STATUS "macOS Rust SDK link-directory regression checks passed")
