@@ -8,10 +8,10 @@
 curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash
 
 # Install to custom directory
-curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash -s -- --dir=$HOME/bin
+curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash -s -- --install-dir "$HOME/bin"
 
 # Install specific version
-curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash -s -- --version=v0.1.0
+curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh | bash -s -- --version 0.7.0
 ```
 
 **Windows (PowerShell):**
@@ -20,7 +20,8 @@ curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.sh |
 Irm https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex
 
 # Install to custom directory
-Irm https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex -Dir "C:\Tools"
+Invoke-WebRequest https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 -OutFile install.ps1
+.\install.ps1 -Version 0.7.0 -InstallDir "C:\Tools"
 ```
 
 ## 📦 Supported Platforms
@@ -28,37 +29,30 @@ Irm https://raw.githubusercontent.com/mrchypark/libdplyr/main/install.ps1 | iex 
 | Platform | Architecture | Status | Installation Method |
 |----------|-------------|--------|-------------------|
 | **Linux** | x86_64 | ✅ Fully Supported | `curl -sSL ... \| bash` |
-| **Linux** | ARM64 (aarch64) | ✅ Fully Supported | `curl -sSL ... \| bash` |
+| **Linux** | ARM64 (aarch64) | No prebuilt CLI archive | See source build below |
 | **macOS** | Intel (x86_64) | ✅ Fully Supported | `curl -sSL ... \| bash` |
 | **macOS** | Apple Silicon (ARM64) | ✅ Fully Supported | `curl -sSL ... \| bash` |
 | **Windows** | x86_64 | ✅ Fully Supported | `Irm ... \| iex` |
-| **Windows** | ARM64 | ✅ Fully Supported | `Irm ... \| iex` |
+| **Windows** | ARM64 | No prebuilt CLI archive | See source build below |
+
+CLI archives are attached to the [GitHub release](https://github.com/mrchypark/libdplyr/releases/tag/v0.7.0).
+They are separate from the DuckDB extension binaries. `cli-checksums.sha256` covers
+only CLI archives; `checksums.sha256` covers the extension binaries.
+The release asset named `install.sh` installs the DuckDB extension. For the CLI,
+use the repository-root installation scripts shown above.
 
 ## 🛠 Advanced Installation
 
-### With Version Management
-```bash
-# Download advanced installer
-curl -sSL https://raw.githubusercontent.com/mrchypark/libdplyr/main/scripts/install-advanced.sh -o install-advanced.sh
-chmod +x install-advanced.sh
-
-# List available versions
-./install-advanced.sh --list-versions
-
-# Install specific version with auto-update
-./install-advanced.sh --version=v0.1.0 --auto-update
-
-# Install to custom directory with force reinstall
-./install-advanced.sh --dir=$HOME/tools --force
-```
-
 ### Install via Cargo
+
+`libdplyr` is not currently published on crates.io. Use the release tag on GitHub:
+
 ```bash
 # Use as library
-cargo add libdplyr
+cargo add libdplyr --git https://github.com/mrchypark/libdplyr --tag v0.7.0
 
 # Install CLI tool from source
-cargo install libdplyr
+cargo install --locked --git https://github.com/mrchypark/libdplyr --tag v0.7.0 libdplyr
 ```
 
 ### Build from Source
@@ -78,18 +72,16 @@ cp target/release/libdplyr /usr/local/bin/  # Linux/macOS
 
 | Option | install.sh | install.ps1 | Description |
 |--------|------------|-------------|-------------|
-| `--help` / `-h` | ✅ | `-Help` | Show detailed help message |
-| `--version VER` / `-v VER` | ✅ | `-Version VER` | Install specific version (e.g., v1.0.0) |
-| `--dir PATH` / `-d PATH` | ✅ | `-Dir PATH` | Custom installation directory |
-| `--dry-run` | ✅ | `-DryRun` | Preview installation without changes |
-| `--debug` | ✅ | `-Debug` | Enable verbose debug output |
+| `--help` | ✅ | `-Help` | Show detailed help message |
+| `--version VER` | ✅ | `-Version VER` | Install specific version (e.g., 0.7.0, without `v`) |
+| `--install-dir PATH` | ✅ | `-InstallDir PATH` | Custom installation directory |
 
 ### Common Issues
 
 **1. Permission Denied**
 ```bash
 # Option 1: Install to user directory (Recommended)
-./install.sh --dir $HOME/.local/bin
+./install.sh --install-dir "$HOME/.local/bin"
 
 # Option 2: Use sudo (Not recommended)
 sudo ./install.sh
@@ -102,13 +94,7 @@ export PATH="$HOME/.local/bin:$PATH"
 # Add to ~/.bashrc or ~/.zshrc to make permanent
 ```
 
-**3. Network Issues**
-Use debug mode to diagnose connectivity:
-```bash
-./install.sh --debug
-```
-
-**4. Verify Installation**
+**3. Verify Installation**
 ```bash
 libdplyr --version
 # Should output: libdplyr x.y.z
