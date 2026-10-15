@@ -260,6 +260,19 @@ jobs:
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
+
       - name: Create Swap Space
         if: runner.os == 'Linux'
         run: |
@@ -652,6 +665,19 @@ jobs:
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
 
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
+
       - name: Create Swap Space
         if: runner.os == 'Linux'
         run: |
@@ -1043,6 +1069,19 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER="" `
             -DCCACHE_PROGRAM=OFF `
             -DRust_CARGO_TARGET="${{ matrix.target }}"
+
+      - name: Verify macOS extension linker SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_command=build/CMakeFiles/dplyr_loadable_extension.dir/link.txt
+          cat "$link_command"
+          if grep -F -- '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib' "$link_command"; then
+            echo 'Unexpected Command Line Tools SDK in extension link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$link_command"
 
       - name: Create Swap Space
         if: runner.os == 'Linux'

@@ -1,0 +1,55 @@
+name: macOS SDK Link Regression
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  native-link:
+    name: Native SDK link (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Verify generated library search paths and native linking
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "Developer directory: $(xcode-select -p)"
+          echo "SDKROOT=${SDKROOT}"
+          echo "Compiler: $(xcrun --sdk macosx --find clang++)"
+          echo "Linker: $(xcrun --sdk macosx --find ld)"
+          cmake -S tests/cmake/macos_sdk_link -B build/sdk-link \
+            -G 'Unix Makefiles' \
+            -DCMAKE_CXX_COMPILER="$(xcrun --sdk macosx --find clang++)" \
+            -DCMAKE_OSX_SYSROOT="$SDKROOT"
+
+          control=build/sdk-link/CMakeFiles/control.dir/link.txt
+          fixed=build/sdk-link/CMakeFiles/fixed.dir/link.txt
+          clt=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib
+          echo 'Control link command (not executed):'
+          cat "$control"
+          echo 'Fixed link command:'
+          cat "$fixed"
+          # Prove the injected directory really reaches CMake's generated linker
+          # invocation, and that the production helper removes it end-to-end.
+          grep -F -- "-L${clt}" "$control"
+          if grep -F -- "$clt" "$fixed"; then
+            echo 'Unexpected Command Line Tools SDK in fixed link command' >&2
+            exit 1
+          fi
+          grep -F -- "$SDKROOT" "$fixed"
+          grep -F -- 'custom libraries' "$fixed"
+          cmake --build build/sdk-link --target fixed --verbose
+          ./build/sdk-link/fixed
