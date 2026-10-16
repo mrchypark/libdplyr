@@ -1,0 +1,190 @@
+name: Release CLI
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact existing release tag (for example, v0.7.0)"
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/release-cli.yml"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - name: Checkout workflow source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate release version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --match '[0-9]*')"
+            VERSION="$(git show "$TAG:Cargo.toml" | sed -n 's/^version = "\([^"]*\)"$/\1/p' | head -n 1)"
+          else
+            TAG="$REQUESTED_VERSION"
+            VERSION="${TAG#v}"
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]
+          git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" >/dev/null
+          TAG_VERSION="$(git show "$TAG:Cargo.toml" | sed -n 's/^version = "\([^"]*\)"$/\1/p' | head -n 1)"
+          test "$VERSION" = "$TAG_VERSION"
+          {
+            echo "commit=$(git rev-parse "refs/tags/$TAG^{commit}")"
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build CLI (${{ matrix.name }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/libdplyr
+            archive: libdplyr-v${{ needs.prepare.outputs.version }}-linux-x86_64-musl.tar.gz
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: target/x86_64-apple-darwin/release/libdplyr
+            archive: libdplyr-v${{ needs.prepare.outputs.version }}-macos-x86_64.tar.gz
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            binary: target/aarch64-apple-darwin/release/libdplyr
+            archive: libdplyr-v${{ needs.prepare.outputs.version }}-macos-aarch64.tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: target/x86_64-pc-windows-msvc/release/libdplyr.exe
+            archive: libdplyr-v${{ needs.prepare.outputs.version }}-windows-x86_64.zip
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: cli-${{ matrix.name }}
+
+      - name: Install musl linker
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+
+      - name: Build CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --bin libdplyr --target "${{ matrix.target }}"
+
+      - name: Package CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist package
+          cp "${{ matrix.binary }}" "package/libdplyr${{ runner.os == 'Windows' && '.exe' || '' }}"
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
+            file package/libdplyr | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
+          fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            (cd package && 7z a -tzip "../dist/${{ matrix.archive }}" libdplyr.exe)
+          else
+            tar -C package -czf "dist/${{ matrix.archive }}" libdplyr
+          fi
+
+      - name: Smoke test packaged CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir extracted
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z x "dist/${{ matrix.archive }}" -oextracted
+            BINARY=extracted/libdplyr.exe
+          else
+            tar -xzf "dist/${{ matrix.archive }}" -C extracted
+            BINARY=extracted/libdplyr
+          fi
+          test "$("$BINARY" --version)" = "libdplyr ${{ needs.prepare.outputs.version }}"
+          printf 'data %%>%% select(name)\n' | "$BINARY" --dialect postgresql | grep -q 'SELECT'
+
+      - name: Upload CLI package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cli-${{ matrix.name }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Upload CLI assets
+    if: github.event_name != 'pull_request'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download CLI packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Write CLI checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum ./*.tar.gz ./*.zip > cli-checksums.sha256
+
+      - name: Upload assets to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          gh release view "${{ needs.prepare.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            ./*.tar.gz ./*.zip ./cli-checksums.sha256 --repo "$GITHUB_REPOSITORY"
