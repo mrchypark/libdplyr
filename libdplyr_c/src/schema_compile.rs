@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use libdplyr::relational::{SchemaInput, SourceSchema};
 use libdplyr::{
-    DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SqlDialect, SqliteDialect,
-    Transpiler,
+    DuckDbDialect, MySqlDialect, PipeSyntax, PostgreSqlDialect, SourceRef, SqlDialect,
+    SqliteDialect, Transpiler,
 };
 
 use crate::compile::convert_libdplyr_error;
@@ -382,6 +382,67 @@ unsafe fn compile_with_schema_boundary(
     result.unwrap_or(DPLYR_ERROR_PANIC)
 }
 
+fn serialize_required_sources(
+    sources: &[SourceRef],
+    source_bindings: bool,
+) -> Result<String, TranspileError> {
+    let json = if source_bindings {
+        let mut bindings = serde_json::Map::new();
+        for (index, source) in sources.iter().enumerate() {
+            let source_json = serde_json::to_string(source).map_err(|error| {
+                TranspileError::internal_error(&format!(
+                    "Failed to serialize required source: {error}"
+                ))
+            })?;
+            let (catalog, schema, table) = match source {
+                SourceRef::Literal(table) => (String::new(), String::new(), table.clone()),
+                SourceRef::Qualified(parts) => match parts.as_slice() {
+                    [schema, table] => (String::new(), schema.clone(), table.clone()),
+                    [catalog, schema, table] => (catalog.clone(), schema.clone(), table.clone()),
+                    _ => {
+                        return Err(TranspileError::internal_error(
+                            "Required source has an invalid qualified identifier",
+                        ));
+                    }
+                },
+            };
+            bindings.insert(
+                index.to_string(),
+                serde_json::json!({
+                    "source_json": source_json,
+                    "catalog": catalog,
+                    "schema": schema,
+                    "table": table,
+                }),
+            );
+        }
+        serde_json::to_string(&bindings).map_err(|error| {
+            TranspileError::internal_error(&format!(
+                "Failed to serialize required source bindings: {error}"
+            ))
+        })?
+    } else {
+        serde_json::to_string(sources).map_err(|error| {
+            TranspileError::internal_error(&format!(
+                "Failed to serialize required sources: {error}"
+            ))
+        })?
+    };
+
+    if source_bindings && json.len() > MAX_OUTPUT_LENGTH {
+        return Err(TranspileError::internal_error_with_hint(
+            &format!(
+                "Output too large: {} bytes exceeds maximum {}",
+                json.len(),
+                MAX_OUTPUT_LENGTH
+            ),
+            Some("Input generates excessive source metadata".to_string()),
+        ));
+    }
+
+    Ok(json)
+}
+
 /// List source relations as JSON strings (literal names) or component arrays (qualified paths).
 ///
 /// This is the discovery step an embedder runs before it can supply schema
@@ -400,12 +461,12 @@ unsafe fn compile_with_schema_boundary(
 /// - dplyr_code is a valid null-terminated C string.
 /// - sources_json and error_output are valid mutable pointers to *mut c_char.
 /// - On entry, both slots are null or pointers previously allocated by libdplyr.
-#[no_mangle]
-pub unsafe extern "C" fn dplyr_required_sources(
+unsafe fn required_sources_boundary(
     dplyr_code: *const c_char,
     pipe_syntax: u32,
     sources_json: *mut *mut c_char,
     error_output: *mut *mut c_char,
+    source_bindings: bool,
 ) -> i32 {
     #[cfg(test)]
     let _test_gate = crate::compile::acquire_ffi_test_gate_for_test();
@@ -417,6 +478,9 @@ pub unsafe extern "C" fn dplyr_required_sources(
 
         clear_output_string(sources_json);
         clear_output_string(error_output);
+
+        let options = DplyrOptions::default();
+        let deadline = processing_deadline(&options);
 
         if dplyr_code.is_null() {
             return publish_error(
@@ -474,17 +538,15 @@ pub unsafe extern "C" fn dplyr_required_sources(
             Err(error) => return publish_transpile_error(error_output, &error),
         };
 
-        // serde_json escapes the names, so a source name that would break the
-        // JSON cannot be emitted raw.
-        let json = match serde_json::to_string(&sources) {
-            Ok(json) => json,
-            Err(error) => {
-                return publish_error(
-                    error_output,
-                    DPLYR_ERROR_INTERNAL,
-                    &format!("E-INTERNAL: Failed to serialize required sources: {error}"),
-                )
+        if source_bindings {
+            if let Err(error) = ensure_before_deadline(&options, deadline) {
+                return publish_transpile_error(error_output, &error);
             }
+        }
+
+        let json = match serialize_required_sources(&sources, source_bindings) {
+            Ok(json) => json,
+            Err(error) => return publish_transpile_error(error_output, &error),
         };
 
         if set_sql_output(sources_json, &json) {
@@ -499,6 +561,42 @@ pub unsafe extern "C" fn dplyr_required_sources(
     });
 
     result.unwrap_or(DPLYR_ERROR_PANIC)
+}
+
+/// List source relations as JSON, preserving literal and qualified identifiers.
+///
+/// # Safety
+/// `dplyr_code` must be a valid null-terminated C string. Both output slots must
+/// be valid mutable pointers, initially null or holding libdplyr-owned strings.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_required_sources(
+    dplyr_code: *const c_char,
+    pipe_syntax: u32,
+    sources_json: *mut *mut c_char,
+    error_output: *mut *mut c_char,
+) -> i32 {
+    unsafe { required_sources_boundary(dplyr_code, pipe_syntax, sources_json, error_output, false) }
+}
+
+/// List source relations as flat binding records for DuckDB's JSON map parser.
+///
+/// `source_json` preserves the serialized `SourceRef`, including whether a dotted
+/// name was a literal or an explicitly qualified identifier vector.
+///
+/// Return codes, ownership, and panic behavior match dplyr_required_sources().
+/// Free `*output` with dplyr_free_string.
+///
+/// # Safety
+/// Caller must ensure that `code` is a valid null-terminated C string and that
+/// `output` and `error` are valid mutable pointers to libdplyr-owned string slots.
+#[no_mangle]
+pub unsafe extern "C" fn dplyr_required_source_bindings(
+    code: *const c_char,
+    pipe_syntax: u32,
+    output: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    unsafe { required_sources_boundary(code, pipe_syntax, output, error, true) }
 }
 
 #[cfg(test)]
@@ -1179,5 +1277,21 @@ mod tests {
         unsafe {
             dplyr_free_string(out_sources);
         }
+    }
+
+    #[test]
+    fn required_source_bindings_reject_oversized_metadata() {
+        let sources = vec![SourceRef::Literal("x".repeat(MAX_OUTPUT_LENGTH))];
+
+        let error = serialize_required_sources(&sources, true)
+            .expect_err("binding metadata over the output limit must fail");
+
+        assert!(
+            error
+                .to_c_string()
+                .to_string_lossy()
+                .contains("Output too large"),
+            "{error}"
+        );
     }
 }

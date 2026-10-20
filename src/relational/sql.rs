@@ -78,6 +78,8 @@ pub(crate) enum SelectExpression {
         expr: Expr,
         partition_by: Vec<String>,
     },
+    /// A dialect-specific random key, staged before a window order clause.
+    Random,
     /// A window function with explicit order and optional frame.
     WindowScalar {
         expr: Expr,
@@ -149,6 +151,7 @@ impl SqlQuery {
                 SelectExpression::Scalar { expr, partition_by } => {
                     generator.render_expression(expr, partition_by)?
                 }
+                SelectExpression::Random => random_function(dialect.dialect_name()).to_string(),
                 SelectExpression::AggregateExpression(expr) => {
                     generator.render_aggregate_expression(expr)?
                 }

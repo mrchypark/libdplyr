@@ -1,0 +1,38 @@
+cmake_minimum_required(VERSION 3.15)
+project(extension_registration_regression NONE)
+
+foreach(required LIBDPLYR_SOURCE_DIR DUCKDB_BUILD_TOOLS)
+    if(NOT DEFINED ${required})
+        message(FATAL_ERROR "Pass -D${required}=...")
+    endif()
+endforeach()
+
+# The real DuckDB build tools need these registration inputs, but this check does not build DuckDB.
+set(BUILD_EXTENSIONS_ONLY FALSE)
+set(DISABLE_BUILTIN_EXTENSIONS FALSE)
+set(GENERATE_EXTENSION_ENTRIES FALSE)
+set(EXTENSION_TESTS_ONLY FALSE)
+set(EXTENSION_CONFIG_BUILD TRUE)
+set(CLANG_TIDY FALSE)
+set(DUCKDB_EXTENSION_NAMES "")
+set(EXTENSION_CONFIG_BASE_DIR "${LIBDPLYR_SOURCE_DIR}/duckdb/.github/config/extensions")
+include("${DUCKDB_BUILD_TOOLS}")
+include("${LIBDPLYR_SOURCE_DIR}/extension_config.cmake")
+
+if(COMMAND duckdb_extension_statically_link)
+    get_property(linked GLOBAL PROPERTY DUCKDB_EXTENSIONS_STATICALLY_LINKED_BY_CONFIG)
+    list(FIND linked dplyr linked_index)
+    if(NOT linked_index EQUAL -1)
+        message(FATAL_ERROR "DuckDB v2 registration must retain the loadable-only contract")
+    endif()
+elseif(DUCKDB_EXTENSION_DPLYR_SHOULD_LINK)
+    message(FATAL_ERROR "DuckDB 1.5 registration must retain DONT_LINK")
+endif()
+
+list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0" has_150)
+list(FIND DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.5" has_155)
+if(has_150 EQUAL -1 OR has_155 EQUAL -1)
+    message(FATAL_ERROR "Compatibility metadata must retain 1.5.0 and 1.5.5")
+endif()
+
+message(STATUS "DuckDB extension registration compatibility checks passed")

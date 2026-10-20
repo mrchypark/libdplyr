@@ -242,6 +242,23 @@ int dplyr_required_sources(
     char** error_output
 );
 
+/**
+ * @brief List required sources as flat bindings for DuckDB's JSON map parser.
+ *
+ * Each result entry has a sequential string key and contains `source_json`,
+ * `catalog`, `schema`, and `table`. `source_json` is the serialized SourceRef,
+ * so a literal dotted table name remains distinct from a qualified source path.
+ *
+ * Ownership, return codes, and panic behavior match dplyr_required_sources().
+ * Free @p output with dplyr_free_string().
+ */
+int dplyr_required_source_bindings(
+    const char* code,
+    uint32_t pipe_syntax,
+    char** output,
+    char** error
+);
+
 /** Prepare native DuckDB SQL with pipeline compilation deferred to the current binder.
  * Same validation, result codes, and output ownership as dplyr_compile_query_with_pipe_syntax.
  */

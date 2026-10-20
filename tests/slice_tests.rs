@@ -191,8 +191,14 @@ fn sample_orders_randomly_and_keeps_n() {
     let q = compile("data %>% slice_sample(n = 5)").expect("sample n");
     assert_eq!(columns(&q), vec!["id", "grp", "x", "y"]);
     assert!(
-        lower(&q.sql).contains("row_number() over (order by random() asc)"),
+        lower(&q.sql).contains("random() as \"__libdplyr_slice_random\"")
+            && lower(&q.sql).contains("row_number() over (order by case when \"__libdplyr_slice_random\" is null then 1 else 0 end, \"__libdplyr_slice_random\" asc)"),
         "sql: {}",
+        flat(&q.sql)
+    );
+    assert!(
+        !lower(&q.sql).contains("row_number() over (order by random()"),
+        "random must be staged before the window: {}",
         flat(&q.sql)
     );
     assert!(lower(&q.sql).contains("<= 5"), "sql: {}", flat(&q.sql));
@@ -204,8 +210,14 @@ fn sample_supports_grouped_slices() {
     assert_eq!(columns(&q), vec!["id", "grp", "x", "y"]);
     let sql = lower(&q.sql);
     assert!(
-        sql.contains("row_number() over (partition by \"grp\" order by random() asc)"),
+        sql.contains("random() as \"__libdplyr_slice_random\"")
+            && sql.contains("row_number() over (partition by \"grp\" order by case when \"__libdplyr_slice_random\" is null then 1 else 0 end, \"__libdplyr_slice_random\" asc)"),
         "sql: {}",
+        flat(&q.sql)
+    );
+    assert!(
+        !sql.contains("row_number() over (partition by \"grp\" order by random()"),
+        "random must be staged before the grouped window: {}",
         flat(&q.sql)
     );
 }

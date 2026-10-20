@@ -20,6 +20,7 @@
 - 주 지원 DuckDB 버전: `v1.5.5`
 - 최소 호환성 검사 버전: `v1.5.0`
 - CI는 현재 `v1.5.5`를 멀티플랫폼 주 검증선으로, `v1.5.0`을 Linux/macOS 호환성 검증선으로 사용합니다.
+- DuckDB 2.0 빌드는 `d54cbbe3df17e8e5ce68312f483b4155836112aa`와 extension-ci-tools `78bd1e4abbd543822166d5b07644751ba1fc6e8d`를 사용하는 별도 CI에서 검증합니다. 로컬 기본 submodule 핀은 바꾸지 않습니다.
 - 릴리스 바이너리는 현재 `v1.5.0`과 `v1.5.5`를 대상으로 생성합니다.
 - 호환성 매트릭스와 로컬 개발용 submodule 핀은 별개로 관리하되, 현재 DuckDB 핀은 주 지원 버전 `v1.5.5`와 일치합니다.
 
@@ -34,3 +35,7 @@ SET allow_parser_override_extension = 'fallback';
 `fallback`이 1.5.x 전체의 지원 모드입니다. override는 DB-global `dplyr_pipe_syntax` 설정을 따르며, 설정이 없으면 `DPLYR_PIPE_SYNTAX` 환경 변수(미설정 시 `magrittr`)를 사용합니다. `SET GLOBAL dplyr_pipe_syntax = 'native'`처럼 설정합니다. DuckDB parser override 콜백에는 `ClientContext`가 없어서 session-local 값은 암시적 pipeline에 영향을 주지 않습니다. 연결별 문법이 필요하면 `dplyr(query, mode)`의 명시적 `mode`를 사용합니다. 이 제약으로 parser override가 기존 parser-extension 실행 경로로 우회하지 않으며, 생성 SQL은 호출자의 임시 테이블과 미커밋 트랜잭션 상태를 그대로 사용합니다.
 
 `strict`는 DuckDB 1.5.x 전체에서 dplyr 문장과 표준 SQL을 직접 네이티브 AST로 변환합니다. DuckDB 1.5.0/1.5.1은 override의 `NotHandled`를 즉시 오류로 처리하므로, 전체 1.5.x에 동일한 fallback 동작이 필요하거나 다른 parser override extension과 함께 사용할 때는 `fallback`을 사용합니다.
+
+DuckDB 2.0에서도 `fallback`과 `strict`를 지원합니다. `default` 모드는 DuckDB의 SQL 토큰화를 먼저 거치므로 R 문자열의 `\"` 이스케이프가 확장 콜백 전에 거부될 수 있습니다. 이 경우 `fallback`을 설정하거나 `dplyr(query)`를 사용합니다. R 문자열을 작은따옴표로 감싸는 방법도 사용할 수 있습니다. 예: `in_schema('sales.dot', 'orders"quote')`.
+
+커뮤니티 배포에서는 기본 `repo.ref`가 2.0 소스를 가리키고, `repo.variegata`는 1.5.6용 소스를 별도로 고정합니다. 커뮤니티 저장소의 빌드·서명·배포가 완료되어야 설치할 수 있으며, 이 CI 추가가 기존 GitHub 릴리스 바이너리를 교체하지는 않습니다.

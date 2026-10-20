@@ -26,13 +26,13 @@ set(EXTENSION_SEMVER_POLICY "Semantic Versioning 2.0.0")
 set(EXTENSION_API_VERSION "1")  # API compatibility version
 
 # R8-AC1: DuckDB compatibility policy
-# - 1.5.x is the primary supported current line
+# - 1.5.x remains the local default; 2.0 has a separate pinned CI lane
 # - 1.5.0 is the minimum supported compatibility target
 set(DUCKDB_EXTENSION_COMPATIBILITY_APPROACH "PRIMARY_CURRENT_PLUS_MINIMUM_COMPAT")
 set(DUCKDB_EXTENSION_PRIMARY_SERIES "1.5.x")
 set(DUCKDB_EXTENSION_PRIMARY_VERSION "1.5.5")
 set(DUCKDB_EXTENSION_MIN_SUPPORTED "1.5.0")
-set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0;1.5.5")
+set(DUCKDB_EXTENSION_TESTED_VERSIONS "1.5.0;1.5.5;2.0.0")
 
 # R8-AC1: Extension compatibility strategy
 # - Keep the current CI gate on the primary 1.5.x line across platforms
@@ -44,7 +44,7 @@ set(EXTENSION_COMPATIBILITY_STRATEGY "PRIMARY_SUPPORT_PLUS_COMPATIBILITY_CHECK")
 # Breaking changes require 1 minor version advance notice
 set(EXTENSION_DEPRECATION_POLICY "1_MINOR_VERSION_NOTICE")
 set(EXTENSION_BREAKING_CHANGE_NOTICE "CHANGELOG.md and GitHub Release Notes")
-set(EXTENSION_SUPPORT_LIFECYCLE "DuckDB 1.5.x only (1.5.0 minimum; tested through 1.5.5)")
+set(EXTENSION_SUPPORT_LIFECYCLE "DuckDB 1.5.x (1.5.0 minimum) and pinned 2.0.0 source")
 
 # R8-AC1: Extension metadata and contact information
 set(EXTENSION_AUTHOR "libdplyr contributors")
@@ -221,13 +221,22 @@ set(EXTENSION_BINARY_NAME "dplyr")
 # Register the extension with DuckDB (out-of-tree build)
 get_filename_component(DPLYR_EXTENSION_ROOT "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
 if(COMMAND duckdb_extension_load)
-    duckdb_extension_load(${EXTENSION_NAME}
-        DONT_LINK
-        LOAD_TESTS
-        SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
-        INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
-        EXTENSION_VERSION ${EXTENSION_VERSION}
-    )
+    if(COMMAND duckdb_extension_statically_link)
+        duckdb_extension_load(${EXTENSION_NAME}
+            LOAD_TESTS
+            SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
+            INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
+            EXTENSION_VERSION ${EXTENSION_VERSION}
+        )
+    else()
+        duckdb_extension_load(${EXTENSION_NAME}
+            DONT_LINK
+            LOAD_TESTS
+            SOURCE_DIR "${DPLYR_EXTENSION_ROOT}"
+            INCLUDE_DIR "${DPLYR_EXTENSION_ROOT}/extension/include"
+            EXTENSION_VERSION ${EXTENSION_VERSION}
+        )
+    endif()
 else()
     message(STATUS "duckdb_extension_load not available at configure time; skipping registration")
 endif()
@@ -257,7 +266,7 @@ function(check_duckdb_version DUCKDB_VERSION)
     else()
         message(STATUS
             "  ℹ DuckDB version ${DUCKDB_VERSION} is newer than the current tested set. "
-            "Only the DuckDB 1.5.x line is supported.")
+            "Use a version from the tested set for verified compatibility.")
     endif()
 
     message(STATUS "  Strategy: ${EXTENSION_COMPATIBILITY_STRATEGY}")
