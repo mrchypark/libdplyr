@@ -783,7 +783,14 @@ if(BUILD_CPP_TESTS)
     if(WIN32)
         # Prefer the shared DuckDB target on Windows when available, which includes the
         # extension helper symbols expected by the integration test entry points.
-        if(TARGET duckdb)
+        if(DEFINED PREBUILT_BINARY AND NOT "${PREBUILT_BINARY}" STREQUAL "" AND
+           COMMAND duckdb_extension_statically_link AND COMMAND link_extension_libraries)
+            # DuckDB 2 creates duckdb_static from PREBUILT_BINARY after extension
+            # configurations are loaded. CMake resolves the target at generation;
+            # DuckDB defers its capability targets until they exist.
+            target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
+            link_extension_libraries(duckdb_extension_integration_test PRIVATE)
+        elseif(TARGET duckdb)
             target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb)
             # Ensure the runtime DLL is colocated with the test executable on Windows.
             add_custom_command(
