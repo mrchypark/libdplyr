@@ -6,7 +6,7 @@ endif()
 
 # Exercise the production link block without configuring Rust or downloading DuckDB.
 file(READ "${LIBDPLYR_CMAKE_FILE}" source)
-string(FIND "${source}" "    if(WIN32)\n        # Prefer the shared DuckDB target" start)
+string(FIND "${source}" "    # DuckDB 2 prebuilt mode provides only a static engine target" start)
 string(FIND "${source}" "    # Platform-specific test linking" end)
 if(start LESS 0 OR end LESS start)
     message(FATAL_ERROR "Cannot locate the integration target's DuckDB link block")
@@ -21,7 +21,8 @@ endfunction()
 function(link_extension_libraries target linkage)
     target_link_libraries(${target} ${linkage} duckdb_loadable_extensions)
 endfunction()
-set(WIN32 TRUE)
+option(SIMULATE_WINDOWS "Exercise the Windows branch" ON)
+set(WIN32 ${SIMULATE_WINDOWS})
 set(PREBUILT_BINARY "duckdb_static.lib")
 set(DUCKDB_LIBRARIES duckdb)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/main.cpp"
