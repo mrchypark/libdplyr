@@ -191,8 +191,14 @@ fn sample_orders_randomly_and_keeps_n() {
     let q = compile("data %>% slice_sample(n = 5)").expect("sample n");
     assert_eq!(columns(&q), vec!["id", "grp", "x", "y"]);
     assert!(
-        lower(&q.sql).contains("row_number() over (order by random() asc)"),
+        lower(&q.sql).contains("random() as \"__libdplyr_slice_random\"")
+            && lower(&q.sql).contains("row_number() over (order by case when \"__libdplyr_slice_random\" is null then 1 else 0 end, \"__libdplyr_slice_random\" asc)"),
         "sql: {}",
+        flat(&q.sql)
+    );
+    assert!(
+        !lower(&q.sql).contains("row_number() over (order by random()"),
+        "random must be staged before the window: {}",
         flat(&q.sql)
     );
     assert!(lower(&q.sql).contains("<= 5"), "sql: {}", flat(&q.sql));
@@ -204,8 +210,14 @@ fn sample_supports_grouped_slices() {
     assert_eq!(columns(&q), vec!["id", "grp", "x", "y"]);
     let sql = lower(&q.sql);
     assert!(
-        sql.contains("row_number() over (partition by \"grp\" order by random() asc)"),
+        sql.contains("random() as \"__libdplyr_slice_random\"")
+            && sql.contains("row_number() over (partition by \"grp\" order by case when \"__libdplyr_slice_random\" is null then 1 else 0 end, \"__libdplyr_slice_random\" asc)"),
         "sql: {}",
+        flat(&q.sql)
+    );
+    assert!(
+        !sql.contains("row_number() over (partition by \"grp\" order by random()"),
+        "random must be staged before the grouped window: {}",
         flat(&q.sql)
     );
 }
@@ -217,6 +229,78 @@ fn sample_uses_rand_on_mysql() {
         .transpile_with_schema("data %>% slice_sample(n = 2)", &schema())
         .expect("mysql sample");
     assert!(flat(&q.sql).contains("RAND()"), "sql: {}", flat(&q.sql));
+}
+
+#[test]
+fn sample_uses_a_case_insensitive_unique_random_alias() {
+    let schema = SourceSchema::new("data", vec!["id", "__LIBDPLYR_SLICE_RANDOM"]);
+    let q = pg()
+        .transpile_with_schema("data %>% slice_sample(n = 1)", &schema)
+        .expect("sample with uppercase internal alias collision");
+
+    assert_eq!(columns(&q), vec!["id", "__LIBDPLYR_SLICE_RANDOM"]);
+    let sql = lower(&q.sql);
+    assert!(
+        sql.contains("random() as \"__libdplyr_slice_randomx\"")
+            && sql.contains("\"__libdplyr_slice_randomx\" asc"),
+        "sql: {}",
+        flat(&q.sql)
+    );
+}
+
+#[test]
+fn sample_counts_its_random_key_stage_against_the_nesting_limit() {
+    let code = std::iter::repeat_n("slice_sample(n = 1)", 22)
+        .fold("data".to_string(), |code, operation| {
+            format!("{code} %>% {operation}")
+        });
+
+    match compile(&code) {
+        Err(TranspileError::GenerationError(
+            libdplyr::error::GenerationError::MaxNestingDepthExceeded { depth, max_depth },
+        )) => {
+            assert_eq!(depth, 65);
+            assert_eq!(max_depth, 64);
+        }
+        Ok(query) => panic!("expected nesting-limit error, got:\n{}", flat(&query.sql)),
+        Err(error) => panic!("expected nesting-limit error, got {error:?}"),
+    }
+}
+
+fn repeated_sample_options(operation: &str, count: usize) -> String {
+    std::iter::repeat_n(operation, count).fold("data".to_string(), |code, operation| {
+        format!("{code} %>% {operation}")
+    })
+}
+
+fn assert_sample_options_nesting_limit(operation: &str) {
+    let code = repeated_sample_options(operation, 22);
+
+    match compile(&code) {
+        Err(TranspileError::GenerationError(
+            libdplyr::error::GenerationError::MaxNestingDepthExceeded { depth, max_depth },
+        )) => {
+            assert_eq!(depth, 65);
+            assert_eq!(max_depth, 64);
+        }
+        Ok(query) => panic!("expected nesting-limit error, got:\n{}", flat(&query.sql)),
+        Err(error) => panic!("expected nesting-limit error, got {error:?}"),
+    }
+}
+
+#[test]
+fn explicit_nonreplacement_sample_n_counts_all_stages() {
+    assert!(compile(&repeated_sample_options(
+        "slice_sample(n = 1, replace = FALSE)",
+        21
+    ))
+    .is_ok());
+    assert_sample_options_nesting_limit("slice_sample(n = 1, replace = FALSE)");
+}
+
+#[test]
+fn explicit_nonreplacement_sample_prop_counts_all_stages() {
+    assert_sample_options_nesting_limit("slice_sample(prop = 0.5, replace = FALSE)");
 }
 
 #[test]

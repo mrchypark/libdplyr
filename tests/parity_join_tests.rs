@@ -66,6 +66,20 @@ fn relationship_assertions_require_an_execution_plan() {
 }
 
 #[test]
+fn sampled_join_rejects_relationship_and_unmatched_validation() {
+    let code = "data %>% slice_sample(n = 1) %>% left_join(other, by = c(id = \"other_id\"), relationship = \"one-to-one\", unmatched = \"error\")";
+    let error = transpiler()
+        .plan_with_schemas(code, &schemas())
+        .expect_err("sampled input must not produce repeatable validation checks");
+    assert!(
+        error
+            .to_string()
+            .contains("relationship checks require stable inputs"),
+        "{error}"
+    );
+}
+
+#[test]
 fn source_discovery_includes_nested_right_sources() {
     assert_eq!(
         transpiler()

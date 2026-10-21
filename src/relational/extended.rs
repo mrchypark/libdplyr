@@ -1179,6 +1179,12 @@ impl Planner<'_> {
             .map(|c| c.schema.name.clone())
             .collect();
         let groups = names_for_ids(&input.columns, &input.groups)?;
+        // query_relation() counts the keep stage. Unweighted sampling also
+        // emits random-key and ranking stages before it.
+        if weight.is_none() && !replace {
+            self.stage()?;
+            self.stage()?;
+        }
         let q = slice::lower_sample(
             self.ordered_query(&input)?,
             &spec,

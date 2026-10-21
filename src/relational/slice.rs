@@ -56,7 +56,10 @@ fn identity(columns: &[String]) -> Vec<SelectItem> {
 /// Keeps a generated alias from shadowing a real column of the same name.
 fn unique(name: &str, columns: &[String]) -> String {
     let mut candidate = name.to_string();
-    while columns.contains(&candidate) {
+    while columns
+        .iter()
+        .any(|column| column.eq_ignore_ascii_case(&candidate))
+    {
         candidate.push('x');
     }
     candidate
@@ -160,7 +163,10 @@ impl Planner<'_> {
             }
         }
 
-        // One ranking stage plus one keep stage.
+        // Sampling stages a random key before its ranking and keep stages.
+        if matches!(spec.kind, SliceKind::Sample) {
+            self.stage()?;
+        }
         self.stage()?;
         self.stage()?;
         let columns = input.columns.clone();
@@ -192,6 +198,7 @@ pub(super) fn lower(
 ) -> GenerationResult<SqlQuery> {
     let rank_name = unique(RANK_ALIAS, &columns);
     let count_name = unique(COUNT_ALIAS, &columns);
+    let random_name = unique("__libdplyr_slice_random", &columns);
 
     let order_values = match &spec.order_by {
         Some(Expr::Function { name, args }) if matches!(name.as_str(), "tibble" | "c") => args
@@ -207,7 +214,13 @@ pub(super) fn lower(
     if spec.order_by.is_some() && order_values.is_empty() {
         return Err(invalid("slice order needs at least one column"));
     }
-    let order_by = if spec.order_by.is_none() {
+    let random_sample = matches!(spec.kind, SliceKind::Sample) && spec.order_by.is_none();
+    let order_by = if random_sample {
+        vec![SqlOrderTerm::Value {
+            expr: Expr::Identifier(random_name.clone()),
+            descending: false,
+        }]
+    } else if spec.order_by.is_none() {
         vec![SqlOrderTerm::Random]
     } else {
         order_values
@@ -245,6 +258,19 @@ pub(super) fn lower(
     };
     let needs_count = spec.prop.is_some() && !cume_dist;
 
+    let input = if random_sample {
+        let mut randomized = query(
+            SqlSource::Subquery(Box::new(input), INPUT_ALIAS.to_string()),
+            identity(&columns),
+        );
+        randomized.projection.push(SelectItem {
+            alias: random_name,
+            expression: SelectExpression::Random,
+        });
+        randomized
+    } else {
+        input
+    };
     let mut inner = query(
         SqlSource::Subquery(Box::new(input), INPUT_ALIAS.to_string()),
         identity(&columns),

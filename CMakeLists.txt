@@ -780,7 +780,12 @@ if(BUILD_CPP_TESTS)
         DPLYR_EXTENSION_BINARY_PATH="$<TARGET_FILE:${DUCKDB_EXTENSION_TARGET}>"
     )
 
-    if(WIN32)
+    # DuckDB 2 prebuilt mode provides only a static engine target, declared later.
+    if(DEFINED PREBUILT_BINARY AND NOT "${PREBUILT_BINARY}" STREQUAL "" AND
+       COMMAND duckdb_extension_statically_link AND COMMAND link_extension_libraries)
+        target_link_libraries(duckdb_extension_integration_test PRIVATE duckdb_static)
+        link_extension_libraries(duckdb_extension_integration_test PRIVATE)
+    elseif(WIN32)
         # Prefer the shared DuckDB target on Windows when available, which includes the
         # extension helper symbols expected by the integration test entry points.
         if(TARGET duckdb)

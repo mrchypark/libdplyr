@@ -658,6 +658,7 @@ fn volatile_query(query: &super::sql::SqlQuery) -> bool {
                         SqlOrderTerm::Value { expr, .. } => volatile_ast(expr),
                     })
             }
+            SelectExpression::Random => true,
             _ => false,
         })
 }
