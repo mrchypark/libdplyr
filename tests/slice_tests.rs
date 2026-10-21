@@ -267,6 +267,42 @@ fn sample_counts_its_random_key_stage_against_the_nesting_limit() {
     }
 }
 
+fn repeated_sample_options(operation: &str, count: usize) -> String {
+    std::iter::repeat_n(operation, count).fold("data".to_string(), |code, operation| {
+        format!("{code} %>% {operation}")
+    })
+}
+
+fn assert_sample_options_nesting_limit(operation: &str) {
+    let code = repeated_sample_options(operation, 22);
+
+    match compile(&code) {
+        Err(TranspileError::GenerationError(
+            libdplyr::error::GenerationError::MaxNestingDepthExceeded { depth, max_depth },
+        )) => {
+            assert_eq!(depth, 65);
+            assert_eq!(max_depth, 64);
+        }
+        Ok(query) => panic!("expected nesting-limit error, got:\n{}", flat(&query.sql)),
+        Err(error) => panic!("expected nesting-limit error, got {error:?}"),
+    }
+}
+
+#[test]
+fn explicit_nonreplacement_sample_n_counts_all_stages() {
+    assert!(compile(&repeated_sample_options(
+        "slice_sample(n = 1, replace = FALSE)",
+        21
+    ))
+    .is_ok());
+    assert_sample_options_nesting_limit("slice_sample(n = 1, replace = FALSE)");
+}
+
+#[test]
+fn explicit_nonreplacement_sample_prop_counts_all_stages() {
+    assert_sample_options_nesting_limit("slice_sample(prop = 0.5, replace = FALSE)");
+}
+
 #[test]
 fn sample_prop_uses_floor_of_group_count() {
     let q = compile("data %>% slice_sample(prop = 0.25)").expect("sample prop");
