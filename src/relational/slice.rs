@@ -56,7 +56,10 @@ fn identity(columns: &[String]) -> Vec<SelectItem> {
 /// Keeps a generated alias from shadowing a real column of the same name.
 fn unique(name: &str, columns: &[String]) -> String {
     let mut candidate = name.to_string();
-    while columns.contains(&candidate) {
+    while columns
+        .iter()
+        .any(|column| column.eq_ignore_ascii_case(&candidate))
+    {
         candidate.push('x');
     }
     candidate
@@ -160,7 +163,10 @@ impl Planner<'_> {
             }
         }
 
-        // One ranking stage plus one keep stage.
+        // Sampling stages a random key before its ranking and keep stages.
+        if matches!(spec.kind, SliceKind::Sample) {
+            self.stage()?;
+        }
         self.stage()?;
         self.stage()?;
         let columns = input.columns.clone();

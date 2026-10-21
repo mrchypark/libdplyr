@@ -232,6 +232,42 @@ fn sample_uses_rand_on_mysql() {
 }
 
 #[test]
+fn sample_uses_a_case_insensitive_unique_random_alias() {
+    let schema = SourceSchema::new("data", vec!["id", "__LIBDPLYR_SLICE_RANDOM"]);
+    let q = pg()
+        .transpile_with_schema("data %>% slice_sample(n = 1)", &schema)
+        .expect("sample with uppercase internal alias collision");
+
+    assert_eq!(columns(&q), vec!["id", "__LIBDPLYR_SLICE_RANDOM"]);
+    let sql = lower(&q.sql);
+    assert!(
+        sql.contains("random() as \"__libdplyr_slice_randomx\"")
+            && sql.contains("\"__libdplyr_slice_randomx\" asc"),
+        "sql: {}",
+        flat(&q.sql)
+    );
+}
+
+#[test]
+fn sample_counts_its_random_key_stage_against_the_nesting_limit() {
+    let code = std::iter::repeat_n("slice_sample(n = 1)", 22)
+        .fold("data".to_string(), |code, operation| {
+            format!("{code} %>% {operation}")
+        });
+
+    match compile(&code) {
+        Err(TranspileError::GenerationError(
+            libdplyr::error::GenerationError::MaxNestingDepthExceeded { depth, max_depth },
+        )) => {
+            assert_eq!(depth, 65);
+            assert_eq!(max_depth, 64);
+        }
+        Ok(query) => panic!("expected nesting-limit error, got:\n{}", flat(&query.sql)),
+        Err(error) => panic!("expected nesting-limit error, got {error:?}"),
+    }
+}
+
+#[test]
 fn sample_prop_uses_floor_of_group_count() {
     let q = compile("data %>% slice_sample(prop = 0.25)").expect("sample prop");
     let sql = lower(&q.sql);
